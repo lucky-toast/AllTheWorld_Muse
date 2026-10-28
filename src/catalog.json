@@ -1,0 +1,2204 @@
+{
+ "pack": "Ninja Adventure by pixel-boy (CC0)",
+ "root": "Ninja Adventure - Asset Pack/",
+ "tileSize": 16,
+ "note": "x/y/w/h are pixels within the sheet, checked against a render. Water: stream_* tiles for 1-wide streams, pond for a 3x3 pond. footprint = the tiles an entity occupies for collision and pushing, in tiles, anchored at the sprite's bottom-left tile; optional x is a column offset from that tile (default 0). Sprites without one occupy 1x1. Tall trees/rocks block only their bottom row so the player can walk behind the canopy. offset {x,y} is an optional pixel nudge applied when drawing. layer: ground (flat, under everything), object (y-sorted with the player), above (drawn over objects), overlay (whole screen); terrain tiles have no layer. anims: named frame ranges {from,to,fps?,loop?} in a strip; the player instead uses rows (dirs are columns) and poses [col,row]. pieces: true means each frame is a separate particle piece, pick one, do not animate. materials: what it is made of, main material first; mixed things list several. variants: related sprites by name, the same map on every member; becomes: what this turns into after an event.",
+ "sprites": [
+  {
+   "id": "grass",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 0,
+   "y": 192,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "grass",
+    "walkable"
+   ],
+   "desc": "plain light grass",
+   "materials": [
+    "plant",
+    "earth"
+   ],
+   "variants": {
+    "plain": "grass",
+    "detail": "grass_detail"
+   }
+  },
+  {
+   "id": "grass_detail",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 16,
+   "y": 192,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "grass",
+    "walkable"
+   ],
+   "desc": "grass with small leaf detail",
+   "materials": [
+    "plant",
+    "earth"
+   ],
+   "variants": {
+    "plain": "grass",
+    "detail": "grass_detail"
+   }
+  },
+  {
+   "id": "grass_dark",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 176,
+   "y": 192,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "grass",
+    "walkable",
+    "forest"
+   ],
+   "desc": "darker forest-floor grass",
+   "materials": [
+    "plant",
+    "earth"
+   ],
+   "variants": {
+    "plain": "grass_dark",
+    "detail": "grass_dark_detail"
+   }
+  },
+  {
+   "id": "grass_dark_detail",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 192,
+   "y": 192,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "grass",
+    "walkable",
+    "forest"
+   ],
+   "desc": "darker grass with detail",
+   "materials": [
+    "plant",
+    "earth"
+   ],
+   "variants": {
+    "plain": "grass_dark",
+    "detail": "grass_dark_detail"
+   }
+  },
+  {
+   "id": "dirt",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 16,
+   "y": 128,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "dirt",
+    "path",
+    "walkable"
+   ],
+   "desc": "bare dirt path",
+   "materials": [
+    "earth"
+   ],
+   "variants": {
+    "light": "dirt",
+    "dark": "dirt_dark"
+   }
+  },
+  {
+   "id": "dirt_dark",
+   "file": "Backgrounds/Tilesets/TilesetFloor.png",
+   "x": 192,
+   "y": 128,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "dirt",
+    "path",
+    "walkable"
+   ],
+   "desc": "dark dirt path",
+   "materials": [
+    "earth"
+   ],
+   "variants": {
+    "light": "dirt",
+    "dark": "dirt_dark"
+   }
+  },
+  {
+   "id": "stream_v",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 48,
+   "y": 112,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "1-tile-wide stream running up/down, grass banks both sides",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "stream_v_top",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 48,
+   "y": 96,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "top end of a vertical stream",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "stream_v_bottom",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 48,
+   "y": 128,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "bottom end of a vertical stream",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "stream_h",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 16,
+   "y": 144,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "1-tile-wide stream running left/right, grass banks both sides",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "stream_h_left",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 0,
+   "y": 144,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "left end of a horizontal stream",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "stream_h_right",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 32,
+   "y": 144,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "terrain",
+    "water",
+    "stream"
+   ],
+   "desc": "right end of a horizontal stream",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "pond",
+   "file": "Backgrounds/Tilesets/TilesetWater.png",
+   "x": 0,
+   "y": 96,
+   "w": 48,
+   "h": 48,
+   "tags": [
+    "terrain",
+    "water",
+    "pond"
+   ],
+   "desc": "small round pond with grass banks, one 3x3-tile piece",
+   "footprint": {
+    "w": 3,
+    "h": 3
+   },
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "tree_round",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant"
+   ],
+   "desc": "round leafy green tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "dark": "tree_round",
+    "light": "tree_round_light"
+   },
+   "becomes": {
+    "cut": "stump_big"
+   }
+  },
+  {
+   "id": "tree_pine",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 32,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant",
+    "pine"
+   ],
+   "desc": "dark green pine tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "becomes": {
+    "cut": "stump_big"
+   }
+  },
+  {
+   "id": "tree_dead",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 64,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "dead"
+   ],
+   "desc": "bare dead tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood"
+   ],
+   "becomes": {
+    "cut": "stump_big"
+   }
+  },
+  {
+   "id": "tree_twisted",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 96,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant"
+   ],
+   "desc": "leafy tree with twisted roots",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "becomes": {
+    "cut": "stump_big"
+   }
+  },
+  {
+   "id": "tree_pink",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 224,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant",
+    "blossom"
+   ],
+   "desc": "pink blossom tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "becomes": {
+    "cut": "stump_big_light"
+   }
+  },
+  {
+   "id": "tree_round_light",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 256,
+   "y": 0,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant"
+   ],
+   "desc": "light green round tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "dark": "tree_round",
+    "light": "tree_round_light"
+   },
+   "becomes": {
+    "cut": "stump_big_light"
+   }
+  },
+  {
+   "id": "tree_pine_cluster",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 32,
+   "w": 64,
+   "h": 48,
+   "tags": [
+    "tree",
+    "solid",
+    "forest-wall",
+    "pine"
+   ],
+   "desc": "dense cluster of pines; good for the impassable border",
+   "footprint": {
+    "w": 4,
+    "h": 3
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "leafy": "tree_cluster",
+    "pine": "tree_pine_cluster",
+    "dead": "tree_dead_cluster"
+   }
+  },
+  {
+   "id": "tree_cluster",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 64,
+   "y": 32,
+   "w": 64,
+   "h": 48,
+   "tags": [
+    "tree",
+    "solid",
+    "forest-wall"
+   ],
+   "desc": "dense cluster of leafy trees; border",
+   "footprint": {
+    "w": 4,
+    "h": 3
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "leafy": "tree_cluster",
+    "pine": "tree_pine_cluster",
+    "dead": "tree_dead_cluster"
+   }
+  },
+  {
+   "id": "tree_dead_cluster",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 80,
+   "w": 64,
+   "h": 48,
+   "tags": [
+    "tree",
+    "solid",
+    "forest-wall",
+    "dead"
+   ],
+   "desc": "cluster of dead trees",
+   "footprint": {
+    "w": 4,
+    "h": 3
+   },
+   "layer": "object",
+   "materials": [
+    "wood"
+   ],
+   "variants": {
+    "leafy": "tree_cluster",
+    "pine": "tree_pine_cluster",
+    "dead": "tree_dead_cluster"
+   }
+  },
+  {
+   "id": "tree_big_green",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 48,
+   "y": 288,
+   "w": 48,
+   "h": 48,
+   "tags": [
+    "tree",
+    "solid",
+    "plant",
+    "big"
+   ],
+   "desc": "large round green tree",
+   "footprint": {
+    "x": 1,
+    "w": 1,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "summer": "tree_big_green",
+    "autumn": "tree_big_autumn"
+   }
+  },
+  {
+   "id": "tree_big_autumn",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 144,
+   "y": 288,
+   "w": 48,
+   "h": 48,
+   "tags": [
+    "tree",
+    "solid",
+    "plant",
+    "big",
+    "autumn"
+   ],
+   "desc": "large orange autumn tree",
+   "footprint": {
+    "x": 1,
+    "w": 1,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "summer": "tree_big_green",
+    "autumn": "tree_big_autumn"
+   }
+  },
+  {
+   "id": "tree_small",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 96,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "tree",
+    "solid",
+    "plant",
+    "small"
+   ],
+   "desc": "small young tree",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "becomes": {
+    "cut": "stump_small"
+   }
+  },
+  {
+   "id": "stump_big",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "stump",
+    "solid",
+    "wood"
+   ],
+   "desc": "large dark tree stump",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood"
+   ],
+   "variants": {
+    "weathered": "stump_big",
+    "fresh": "stump_big_light"
+   }
+  },
+  {
+   "id": "stump_big_light",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 32,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "stump",
+    "solid",
+    "wood"
+   ],
+   "desc": "large fresh-cut stump",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "wood"
+   ],
+   "variants": {
+    "weathered": "stump_big",
+    "fresh": "stump_big_light"
+   }
+  },
+  {
+   "id": "stump_small",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 64,
+   "y": 128,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "stump",
+    "solid",
+    "wood"
+   ],
+   "desc": "small stump",
+   "layer": "object",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "sign",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 80,
+   "y": 128,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "sign",
+    "solid",
+    "wood"
+   ],
+   "desc": "wooden signpost",
+   "layer": "object",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "log_fallen",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 192,
+   "y": 224,
+   "w": 16,
+   "h": 32,
+   "tags": [
+    "log",
+    "wood",
+    "pushable"
+   ],
+   "desc": "fallen log (vertical)",
+   "footprint": {
+    "w": 1,
+    "h": 2
+   },
+   "layer": "object",
+   "materials": [
+    "wood"
+   ],
+   "variants": {
+    "plain": "log_fallen",
+    "mossy": "log_fallen_mossy"
+   }
+  },
+  {
+   "id": "log_fallen_mossy",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 208,
+   "y": 224,
+   "w": 16,
+   "h": 32,
+   "tags": [
+    "log",
+    "wood",
+    "pushable",
+    "moss"
+   ],
+   "desc": "mossy fallen log (vertical)",
+   "footprint": {
+    "w": 1,
+    "h": 2
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "plant"
+   ],
+   "variants": {
+    "plain": "log_fallen",
+    "mossy": "log_fallen_mossy"
+   }
+  },
+  {
+   "id": "bush",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 160,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "bush",
+    "plant"
+   ],
+   "desc": "small round bush",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "bush_small",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 32,
+   "y": 160,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "bush",
+    "plant"
+   ],
+   "desc": "tiny bush",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "grass_tuft",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 48,
+   "y": 160,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "grass",
+    "plant",
+    "decor"
+   ],
+   "desc": "tuft of tall grass",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "fern",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 64,
+   "y": 176,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "plant",
+    "fern",
+    "decor"
+   ],
+   "desc": "fern",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "sunflower",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 176,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "flower",
+    "plant",
+    "decor"
+   ],
+   "desc": "sunflower",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "flower_red",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 48,
+   "y": 176,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "flower",
+    "plant",
+    "decor"
+   ],
+   "desc": "red flower",
+   "layer": "ground",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "clover",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 32,
+   "y": 176,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "plant",
+    "decor"
+   ],
+   "desc": "clover",
+   "layer": "ground",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "daisy",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 96,
+   "y": 176,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "flower",
+    "plant",
+    "decor"
+   ],
+   "desc": "white daisy",
+   "layer": "ground",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "rock_brown",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 208,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "rock",
+    "solid",
+    "stone"
+   ],
+   "desc": "medium brown rock",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "stone"
+   ],
+   "variants": {
+    "medium": "rock_brown",
+    "small": "rock_brown_small"
+   }
+  },
+  {
+   "id": "rock_gray",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 256,
+   "y": 128,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "rock",
+    "solid",
+    "stone"
+   ],
+   "desc": "medium gray rock",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "stone"
+   ],
+   "variants": {
+    "medium": "rock_gray",
+    "small": "rock_gray_small"
+   }
+  },
+  {
+   "id": "rock_brown_small",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 240,
+   "y": 144,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "rock",
+    "solid",
+    "stone",
+    "small"
+   ],
+   "desc": "small brown rock",
+   "layer": "object",
+   "materials": [
+    "stone"
+   ],
+   "variants": {
+    "medium": "rock_brown",
+    "small": "rock_brown_small"
+   }
+  },
+  {
+   "id": "rock_gray_small",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 288,
+   "y": 144,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "rock",
+    "solid",
+    "stone",
+    "small"
+   ],
+   "desc": "small gray rock",
+   "layer": "object",
+   "materials": [
+    "stone"
+   ],
+   "variants": {
+    "medium": "rock_gray",
+    "small": "rock_gray_small"
+   }
+  },
+  {
+   "id": "boulder_blue",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 192,
+   "w": 32,
+   "h": 32,
+   "tags": [
+    "rock",
+    "solid",
+    "stone",
+    "big"
+   ],
+   "desc": "big blue-gray boulder",
+   "footprint": {
+    "w": 2,
+    "h": 1
+   },
+   "layer": "object",
+   "materials": [
+    "stone"
+   ]
+  },
+  {
+   "id": "rock_cluster",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 192,
+   "y": 80,
+   "w": 64,
+   "h": 48,
+   "tags": [
+    "rock",
+    "solid",
+    "forest-wall",
+    "cliff"
+   ],
+   "desc": "stacked brown rock cliff",
+   "footprint": {
+    "w": 4,
+    "h": 3
+   },
+   "layer": "object",
+   "materials": [
+    "stone"
+   ]
+  },
+  {
+   "id": "hole",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 112,
+   "y": 208,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "hole",
+    "ground"
+   ],
+   "desc": "dark hole in the ground",
+   "layer": "ground",
+   "materials": [
+    "earth"
+   ]
+  },
+  {
+   "id": "crystal_orange",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 0,
+   "y": 224,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "crystal",
+    "mineral",
+    "decor"
+   ],
+   "desc": "orange crystal cluster",
+   "layer": "object",
+   "materials": [
+    "crystal"
+   ],
+   "variants": {
+    "orange": "crystal_orange",
+    "blue": "crystal_blue"
+   }
+  },
+  {
+   "id": "crystal_blue",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 16,
+   "y": 224,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "crystal",
+    "mineral",
+    "decor"
+   ],
+   "desc": "blue crystal cluster",
+   "layer": "object",
+   "materials": [
+    "crystal"
+   ],
+   "variants": {
+    "orange": "crystal_orange",
+    "blue": "crystal_blue"
+   }
+  },
+  {
+   "id": "ore_rock",
+   "file": "Backgrounds/Tilesets/TilesetNature.png",
+   "x": 64,
+   "y": 224,
+   "w": 16,
+   "h": 16,
+   "tags": [
+    "rock",
+    "ore",
+    "solid"
+   ],
+   "desc": "rock with colored ore flecks",
+   "layer": "object",
+   "materials": [
+    "stone",
+    "metal"
+   ]
+  },
+  {
+   "id": "branch",
+   "file": "Items/Resource/Branch.png",
+   "tags": [
+    "wood",
+    "item",
+    "resource"
+   ],
+   "desc": "branch / stick",
+   "layer": "object",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "stone",
+   "file": "Items/Resource/Rock.png",
+   "tags": [
+    "stone",
+    "item",
+    "resource"
+   ],
+   "desc": "stone",
+   "layer": "object",
+   "materials": [
+    "stone"
+   ]
+  },
+  {
+   "id": "grass_bundle",
+   "file": "Items/Resource/Grass.png",
+   "tags": [
+    "plant",
+    "item",
+    "resource"
+   ],
+   "desc": "bundle of grass",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "feather",
+   "file": "Items/Resource/feather.png",
+   "tags": [
+    "item",
+    "resource",
+    "animal"
+   ],
+   "desc": "feather",
+   "layer": "object",
+   "materials": [
+    "animal"
+   ]
+  },
+  {
+   "id": "water_drop",
+   "file": "Items/Resource/Water.png",
+   "tags": [
+    "water",
+    "item",
+    "resource"
+   ],
+   "desc": "water drop",
+   "layer": "object",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "gem_green",
+   "file": "Items/Resource/GemGreen.png",
+   "tags": [
+    "gem",
+    "item",
+    "treasure"
+   ],
+   "desc": "green gem",
+   "layer": "object",
+   "materials": [
+    "crystal"
+   ],
+   "variants": {
+    "green": "gem_green",
+    "red": "gem_red"
+   }
+  },
+  {
+   "id": "gem_red",
+   "file": "Items/Resource/GemRed.png",
+   "tags": [
+    "gem",
+    "item",
+    "treasure"
+   ],
+   "desc": "red gem",
+   "layer": "object",
+   "materials": [
+    "crystal"
+   ],
+   "variants": {
+    "green": "gem_green",
+    "red": "gem_red"
+   }
+  },
+  {
+   "id": "nut",
+   "file": "Items/Food/Nut.png",
+   "tags": [
+    "food",
+    "item",
+    "plant"
+   ],
+   "desc": "nut / acorn",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "seed",
+   "file": "Items/Food/Seed1.png",
+   "tags": [
+    "seed",
+    "item",
+    "plant",
+    "small"
+   ],
+   "desc": "small seed",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ],
+   "variants": {
+    "small": "seed",
+    "big": "seed_big"
+   }
+  },
+  {
+   "id": "seed_big",
+   "file": "Items/Food/SeedBig1.png",
+   "tags": [
+    "seed",
+    "item",
+    "plant"
+   ],
+   "desc": "big seed",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ],
+   "variants": {
+    "small": "seed",
+    "big": "seed_big"
+   }
+  },
+  {
+   "id": "honey",
+   "file": "Items/Food/Honey.png",
+   "tags": [
+    "food",
+    "item"
+   ],
+   "desc": "honey pot",
+   "layer": "object",
+   "materials": [
+    "clay"
+   ]
+  },
+  {
+   "id": "tea_leaf",
+   "file": "Items/Food/TeaLeaf.png",
+   "tags": [
+    "plant",
+    "item",
+    "food"
+   ],
+   "desc": "tea leaf",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "fish",
+   "file": "Items/Food/Fish.png",
+   "tags": [
+    "food",
+    "item",
+    "animal",
+    "water"
+   ],
+   "desc": "fish",
+   "layer": "object",
+   "materials": [
+    "animal"
+   ]
+  },
+  {
+   "id": "meat",
+   "file": "Items/Food/Meat.png",
+   "tags": [
+    "food",
+    "item"
+   ],
+   "desc": "meat",
+   "layer": "object",
+   "materials": [
+    "animal"
+   ]
+  },
+  {
+   "id": "crate",
+   "file": "Items/Object/CrateEmpty.png",
+   "tags": [
+    "crate",
+    "container",
+    "wood",
+    "pushable"
+   ],
+   "desc": "wooden crate",
+   "layer": "object",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "bag",
+   "file": "Items/Object/Bag.png",
+   "tags": [
+    "container",
+    "item"
+   ],
+   "desc": "cloth bag",
+   "layer": "object",
+   "materials": [
+    "cloth"
+   ]
+  },
+  {
+   "id": "book",
+   "file": "Items/Object/Book.png",
+   "tags": [
+    "item",
+    "knowledge"
+   ],
+   "desc": "book",
+   "layer": "object",
+   "materials": [
+    "paper"
+   ]
+  },
+  {
+   "id": "gourd",
+   "file": "Items/Object/Gourd.png",
+   "tags": [
+    "container",
+    "item",
+    "water"
+   ],
+   "desc": "gourd flask",
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "hourglass",
+   "file": "Items/Object/Hourglass.png",
+   "tags": [
+    "item",
+    "time"
+   ],
+   "desc": "hourglass",
+   "layer": "object",
+   "materials": [
+    "glass",
+    "wood"
+   ]
+  },
+  {
+   "id": "pan_flute",
+   "file": "Items/Object/PanFlute.png",
+   "tags": [
+    "item",
+    "music"
+   ],
+   "desc": "pan flute",
+   "layer": "object",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "axe",
+   "file": "Items/Tool/Axe.png",
+   "tags": [
+    "tool",
+    "item",
+    "wood"
+   ],
+   "desc": "axe",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "pickaxe",
+   "file": "Items/Tool/Pickaxe.png",
+   "tags": [
+    "tool",
+    "item",
+    "stone"
+   ],
+   "desc": "pickaxe",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "shovel",
+   "file": "Items/Tool/Shovel.png",
+   "tags": [
+    "tool",
+    "item",
+    "dig"
+   ],
+   "desc": "shovel",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "hoe",
+   "file": "Items/Tool/Hoe.png",
+   "tags": [
+    "tool",
+    "item",
+    "dig"
+   ],
+   "desc": "hoe",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "sickle",
+   "file": "Items/Tool/Sickle.png",
+   "tags": [
+    "tool",
+    "item",
+    "plant"
+   ],
+   "desc": "sickle",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "hammer",
+   "file": "Items/Tool/Hammer.png",
+   "tags": [
+    "tool",
+    "item",
+    "build"
+   ],
+   "desc": "hammer",
+   "layer": "object",
+   "materials": [
+    "metal",
+    "wood"
+   ]
+  },
+  {
+   "id": "watering_can",
+   "file": "Items/Tool/WateringCan.png",
+   "tags": [
+    "tool",
+    "item",
+    "water"
+   ],
+   "desc": "watering can",
+   "layer": "object",
+   "materials": [
+    "metal"
+   ]
+  },
+  {
+   "id": "key_gold",
+   "file": "Items/Treasure/GoldKey.png",
+   "tags": [
+    "key",
+    "item",
+    "treasure"
+   ],
+   "desc": "gold key",
+   "layer": "object",
+   "materials": [
+    "metal"
+   ]
+  },
+  {
+   "id": "coin_gold",
+   "file": "Items/Treasure/GoldCoin.png",
+   "tags": [
+    "coin",
+    "item",
+    "treasure",
+    "small"
+   ],
+   "desc": "gold coin",
+   "layer": "object",
+   "materials": [
+    "metal"
+   ]
+  },
+  {
+   "id": "potion_empty",
+   "file": "Items/Potion/EmptyPot.png",
+   "tags": [
+    "potion",
+    "container",
+    "item"
+   ],
+   "desc": "empty bottle",
+   "layer": "object",
+   "materials": [
+    "glass"
+   ],
+   "variants": {
+    "empty": "potion_empty",
+    "water": "potion_water",
+    "life": "potion_life"
+   }
+  },
+  {
+   "id": "potion_water",
+   "file": "Items/Potion/WaterPot.png",
+   "tags": [
+    "potion",
+    "water",
+    "item"
+   ],
+   "desc": "bottle of water",
+   "layer": "object",
+   "materials": [
+    "glass",
+    "water"
+   ],
+   "variants": {
+    "empty": "potion_empty",
+    "water": "potion_water",
+    "life": "potion_life"
+   }
+  },
+  {
+   "id": "potion_life",
+   "file": "Items/Potion/LifePot.png",
+   "tags": [
+    "potion",
+    "item"
+   ],
+   "desc": "red potion",
+   "layer": "object",
+   "materials": [
+    "glass"
+   ],
+   "variants": {
+    "empty": "potion_empty",
+    "water": "potion_water",
+    "life": "potion_life"
+   }
+  },
+  {
+   "id": "letter",
+   "file": "Items/Other/Letter.png",
+   "tags": [
+    "paper",
+    "item"
+   ],
+   "desc": "letter",
+   "layer": "object",
+   "materials": [
+    "paper"
+   ]
+  },
+  {
+   "id": "chest_small",
+   "file": "Items/Treasure/LittleTreasureChest.png",
+   "tags": [
+    "chest",
+    "container",
+    "treasure",
+    "solid"
+   ],
+   "desc": "small treasure chest, closed then open",
+   "frames": 2,
+   "frameW": 16,
+   "anims": {
+    "closed": {
+     "to": 0,
+     "from": 0
+    },
+    "open": {
+     "to": 1,
+     "from": 1
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "wood",
+    "metal"
+   ]
+  },
+  {
+   "id": "player",
+   "file": "Actor/Character/Boy/SpriteSheet.png",
+   "tags": [
+    "player",
+    "character"
+   ],
+   "desc": "player boy; columns are directions (down, up, left, right), rows are animations",
+   "frameW": 16,
+   "frameH": 16,
+   "dirs": [
+    "down",
+    "up",
+    "left",
+    "right"
+   ],
+   "anims": {
+    "idle": {
+     "rows": [
+      0,
+      0
+     ]
+    },
+    "walk": {
+     "rows": [
+      0,
+      3
+     ],
+     "loop": true
+    },
+    "attack": {
+     "rows": [
+      4,
+      4
+     ]
+    },
+    "jump": {
+     "rows": [
+      5,
+      5
+     ]
+    }
+   },
+   "poses": {
+    "dead": [
+     0,
+     6
+    ],
+    "item": [
+     1,
+     6
+    ],
+    "special1": [
+     2,
+     6
+    ],
+    "special2": [
+     3,
+     6
+    ]
+   },
+   "layer": "object",
+   "materials": [
+    "creature"
+   ]
+  },
+  {
+   "id": "frog",
+   "file": "Actor/Animal/Frog/SpriteSheet.png",
+   "tags": [
+    "animal",
+    "creature",
+    "water"
+   ],
+   "desc": "frog, 2 frames",
+   "frameW": 16,
+   "frames": 2,
+   "anims": {
+    "idle": {
+     "to": 1,
+     "fps": 3,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "creature"
+   ]
+  },
+  {
+   "id": "racoon",
+   "file": "Actor/Animal/Racoon/SpriteSheet.png",
+   "tags": [
+    "animal",
+    "creature",
+    "forest"
+   ],
+   "desc": "racoon, 2 frames",
+   "frameW": 16,
+   "frames": 2,
+   "anims": {
+    "idle": {
+     "to": 1,
+     "fps": 3,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "creature"
+   ]
+  },
+  {
+   "id": "cat",
+   "file": "Actor/Animal/Cat/SpriteSheet.png",
+   "tags": [
+    "animal",
+    "creature"
+   ],
+   "desc": "cat, 2 frames",
+   "frameW": 16,
+   "frames": 2,
+   "anims": {
+    "idle": {
+     "to": 1,
+     "fps": 3,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "creature"
+   ]
+  },
+  {
+   "id": "boar",
+   "file": "Actor/Animal/WildBoar/SpriteSheet.png",
+   "tags": [
+    "animal",
+    "creature",
+    "forest"
+   ],
+   "desc": "wild boar, 2 frames",
+   "frameW": 17,
+   "frames": 2,
+   "anims": {
+    "idle": {
+     "to": 1,
+     "fps": 3,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "creature"
+   ]
+  },
+  {
+   "id": "firepit",
+   "file": "Backgrounds/Tilesets/tileset_camp.png",
+   "x": 192,
+   "y": 80,
+   "w": 32,
+   "h": 30,
+   "footprint": {
+    "w": 2,
+    "h": 2
+   },
+   "tags": [
+    "fire",
+    "firepit",
+    "camp",
+    "stone",
+    "wood"
+   ],
+   "desc": "stone fire ring with crossed logs, unlit, 2x2 tiles; the logs meet at the center of the 2x2 area, put a flame there for a campfire",
+   "layer": "object",
+   "materials": [
+    "stone",
+    "wood"
+   ],
+   "variants": {
+    "unlit": "firepit",
+    "ash": "firepit_ash"
+   },
+   "becomes": {
+    "burnedOut": "firepit_ash"
+   }
+  },
+  {
+   "id": "firepit_ash",
+   "file": "Backgrounds/Tilesets/tileset_camp.png",
+   "x": 192,
+   "y": 48,
+   "w": 32,
+   "h": 30,
+   "footprint": {
+    "w": 2,
+    "h": 2
+   },
+   "tags": [
+    "fire",
+    "firepit",
+    "camp",
+    "stone",
+    "ash"
+   ],
+   "desc": "stone fire ring with ash, a burned-out fire, 2x2 tiles",
+   "layer": "ground",
+   "materials": [
+    "stone",
+    "ash"
+   ],
+   "variants": {
+    "unlit": "firepit",
+    "ash": "firepit_ash"
+   }
+  },
+  {
+   "id": "fx_fire",
+   "file": "FX/Particle/Fire.png",
+   "tags": [
+    "fx",
+    "fire",
+    "particle"
+   ],
+   "desc": "small flame, 12 frames: ignite, steady burn, then dying down to an ember",
+   "frames": 12,
+   "frameW": 8,
+   "anims": {
+    "ignite": {
+     "to": 1,
+     "fps": 10,
+     "from": 0
+    },
+    "burn": {
+     "to": 5,
+     "fps": 8,
+     "loop": true,
+     "from": 2
+    },
+    "die": {
+     "to": 11,
+     "fps": 6,
+     "from": 6
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "fire"
+   ]
+  },
+  {
+   "id": "fx_leaf",
+   "file": "FX/Particle/Leaf.png",
+   "tags": [
+    "fx",
+    "plant",
+    "particle"
+   ],
+   "desc": "falling leaves; each frame is a different leaf, not an animation",
+   "frameW": 12,
+   "frames": 6,
+   "pieces": true,
+   "layer": "above",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "fx_rain",
+   "file": "FX/Particle/Rain.png",
+   "tags": [
+    "fx",
+    "weather",
+    "rain",
+    "particle"
+   ],
+   "desc": "raindrops",
+   "frames": 3,
+   "frameW": 8,
+   "anims": {
+    "fall": {
+     "to": 2,
+     "fps": 10,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "water"
+   ],
+   "variants": {
+    "drop": "fx_rain",
+    "splash": "fx_rain_splash"
+   }
+  },
+  {
+   "id": "fx_rain_splash",
+   "file": "FX/Particle/RainOnFloor.png",
+   "tags": [
+    "fx",
+    "weather",
+    "rain",
+    "particle"
+   ],
+   "desc": "rain splash on ground",
+   "frames": 3,
+   "frameW": 8,
+   "anims": {
+    "splash": {
+     "to": 2,
+     "fps": 12,
+     "from": 0
+    }
+   },
+   "layer": "ground",
+   "materials": [
+    "water"
+   ],
+   "variants": {
+    "drop": "fx_rain",
+    "splash": "fx_rain_splash"
+   }
+  },
+  {
+   "id": "fx_snow",
+   "file": "FX/Particle/Snow.png",
+   "tags": [
+    "fx",
+    "weather",
+    "snow",
+    "particle"
+   ],
+   "desc": "snowflakes",
+   "frameW": 8,
+   "frames": 7,
+   "anims": {
+    "twinkle": {
+     "to": 6,
+     "fps": 6,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "ice"
+   ]
+  },
+  {
+   "id": "fx_spark",
+   "file": "FX/Particle/Spark.png",
+   "tags": [
+    "fx",
+    "particle",
+    "magic"
+   ],
+   "desc": "sparkles",
+   "frameW": 10,
+   "frames": 7,
+   "anims": {
+    "sparkle": {
+     "to": 6,
+     "fps": 12,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "light"
+   ]
+  },
+  {
+   "id": "fx_wood",
+   "file": "FX/Particle/Wood.png",
+   "tags": [
+    "fx",
+    "wood",
+    "particle"
+   ],
+   "desc": "wood chips; each frame is a different chip, not an animation",
+   "frames": 6,
+   "frameW": 16,
+   "pieces": true,
+   "layer": "above",
+   "materials": [
+    "wood"
+   ]
+  },
+  {
+   "id": "fx_rock",
+   "file": "FX/Particle/Rock.png",
+   "tags": [
+    "fx",
+    "stone",
+    "particle"
+   ],
+   "desc": "rock debris; each frame is a different chunk, not an animation",
+   "frames": 5,
+   "frameW": 16,
+   "pieces": true,
+   "layer": "above",
+   "materials": [
+    "stone"
+   ]
+  },
+  {
+   "id": "fx_grass",
+   "file": "FX/Particle/Grass.png",
+   "tags": [
+    "fx",
+    "plant",
+    "particle"
+   ],
+   "desc": "cut grass bits; each frame is a different blade, not an animation",
+   "frameW": 12,
+   "frames": 6,
+   "pieces": true,
+   "layer": "above",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "fx_smoke",
+   "file": "FX/Smoke/Smoke/SpriteSheet.png",
+   "tags": [
+    "fx",
+    "smoke"
+   ],
+   "desc": "smoke puff",
+   "frames": 6,
+   "frameW": 32,
+   "anims": {
+    "puff": {
+     "to": 5,
+     "fps": 10,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "smoke"
+   ]
+  },
+  {
+   "id": "fx_flame",
+   "file": "FX/Elemental/Flam/SpriteSheet.png",
+   "tags": [
+    "fx",
+    "fire"
+   ],
+   "desc": "flame burst: a one-shot attack/explosion effect, not a steady fire",
+   "frames": 8,
+   "frameW": 25,
+   "anims": {
+    "burst": {
+     "to": 7,
+     "fps": 12,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "fire"
+   ]
+  },
+  {
+   "id": "fx_plant",
+   "file": "FX/Elemental/Plant/SpriteSheet.png",
+   "tags": [
+    "fx",
+    "plant",
+    "growth"
+   ],
+   "desc": "plants sprouting burst",
+   "frameW": 30,
+   "frames": 8,
+   "anims": {
+    "sprout": {
+     "to": 7,
+     "fps": 12,
+     "from": 0
+    }
+   },
+   "layer": "above",
+   "materials": [
+    "plant"
+   ]
+  },
+  {
+   "id": "fx_fog",
+   "file": "FX/Environment/Fog.png",
+   "tags": [
+    "fx",
+    "weather",
+    "overlay"
+   ],
+   "desc": "fog overlay (full screen)",
+   "layer": "overlay",
+   "materials": [
+    "air"
+   ]
+  },
+  {
+   "id": "fx_raylight",
+   "file": "FX/Environment/Raylight.png",
+   "tags": [
+    "fx",
+    "light",
+    "overlay"
+   ],
+   "desc": "sun rays through trees overlay",
+   "layer": "overlay",
+   "materials": [
+    "light"
+   ]
+  },
+  {
+   "id": "fx_water_ripple",
+   "file": "Backgrounds/Animated/Water Ripples/SpriteSheet16x16.png",
+   "tags": [
+    "fx",
+    "water"
+   ],
+   "desc": "water ripples, 4 frames",
+   "frames": 4,
+   "frameW": 16,
+   "anims": {
+    "ripple": {
+     "to": 3,
+     "fps": 5,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "ground",
+   "materials": [
+    "water"
+   ]
+  },
+  {
+   "id": "plant_sway",
+   "file": "Backgrounds/Animated/Plant/SpriteSheet16x16.png",
+   "tags": [
+    "plant",
+    "decor",
+    "animated"
+   ],
+   "desc": "swaying plant, 4 frames",
+   "frames": 4,
+   "frameW": 16,
+   "anims": {
+    "sway": {
+     "to": 3,
+     "fps": 4,
+     "loop": true,
+     "from": 0
+    }
+   },
+   "layer": "object",
+   "materials": [
+    "plant"
+   ]
+  }
+ ]
+}
