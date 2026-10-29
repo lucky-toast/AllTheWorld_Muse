@@ -29,25 +29,36 @@ configurePipeline({
   onStage: (ev) => devPanel.onStage(ev),
 });
 const params = new URLSearchParams(location.search);
-if (params.get("dev")) panel.hidden = false;
 const input = new Input(eng);
+const wrap = document.getElementById("wrap")!;
 
-let panelOpen = params.get("dev") ? true : false;
-if (panelOpen) input.swallowed = true;
+let panelOpen = false;
 function fit() {
-  const scale = Math.max(1, Math.min(Math.floor(window.innerWidth / NATIVE_W), Math.floor(window.innerHeight / NATIVE_H)));
-  const s = window.innerWidth < NATIVE_W || window.innerHeight < NATIVE_H ? Math.min(window.innerWidth / NATIVE_W, window.innerHeight / NATIVE_H) : scale;
+  // The dev panel is pinned to the right of the screen; the map re-fits into
+  // the open space left of it, so the panel never covers any of the map.
+  const reserved = panelOpen ? panel.offsetWidth : 0;
+  const availW = Math.max(1, window.innerWidth - reserved);
+  wrap.style.width = `${availW}px`;
+  const scale = Math.max(1, Math.min(Math.floor(availW / NATIVE_W), Math.floor(window.innerHeight / NATIVE_H)));
+  const s = availW < NATIVE_W || window.innerHeight < NATIVE_H ? Math.min(availW / NATIVE_W, window.innerHeight / NATIVE_H) : scale;
   canvas.style.width = `${Math.floor(NATIVE_W * s)}px`; canvas.style.height = `${Math.floor(NATIVE_H * s)}px`;
   ctx.imageSmoothingEnabled = false;
 }
-window.addEventListener("resize", fit); fit();
+function setPanel(open: boolean) {
+  panelOpen = open;
+  panel.hidden = !open;
+  input.swallowed = open;
+  fit();
+}
+window.addEventListener("resize", fit);
+setPanel(params.get("dev") ? true : false);
 
 input.attach((code, shift) => {
   if (code === "KeyT") { eng.timeSpeed = eng.timeSpeed === 1 ? 4 : eng.timeSpeed === 4 ? 16 : 1; eng.world().ui.banner(`Time ${eng.timeSpeed}x`); }
   if (code === "KeyR" && shift) { eng.reloadAll([...BASE_SYSTEMS, ...live.allDefs()]); eng.world().ui.banner("Systems reloaded"); }
-  if (code === "Backquote") { panelOpen = !panelOpen; panel.hidden = !panelOpen; input.swallowed = panelOpen; }
+  if (code === "Backquote") setPanel(!panelOpen);
 });
-document.getElementById("devclose")?.addEventListener("click", () => { panelOpen = false; panel.hidden = true; input.swallowed = false; });
+document.getElementById("devclose")?.addEventListener("click", () => setPanel(false));
 
 // Pixel font: the pack path from the brief; falls back to monospace if the font file is absent in this pack copy.
 try {
