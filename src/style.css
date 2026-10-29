@@ -1,0 +1,6 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #101408; }
+#wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+canvas#game { image-rendering: pixelated; display: block; }
+#devpanel { position: fixed; inset: 16px; background: #1c2416; color: #e8e4c8; border: 2px solid #5a6b42; overflow: auto; padding: 10px; font-family: monospace; z-index: 10; }
+#devpanel canvas { image-rendering: pixelated; }
+.devhead { display: flex; justify-content: space-between; margin-bottom: 8px; }
