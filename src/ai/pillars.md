@@ -1,0 +1,4 @@
+- **A place you want to stay.** The clearing is cozy, and being there feels good even when nothing is happening. *So no:* urgency, clutter, or things that nag for attention.
+- **The forest answers you.** It's quiet until you touch it. Moving, carrying and using things makes the world respond. *So no:* systems that only run in the background, with nothing for the player to do or poke at.
+- **Small wonders.** Now and then, something should happen that the player didn't expect but that feels right. Magic, strange visitors, even things from far-off places are welcome, as long as the world gives them a reason to be here. *So no:* more of the same, like a new item that's just a reskin with no behaviour, or something that appears for no reason.
+- **Nothing hurts you.** You can't be damaged, die or lose progress. *So no:* enemies that attack, fail states or penalties.
