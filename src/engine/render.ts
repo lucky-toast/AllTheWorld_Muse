@@ -5,7 +5,21 @@ import { TUNING, phaseAt } from "../tuning";
 const HUD_H = 28;
 export const NATIVE_W = 480, NATIVE_H = 320 + HUD_H;
 
-const images = new Map<string, HTMLImageElement>();
+type AnyImage = { width: number; height: number };
+const images = new Map<string, AnyImage>();
+let imageProvider: (file: string) => AnyImage | undefined = (f) => images.get(f);
+let canvasFactory: (w: number, h: number) => { width: number; height: number; getContext: (t: string) => unknown } =
+  (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c as never; };
+/** Worker rendering: supply ImageBitmaps and an OffscreenCanvas factory. */
+export function setRenderBackend(provider: (file: string) => AnyImage | undefined, factory: typeof canvasFactory) { imageProvider = provider; canvasFactory = factory; }
+export async function loadSheetBitmaps(baseUrl: string): Promise<Map<string, AnyImage>> {
+  const map = new Map<string, AnyImage>();
+  const files = [...new Set(CATALOG.sprites.map((s) => s.file))];
+  await Promise.all(files.map(async (f) => {
+    try { const r = await fetch(baseUrl + "/assets/" + encodeURI(CATALOG.root + f)); const b = await r.blob(); map.set(f, await createImageBitmap(b)); } catch { /* missing sheet draws nothing */ }
+  }));
+  return map;
+}
 export function loadSheets(): Promise<void[]> {
   const files = [...new Set(CATALOG.sprites.map((s) => s.file))];
   return Promise.all(files.map((f) => new Promise<void>((res) => {
@@ -15,23 +29,25 @@ export function loadSheets(): Promise<void[]> {
     images.set(f, img);
   })));
 }
-function sheet(file: string) { return images.get(file); }
+function sheet(file: string) { return imageProvider(file); }
+function imgW(img: AnyImage): number { return (img as HTMLImageElement).naturalWidth || img.width; }
+function imgH(img: AnyImage): number { return (img as HTMLImageElement).naturalHeight || img.height; }
 
-function drawSprite(ctx: CanvasRenderingContext2D, id: string, px: number, pyBottom: number, tick: number, opts?: { anim?: string; frame?: number; facing?: string; moving?: boolean }) {
+export function drawSprite(ctx: CanvasRenderingContext2D, id: string, px: number, pyBottom: number, tick: number, opts?: { anim?: string; frame?: number; facing?: string; moving?: boolean; offset?: { x: number; y: number } }) {
   const e = catalogGet(id); if (!e) return;
-  const img = sheet(e.file); if (!img || !img.complete || img.naturalWidth === 0) return;
-  const ox = e.offset?.x ?? 0, oy = e.offset?.y ?? 0;
+  const img = sheet(e.file); if (!img || imgW(img) === 0) return;
+  const ox = (e.offset?.x ?? 0) + (opts?.offset?.x ?? 0), oy = (e.offset?.y ?? 0) + (opts?.offset?.y ?? 0);
   // Player: columns are directions, rows are animation frames.
   if (e.dirs) {
     const col = Math.max(0, e.dirs.indexOf(opts?.facing ?? "down"));
     let row = 0;
     if (opts?.moving) { const range = e.anims?.walk?.rows ?? [0, 3]; const span = range[1] - range[0] + 1; row = range[0] + Math.floor(tick / 6) % span; }
-    ctx.drawImage(img, col * 16, row * 16, 16, 16, px + ox, pyBottom - 16 + oy, 16, 16);
+    ctx.drawImage(img as CanvasImageSource, col * 16, row * 16, 16, 16, px + ox, pyBottom - 16 + oy, 16, 16);
     return;
   }
-  let sx = e.x ?? 0, sy = e.y ?? 0, sw = e.w ?? img.naturalWidth, sh = e.h ?? img.naturalHeight;
+  let sx = e.x ?? 0, sy = e.y ?? 0, sw = e.w ?? imgW(img), sh = e.h ?? imgH(img);
   if (e.frameW) {
-    sw = e.frameW; sh = e.frameH ?? img.naturalHeight;
+    sw = e.frameW; sh = e.frameH ?? imgH(img);
     let frame = opts?.frame ?? 0;
     const animName = opts?.anim;
     if (animName && e.anims?.[animName]) {
@@ -41,7 +57,7 @@ function drawSprite(ctx: CanvasRenderingContext2D, id: string, px: number, pyBot
     else if (e.frames) frame = Math.floor(tick / 8) % e.frames;
     sx = (e.x ?? 0) + frame * e.frameW; sy = e.y ?? 0;
   }
-  ctx.drawImage(img, sx, sy, sw, sh, px + ox, pyBottom - sh + oy, sw, sh);
+  ctx.drawImage(img as CanvasImageSource, sx, sy, sw, sh, px + ox, pyBottom - sh + oy, sw, sh);
 }
 function drawFixedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, cellW = 5) {
   for (let i = 0; i < text.length; i++) ctx.fillText(text[i], x + i * cellW, y);
@@ -80,9 +96,9 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   let playerRec: (typeof recs)[0] | undefined;
   for (const r of sorted) {
     if (r.tags.has("player")) playerRec = r;
-    const rp = eng.renderPos(r)!; const spr = r.comps.get("sprite") as { id: string; anim?: string; frame?: number };
+    const rp = eng.renderPos(r)!; const spr = r.comps.get("sprite") as { id: string; anim?: string; frame?: number; offset?: { x: number; y: number } };
     const facing = r.comps.get("facing") as string | undefined;
-    drawSprite(ctx, spr.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), tick, { anim: spr.anim, frame: spr.frame, facing, moving: !!r.slideFrom && r.slideT > 0 });
+    drawSprite(ctx, spr.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), tick, { anim: spr.anim, frame: spr.frame, facing, moving: !!r.slideFrom && r.slideT > 0, offset: spr.offset });
   }
   // Held item above the player
   const held = playerRec?.comps.get("held") as { id: number } | undefined;
@@ -98,7 +114,7 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   // Lighting: darkness with soft holes for lights
   const light = lightingAt(eng.hour);
   if (light.alpha > 0.01) {
-    const dark = document.createElement("canvas"); dark.width = NATIVE_W; dark.height = 320;
+    const dark = canvasFactory(NATIVE_W, 320) as HTMLCanvasElement;
     const dctx = dark.getContext("2d")!;
     dctx.fillStyle = light.color; dctx.globalAlpha = light.alpha; dctx.fillRect(0, 0, NATIVE_W, 320);
     dctx.globalCompositeOperation = "destination-out"; dctx.globalAlpha = 1;

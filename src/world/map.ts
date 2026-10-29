@@ -25,11 +25,11 @@ export function buildWorld(): Engine {
   const spawn = (t: string, x: number, y: number) => w.spawn(t, { x, y });
   // Border: dense clusters of varying depth so it reads as forest, not a ring.
   for (let i = 0; i < 8; i++) {
-    const x = i * 4 - (i % 2);
+    const x = Math.min(26, i * 4 - (i % 2));
     spawn(i % 3 === 0 ? "tree_cluster" : "tree_pine_cluster", x, [2, 3, 2, 3, 2, 2, 3, 2][i]);
     spawn(i % 2 ? "tree_pine_cluster" : "tree_cluster", x, 19);
   }
-  for (let y = 5; y < 19; y += 4) { spawn("tree_pine_cluster", 0, y); spawn("tree_cluster", 26, y); }
+  for (const y of [5, 9, 13]) { spawn("tree_pine_cluster", 0, y); spawn("tree_cluster", 26, y); }
   spawn("tree_cluster", 0, 19); spawn("tree_pine_cluster", 26, 3);
   // Sparse interior trees / rocks, in small natural clusters.
   spawn("tree_big_green", 4, 6); spawn("stump_big", 7, 7); spawn("tree_round", 23, 6);

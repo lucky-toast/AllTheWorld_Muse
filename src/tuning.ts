@@ -26,6 +26,12 @@ export const TUNING = {
   } as Record<string, { color: string; alpha: number }>,
   // Banner / float text lifetimes in ticks.
   bannerTicks: 180,
+  // Pipeline (AI system checker) budgets.
+  pipeline: {
+    stageTimeoutMs: 6000, // worker is killed if a stage runs longer than this
+    tickBudgetMs: 100, // a single tick slower than this fails Sandbox run
+    sandboxTicks: 300, // ticks run against a copy of the live world in Sandbox run
+  },
 } as const;
 export type Phase = "dawn" | "day" | "dusk" | "night";
 export function phaseAt(hour: number): Phase {

@@ -4,3 +4,18 @@ canvas#game { image-rendering: pixelated; display: block; }
 #devpanel { position: fixed; inset: 16px; background: #1c2416; color: #e8e4c8; border: 2px solid #5a6b42; overflow: auto; padding: 10px; font-family: monospace; z-index: 10; }
 #devpanel canvas { image-rendering: pixelated; }
 .devhead { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.devsec { font-weight: bold; margin: 8px 0 6px; }
+.stage-row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.stage-box { padding: 4px 7px; font-size: 11px; border: 1px solid #5a6b42; cursor: pointer; background: #444; color: #eee; }
+.stage-box.grey { background: #444; }
+.stage-box.amber { background: #9a6b12; }
+.stage-box.green { background: #3d6b22; }
+.stage-box.red { background: #8c2f22; }
+.fixture-list { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.fixture-list button { font-family: monospace; font-size: 11px; padding: 4px 7px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
+.fixture-list button.fresh { background: #5a2d20; }
+.dev-report { background: #141a0e; padding: 6px; font-size: 11px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.dev-errors { font-size: 11px; white-space: pre-wrap; max-height: 160px; overflow: auto; color: #f0c8a0; }
+.dev-shots { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+.dev-shots img { image-rendering: pixelated; border: 1px solid #5a6b42; display: block; }
+.dev-loaded { font-size: 11px; margin: 6px 0; }

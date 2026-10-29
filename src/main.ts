@@ -3,6 +3,10 @@ import { BASE_SYSTEMS } from "./systems/base/index";
 import { loadSheets, render, renderSpritesTab, NATIVE_W, NATIVE_H } from "./engine/render";
 import { Input } from "./engine/input";
 import { TUNING } from "./tuning";
+import { configurePipeline, defaultDeps } from "./pipeline/client";
+import { LiveLoader } from "./pipeline/live";
+import { DevPanel } from "./pipeline/devpanel";
+import { loadSavedSystems, loadSavedWorld, saveWorld } from "./pipeline/persistence";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 canvas.width = NATIVE_W; canvas.height = NATIVE_H;
@@ -13,8 +17,18 @@ const devCtx = devCanvas.getContext("2d")!;
 
 const eng = buildWorld();
 for (const s of BASE_SYSTEMS) eng.loadSystem(s);
+const live = new LiveLoader(eng);
+const devPanel = new DevPanel(document.getElementById("pipeline-root")!, {
+  getLoaded: () => eng.loadOrder.filter((id) => live.runtime.has(id)),
+  getSkipped: () => live.skipped,
+});
+configurePipeline({
+  ...defaultDeps((report) => live.performLoad(report)),
+  getLoaded: () => live.loadedSources(),
+  getSnapshot: () => eng.snapshot(),
+  onStage: (ev) => devPanel.onStage(ev),
+});
 const params = new URLSearchParams(location.search);
-if (params.get("time")) eng.world().time.set(params.get("time")!); // shot/test aid, e.g. ?time=night
 if (params.get("dev")) panel.hidden = false;
 const input = new Input(eng);
 
@@ -30,7 +44,7 @@ window.addEventListener("resize", fit); fit();
 
 input.attach((code, shift) => {
   if (code === "KeyT") { eng.timeSpeed = eng.timeSpeed === 1 ? 4 : eng.timeSpeed === 4 ? 16 : 1; eng.world().ui.banner(`Time ${eng.timeSpeed}x`); }
-  if (code === "KeyR" && shift) { eng.reloadAll(BASE_SYSTEMS); eng.world().ui.banner("Systems reloaded"); }
+  if (code === "KeyR" && shift) { eng.reloadAll([...BASE_SYSTEMS, ...live.allDefs()]); eng.world().ui.banner("Systems reloaded"); }
   if (code === "Backquote") { panelOpen = !panelOpen; panel.hidden = !panelOpen; input.swallowed = panelOpen; }
 });
 document.getElementById("devclose")?.addEventListener("click", () => { panelOpen = false; panel.hidden = true; input.swallowed = false; });
@@ -44,10 +58,24 @@ try {
 let last = performance.now(); let acc = 0; const stepMs = 1000 / TUNING.ticksPerSecond;
 function frame(now: number) {
   acc += Math.min(250, now - last); last = now;
-  while (acc >= stepMs) { input.tick(); eng.tick(); acc -= stepMs; }
+  if (!live.transitioning) { while (acc >= stepMs) { input.tick(); eng.tick(); acc -= stepMs; } } else acc = 0;
   ctx.imageSmoothingEnabled = false;
   render(ctx, eng);
+  live.drawTransition(ctx, now);
   if (panelOpen) renderSpritesTab(devCtx, eng.tickCount);
   requestAnimationFrame(frame);
 }
-loadSheets().then(() => requestAnimationFrame(frame));
+// Startup: load saved systems (no transition), then restore the saved world.
+(async () => {
+  const saved = await loadSavedSystems();
+  if (saved.length) await live.loadSaved(saved, BASE_SYSTEMS.map((s) => s.id));
+  const world = await loadSavedWorld();
+  if (world) { try { eng.restore(world); } catch { /* start with the fresh world */ } }
+  if (params.get("time")) eng.world().time.set(params.get("time")!); // shot/test aid, e.g. ?time=night
+  devPanel.refreshLoaded();
+  if (params.get("submit")) void devPanel.submitFixture(params.get("submit")!); // browser-aid: drive the pipeline end-to-end
+  setInterval(() => { void saveWorld(eng.serialize()); }, 5000);
+  window.addEventListener("beforeunload", () => { void saveWorld(eng.serialize()); });
+  await loadSheets();
+  requestAnimationFrame(frame);
+})();

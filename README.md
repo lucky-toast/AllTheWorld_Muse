@@ -22,6 +22,17 @@ On this machine, prefix PATH first: `$env:PATH = "$PWD\.tools\node-v22.14.0-win-
 - T: cycle time speed 1x/4x/16x. Shift+R: reload all systems without losing the world. Backtick: dev panel (sprites tab).
 - Shot aids: `?time=night|dusk|dawn|day` jumps the clock on load; `?dev=1` opens the dev panel.
 
+## Pipeline (AI-written systems)
+
+New systems arrive as TypeScript source text and are checked before they can touch the live game:
+
+- `checkSystem(source)` runs Static rules, Compile, Sandbox run, Tests, Invariants and Shots in a Web Worker with its own engine copy; a stage over its time limit (in `src/tuning.ts`) gets the worker killed. It never touches the live game.
+- `loadChecked(report)` runs Load only for a passed report, and refuses if the loaded systems have changed since the check. Load pauses the game for a ~2s leaf transition, then shows "The world feels different".
+- `submitSystem(source)` is the two in a row. The dev panel (backtick) lists the fixtures in `fixtures/`, shows the stage boxes/report/shots, and has Start fresh.
+- Accepted systems are saved to `data/systems/<id>.ts` + `data/systems.json` via a dev-server endpoint (localStorage fallback in built copies), loaded in order on startup (failures and their dependents are skipped and listed), and restored with the saved world. Start fresh deletes all of it.
+- Browser aids: `?submit=campfire.ts` submits a fixture on load; `?dev=1` opens the panel; `?time=night` jumps the clock.
+- `npm test` also runs the pipeline against every fixture (through the same client/watchdog, in Node worker processes) and checks each expected outcome.
+
 ## Layout
 
 - `src/engine/` — the only non-system code: engine core, catalog, renderer, input, sim, `api.d.ts`, `define.ts`.

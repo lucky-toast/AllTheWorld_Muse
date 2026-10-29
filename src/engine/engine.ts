@@ -12,6 +12,26 @@ interface EntRec {
 }
 interface LoadedSystem { def: SystemDef; state: Record<string, unknown>; order: number }
 
+/** Short, JSON-safe summary of an event payload / component value for pipeline reports. */
+export function summarizeValue(v: unknown): unknown {
+  if (v === null || typeof v === "number" || typeof v === "boolean") return v;
+  if (typeof v === "string") return v.length > 80 ? v.slice(0, 80) + "…" : v;
+  if (Array.isArray(v)) return v.slice(0, 6).map(summarizeValue);
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.id === "number" && typeof o.type === "string" && "pos" in o) return { entity: `${o.type}#${o.id}`, pos: o.pos ?? null };
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(o).slice(0, 8)) out[k] = summarizeValue(val);
+    return out;
+  }
+  return String(v);
+}
+export function summarizePayload(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data).slice(0, 8)) out[k] = summarizeValue(v);
+  return out;
+}
+
 export function mulberry(seed: number) {
   let a = seed >>> 0;
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -41,6 +61,14 @@ export class Engine {
   banner: { text: string; t: number } | null = null;
   hudSlots = new Map<string, { icon?: string; text: string; width: number }>();
   testMode = false;
+  // Pipeline instrumentation (capture is off unless a test/sandbox run turns it on).
+  capturing = false;
+  capEvents: { tick: number; name: string; payload: Record<string, unknown> }[] = [];
+  capInputs: { name: string; handledBy: string; receivedBy: string[] }[] = [];
+  capSpawned: number[] = [];
+  thrownInfo: { system: string; handler: string; message: string } | null = null;
+  beginCapture() { this.capturing = true; this.capEvents = []; this.capInputs = []; this.capSpawned = []; this.thrownInfo = null; }
+  endCapture() { this.capturing = false; }
 
   constructor(width: number, height: number, tilesGrid: string[][], seed = TUNING.seed) {
     this.width = width; this.height = height; this.tilesGrid = tilesGrid;
@@ -94,6 +122,7 @@ export class Engine {
     const rec: EntRec = { id: this.nextId++, type, pos: { ...pos }, tags: new Set(t.tags), comps: new Map(), alive: true, slideFrom: null, slideTo: null, slideT: 0 };
     rec.comps.set("sprite", { id: t.sprite });
     this.entities.set(rec.id, rec); this.rebuildOccupancyFor(rec);
+    if (this.capturing) this.capSpawned.push(rec.id);
     return rec;
   }
   byId(id: number): Entity | undefined { const r = this.entities.get(id); return r ? this.handle(r) : undefined; }
@@ -128,13 +157,36 @@ export class Engine {
   emitAs(sys: LoadedSystem | null, name: string, data: Record<string, unknown> = {}): GameEvent {
     const ev: GameEvent = { handled: false, ...data };
     this.emitLog.push({ sys: sys?.def.id ?? this.currentSystem?.def.id ?? "(engine)", name });
+    if (this.capturing) this.capEvents.push({ tick: this.tickCount, name, payload: summarizePayload(data) });
+    const receivedBy: string[] = []; let handledBy = "none";
     for (const h of [...(this.handlers.get(name) ?? [])]) {
       const before = ev.handled; const prev = this.currentSystem; this.currentSystem = h.sys;
-      h.fn(ev, this.facade(h.sys));
-      if (!before && ev.handled && h.sys) this.handledLog.push({ sys: h.sys.def.id, name });
+      receivedBy.push(h.sys?.def.id ?? "(engine)");
+      try { h.fn(ev, this.facade(h.sys)); } catch (err) {
+        this.thrownInfo = { system: h.sys?.def.id ?? "(engine)", handler: name, message: (err as Error).message };
+        this.currentSystem = prev; throw err;
+      }
+      if (!before && ev.handled && h.sys) { this.handledLog.push({ sys: h.sys.def.id, name }); handledBy = h.sys.def.id; }
       this.currentSystem = prev;
     }
+    if (this.capturing && name.startsWith("input.")) this.capInputs.push({ name, handledBy, receivedBy });
     return ev;
+  }
+  /** True when the occupancy lookup exactly matches every live entity's footprint. */
+  validateOccupancy(): boolean {
+    const want = new Map<string, Set<number>>();
+    for (const r of this.entities.values()) {
+      if (!r.pos) continue;
+      for (const t of footprintTiles(this.spriteIdOf(r), r.pos.x, r.pos.y)) { const k = this.key(t.x, t.y); if (!want.has(k)) want.set(k, new Set()); want.get(k)!.add(r.id); }
+    }
+    const norm = (m: Map<string, Set<number>>) => [...m.entries()].filter(([, s]) => s.size).map(([k, s]) => k + ":" + [...s].sort((a, b) => a - b).join(".")).sort().join("|");
+    return norm(want) === norm(this.occupancy);
+  }
+  entitySummary(id: number): { type: string; pos: Pos | null; components: Record<string, unknown> } | null {
+    const r = this.entities.get(id); if (!r) return null;
+    const components: Record<string, unknown> = {};
+    for (const [k, v] of r.comps) components[k] = summarizeValue(v);
+    return { type: r.type, pos: r.pos ? { ...r.pos } : null, components };
   }
   emit(name: string, data: Record<string, unknown> = {}): GameEvent { return this.emitAs(this.currentSystem, name, data); }
   /** Send an input event (handled flag honoured in load order). */
