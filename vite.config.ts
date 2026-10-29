@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { defineConfig } from "vite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Dev-server persistence for accepted AI systems: data/systems/<id>.ts plus
@@ -50,7 +50,40 @@ function systemsPlugin() {
   };
 }
 
+// Journal (data/journal.json) and AI conversation log (data/ai-log.jsonl).
+function journalPlugin() {
+  const dataDir = join(process.cwd(), "data");
+  const readBody = (req) => new Promise((res) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => res(b)); });
+  return {
+    name: "atw-journal",
+    configureServer(server) {
+      server.middlewares.use("/__journal", async (req, res) => {
+        res.setHeader("content-type", "application/json");
+        try {
+          const path = join(dataDir, "journal.json");
+          if (req.method === "GET") { try { res.end(readFileSync(path, "utf-8")); } catch { res.end("[]"); } }
+          else if (req.method === "POST" && req.url === "/append") {
+            const entry = JSON.parse(await readBody(req)); mkdirSync(dataDir, { recursive: true });
+            let all = []; try { all = JSON.parse(readFileSync(path, "utf-8")); } catch { /* first */ }
+            all.push(entry); writeFileSync(path, JSON.stringify(all, null, 1)); res.end(JSON.stringify({ ok: true }));
+          } else { res.statusCode = 404; res.end("{}"); }
+        } catch (e) { res.statusCode = 500; res.end(JSON.stringify({ error: String(e) })); }
+      });
+      server.middlewares.use("/__ai-log", async (req, res) => {
+        try {
+          const path = join(dataDir, "ai-log.jsonl");
+          if (req.method === "GET") { res.setHeader("content-type", "text/plain"); try { res.end(readFileSync(path, "utf-8")); } catch { res.end(""); } }
+          else if (req.method === "POST" && req.url === "/append") {
+            const body = JSON.parse(await readBody(req)); mkdirSync(dataDir, { recursive: true });
+            appendFileSync(path, body.line + "\n"); res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ ok: true }));
+          } else { res.statusCode = 404; res.end("{}"); }
+        } catch (e) { res.statusCode = 500; res.end(String(e)); }
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [systemsPlugin()],
+  plugins: [systemsPlugin(), journalPlugin()],
   test: { include: ["tests/**/*.test.ts"] },
 });

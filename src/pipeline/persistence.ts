@@ -41,6 +41,30 @@ export async function saveWorld(world: string): Promise<void> {
   try { await fetch("/__systems/world", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ world }) }); } catch { /* ignore */ }
 }
 
+export interface JournalLike { title: string; summary: string; changes: string[]; journal: string; systemId: string; timestamp: string }
+const LS_JOURNAL = "atw.journal";
+const LS_AILOG = "atw.aiLog";
+
+export async function loadJournal(): Promise<JournalLike[]> {
+  try {
+    const r = await fetch("/__journal", { cache: "no-store" });
+    if (r.ok && (r.headers.get("content-type") ?? "").includes("json")) { const j = (await r.json()) as JournalLike[]; if (Array.isArray(j)) return j; }
+  } catch { /* no dev server */ }
+  try { return JSON.parse(localStorage.getItem(LS_JOURNAL) ?? "[]"); } catch { return []; }
+}
+export async function appendJournal(entry: JournalLike): Promise<void> {
+  try { const all = JSON.parse(localStorage.getItem(LS_JOURNAL) ?? "[]"); all.push(entry); localStorage.setItem(LS_JOURNAL, JSON.stringify(all)); } catch { /* ignore */ }
+  try { await fetch("/__journal/append", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(entry) }); } catch { /* localStorage already saved */ }
+}
+export async function loadAiLog(): Promise<string> {
+  try { const r = await fetch("/__ai-log", { cache: "no-store" }); if (r.ok) return await r.text(); } catch { /* no dev server */ }
+  try { return localStorage.getItem(LS_AILOG) ?? ""; } catch { return ""; }
+}
+export async function appendAiLog(line: string): Promise<void> {
+  try { localStorage.setItem(LS_AILOG, (localStorage.getItem(LS_AILOG) ?? "") + line + "\n"); } catch { /* ignore */ }
+  try { await fetch("/__ai-log/append", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ line }) }); } catch { /* ignore */ }
+}
+
 /** Start fresh: delete saved systems and the saved world. Caller reloads the page. */
 export async function startFresh(): Promise<void> {
   try { localStorage.removeItem(LS_SYSTEMS); localStorage.removeItem(LS_WORLD); } catch { /* ignore */ }

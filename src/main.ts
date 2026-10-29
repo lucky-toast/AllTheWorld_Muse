@@ -6,7 +6,11 @@ import { TUNING } from "./tuning";
 import { configurePipeline, defaultDeps } from "./pipeline/client";
 import { LiveLoader } from "./pipeline/live";
 import { DevPanel } from "./pipeline/devpanel";
-import { loadSavedSystems, loadSavedWorld, saveWorld } from "./pipeline/persistence";
+import { loadSavedSystems, loadSavedWorld, saveWorld, loadJournal } from "./pipeline/persistence";
+import type { StageEvent } from "./pipeline/types";
+import { AiTab } from "./ai/aitab";
+import { ChangedPanel, changedEnabled, setChangedEnabled } from "./ai/changed";
+import { buildWorldText } from "./ai/designer";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 canvas.width = NATIVE_W; canvas.height = NATIVE_H;
@@ -22,12 +26,21 @@ const devPanel = new DevPanel(document.getElementById("pipeline-root")!, {
   getLoaded: () => eng.loadOrder.filter((id) => live.runtime.has(id)),
   getSkipped: () => live.skipped,
 });
+let aiStageRoute: ((ev: StageEvent) => void) | null = null;
 configurePipeline({
   ...defaultDeps((report) => live.performLoad(report)),
   getLoaded: () => live.loadedSources(),
   getSnapshot: () => eng.snapshot(),
-  onStage: (ev) => devPanel.onStage(ev),
+  onStage: (ev) => (aiStageRoute ? aiStageRoute(ev) : devPanel.onStage(ev)),
 });
+const changedPanel = new ChangedPanel(document.getElementById("changedpanel")!);
+const aiTab = new AiTab(document.getElementById("ai-root")!, {
+  getWorldText: () => buildWorldText(eng, [...BASE_SYSTEMS, ...live.allDefs()]),
+  routeStage: (h) => { aiStageRoute = h; },
+  isEnabled: changedEnabled,
+  setEnabled: (on) => { setChangedEnabled(on); if (!on) changedPanel.hide(); },
+});
+aiTab.onLoaded = () => { void loadJournal().then((j) => changedPanel.setEntries(j)); };
 const params = new URLSearchParams(location.search);
 const input = new Input(eng);
 const wrap = document.getElementById("wrap")!;
@@ -59,6 +72,11 @@ input.attach((code, shift) => {
   if (code === "Backquote") setPanel(!panelOpen);
 });
 document.getElementById("devclose")?.addEventListener("click", () => setPanel(false));
+window.addEventListener("keydown", (e) => {
+  const t = e.target as HTMLElement | null;
+  if (e.code === "KeyC" && t?.tagName !== "INPUT" && t?.tagName !== "TEXTAREA") changedPanel.toggle();
+});
+canvas.addEventListener("click", () => changedPanel.show()); // clicking the game (e.g. its banner) opens "What changed"
 
 // Pixel font: the pack path from the brief; falls back to monospace if the font file is absent in this pack copy.
 try {
@@ -84,6 +102,7 @@ function frame(now: number) {
   if (world) { try { eng.restore(world); } catch { /* start with the fresh world */ } }
   if (params.get("time")) eng.world().time.set(params.get("time")!); // shot/test aid, e.g. ?time=night
   devPanel.refreshLoaded();
+  changedPanel.setEntries(await loadJournal());
   if (params.get("submit")) void devPanel.submitFixture(params.get("submit")!); // browser-aid: drive the pipeline end-to-end
   setInterval(() => { void saveWorld(eng.serialize()); }, 5000);
   window.addEventListener("beforeunload", () => { void saveWorld(eng.serialize()); });

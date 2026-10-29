@@ -66,6 +66,8 @@ export class Engine {
   capEvents: { tick: number; name: string; payload: Record<string, unknown> }[] = [];
   capInputs: { name: string; handledBy: string; receivedBy: string[] }[] = [];
   capSpawned: number[] = [];
+  /** First real payload seen per event name (used by the AI designer's WORLD description). */
+  eventExamples = new Map<string, Record<string, unknown>>();
   thrownInfo: { system: string; handler: string; message: string } | null = null;
   beginCapture() { this.capturing = true; this.capEvents = []; this.capInputs = []; this.capSpawned = []; this.thrownInfo = null; }
   endCapture() { this.capturing = false; }
@@ -157,6 +159,7 @@ export class Engine {
   emitAs(sys: LoadedSystem | null, name: string, data: Record<string, unknown> = {}): GameEvent {
     const ev: GameEvent = { handled: false, ...data };
     this.emitLog.push({ sys: sys?.def.id ?? this.currentSystem?.def.id ?? "(engine)", name });
+    if (!this.eventExamples.has(name)) this.eventExamples.set(name, summarizePayload(data));
     if (this.capturing) this.capEvents.push({ tick: this.tickCount, name, payload: summarizePayload(data) });
     const receivedBy: string[] = []; let handledBy = "none";
     for (const h of [...(this.handlers.get(name) ?? [])]) {

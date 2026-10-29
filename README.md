@@ -33,6 +33,10 @@ New systems arrive as TypeScript source text and are checked before they can tou
 - Browser aids: `?submit=campfire.ts` submits a fixture on load; `?dev=1` opens the panel; `?time=night` jumps the clock.
 - `npm test` also runs the pipeline against every fixture (through the same client/watchdog, in Node worker processes) and checks each expected outcome.
 
+## AI designer (manual messenger loop)
+
+The backtick panel's AI tab runs an update with you as the messenger: type a task, Start builds the exact prompt an AI would get (`src/ai/designer.ts`, from `src/ai/prompts/designer.md` with pillars, the full Systems API, examples, a WORLD description, the catalog and an art-board line), you copy it (plus the downloadable art board PNG) into an AI chat, and paste the reply back. The two-block reply (```ts + ```json) is run through `checkSystem` only — nothing loads until the visual check: after a pass, you look at the shots and either reply `{ "ok": true }` (loads via `loadChecked`) or paste a corrected module, which is re-checked from stage one as a new attempt row and only loaded if it passes itself. Failures get a ready-to-copy repair message, up to 3 repairs. Every attempt row shows its stage boxes and estimated tokens (chars ÷ 4, whole conversation resent each time); the full message log goes to `data/ai-log.jsonl`. On load, the update's JSON block is appended to `data/journal.json` and shown in the "What changed" panel (C key or clicking the game; behind a setting in the AI tab). The send step sits behind `AiProvider` (`src/ai/provider.ts`); `ManualProvider` is the only provider for now, so a real API can replace it without touching the loop.
+
 ## Layout
 
 - `src/engine/` — the only non-system code: engine core, catalog, renderer, input, sim, `api.d.ts`, `define.ts`.

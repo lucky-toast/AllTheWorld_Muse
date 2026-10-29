@@ -20,3 +20,12 @@ canvas#game { image-rendering: pixelated; display: block; }
 .dev-shots { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
 .dev-shots img { image-rendering: pixelated; border: 1px solid #5a6b42; display: block; }
 .dev-loaded { font-size: 11px; margin: 6px 0; }
+.ai-text { width: 100%; box-sizing: border-box; background: #141a0e; color: #e8e4c8; border: 1px solid #5a6b42; font-family: monospace; font-size: 11px; }
+.task-input { flex: 1; background: #141a0e; color: #e8e4c8; border: 1px solid #5a6b42; font-family: monospace; padding: 4px; }
+.ai-attempt { border-top: 1px solid #5a6b42; margin-top: 6px; padding-top: 4px; }
+.ai-len { font-size: 11px; align-self: center; }
+#changedpanel { position: fixed; top: 12px; left: 12px; width: 320px; max-height: 80vh; overflow: auto; background: #1c2416; color: #e8e4c8; border: 2px solid #5a6b42; padding: 10px; font-family: monospace; font-size: 12px; z-index: 9; }
+#changedpanel .changed-title { font-size: 15px; font-weight: bold; margin-bottom: 6px; }
+#changedpanel .changed-journal { font-style: italic; margin: 8px 0; color: #cdbf8a; }
+#changedpanel .changed-past span { color: #9aa583; }
+#changedpanel .changed-close { float: right; font-family: monospace; }

@@ -174,6 +174,23 @@ function renderHud(ctx: CanvasRenderingContext2D, eng: Engine) {
   }
 }
 
+/** Art board for the AI designer: labeled grid of every catalog sprite, first frame at 2x, id underneath. */
+export function renderArtBoard(canvas: HTMLCanvasElement) {
+  const sprites = CATALOG.sprites; const cols = 6, cellW = 140, cellH = 118;
+  const rows = Math.ceil(sprites.length / cols);
+  canvas.width = cols * cellW; canvas.height = rows * cellH;
+  const ctx = canvas.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false; ctx.fillStyle = "#2a331e"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  sprites.forEach((s, i) => {
+    const cx = (i % cols) * cellW, cy = Math.floor(i / cols) * cellH;
+    const ax = cx + 8, ay = cy + 92; // bottom-left anchor; sprite draws upward at 2x
+    ctx.save(); ctx.translate(ax, ay); ctx.scale(2, 2); ctx.translate(-ax, -ay);
+    drawSprite(ctx, s.id, ax, ay, 0, { frame: 0 });
+    ctx.restore();
+    ctx.font = "10px monospace"; ctx.fillStyle = "#e8e4c8"; ctx.fillText(s.id, cx + 6, cy + 108);
+  });
+}
+
 /** Dev sprites tab: every catalog sprite at 4x on grass with tile outline; anims play. */
 export function renderSpritesTab(ctx: CanvasRenderingContext2D, tick: number) {
   const sprites = CATALOG.sprites; const cols = 3, cellW = 264, cellH = 224;
