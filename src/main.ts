@@ -11,6 +11,8 @@ import type { StageEvent } from "./pipeline/types";
 import { AiTab } from "./ai/aitab";
 import { ChangedPanel, changedEnabled, setChangedEnabled } from "./ai/changed";
 import { buildWorldText } from "./ai/designer";
+import { currentDirectorPrompt } from "./ai/director";
+import type { JournalLike } from "./pipeline/persistence";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 canvas.width = NATIVE_W; canvas.height = NATIVE_H;
@@ -34,13 +36,18 @@ configurePipeline({
   onStage: (ev) => (aiStageRoute ? aiStageRoute(ev) : devPanel.onStage(ev)),
 });
 const changedPanel = new ChangedPanel(document.getElementById("changedpanel")!);
+let journalEntries: JournalLike[] = [];
 const aiTab = new AiTab(document.getElementById("ai-root")!, {
   getWorldText: () => buildWorldText(eng, [...BASE_SYSTEMS, ...live.allDefs()]),
   routeStage: (h) => { aiStageRoute = h; },
   isEnabled: changedEnabled,
   setEnabled: (on) => { setChangedEnabled(on); if (!on) changedPanel.hide(); },
+  buildDirectorPrompt: () => currentDirectorPrompt(eng, [...BASE_SYSTEMS, ...live.allDefs()], Object.fromEntries([...live.runtime.values()].map((r) => [r.id, r.source])), journalEntries),
+  refreshJournal: async () => { journalEntries = await loadJournal(); changedPanel.setEntries(journalEntries); },
+  getLoadedIds: () => [...eng.loadOrder],
+  getEngine: () => eng,
 });
-aiTab.onLoaded = () => { void loadJournal().then((j) => changedPanel.setEntries(j)); };
+aiTab.onLoaded = () => { void loadJournal().then((j) => { journalEntries = j; changedPanel.setEntries(j); }); };
 const params = new URLSearchParams(location.search);
 const input = new Input(eng);
 const wrap = document.getElementById("wrap")!;
@@ -102,7 +109,8 @@ function frame(now: number) {
   if (world) { try { eng.restore(world); } catch { /* start with the fresh world */ } }
   if (params.get("time")) eng.world().time.set(params.get("time")!); // shot/test aid, e.g. ?time=night
   devPanel.refreshLoaded();
-  changedPanel.setEntries(await loadJournal());
+  journalEntries = await loadJournal();
+  changedPanel.setEntries(journalEntries);
   if (params.get("submit")) void devPanel.submitFixture(params.get("submit")!); // browser-aid: drive the pipeline end-to-end
   setInterval(() => { void saveWorld(eng.serialize()); }, 5000);
   window.addEventListener("beforeunload", () => { void saveWorld(eng.serialize()); });

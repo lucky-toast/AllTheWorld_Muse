@@ -41,7 +41,8 @@ export async function saveWorld(world: string): Promise<void> {
   try { await fetch("/__systems/world", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ world }) }); } catch { /* ignore */ }
 }
 
-export interface JournalLike { title: string; summary: string; changes: string[]; journal: string; systemId: string; timestamp: string }
+export interface DirectorEntry { title: string; brief: string; experience: string; buildsOn: string[]; sprites: string[]; journal: string; where?: string; later?: string }
+export interface JournalLike { title: string; summary: string; changes: string[]; journal: string; systemId: string; timestamp: string; director?: DirectorEntry | null; journalRevised?: boolean }
 const LS_JOURNAL = "atw.journal";
 const LS_AILOG = "atw.aiLog";
 

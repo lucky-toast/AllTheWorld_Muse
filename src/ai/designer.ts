@@ -11,9 +11,11 @@ import type { Report, StageEvent } from "../pipeline/types";
 import { checkSystem, loadChecked } from "../pipeline/client";
 import type { AiProvider, ChatMessage } from "./provider";
 
+import type { DirectorEntry } from "../pipeline/persistence";
+export type { DirectorEntry };
 export interface UpdateMeta { title: string; summary: string; changes: string[]; journal: string }
-export interface JournalEntry extends UpdateMeta { systemId: string; timestamp: string }
-export interface AiLogEntry { kind: "sent" | "reply"; text: string; chars: number; tokensEst: number; timestamp: string }
+export interface JournalEntry extends UpdateMeta { systemId: string; timestamp: string; director?: DirectorEntry | null; journalRevised?: boolean }
+export interface AiLogEntry { kind: "sent" | "reply"; role: "director" | "designer"; text: string; chars: number; tokensEst: number; timestamp: string }
 
 const template = templateRaw as unknown as string;
 export const estTokens = (chars: number) => Math.ceil(chars / 4);
@@ -158,7 +160,11 @@ const MAX_REPAIRS = 3;
 export class Designer {
   constructor(private deps: DesignerDeps) {}
 
-  async runUpdate(task: string): Promise<{ status: "loaded" | "stopped"; systemId?: string }> {
+  async runUpdate(task: string, director: DirectorEntry | null = null): Promise<{ status: "loaded" | "stopped"; systemId?: string }> {
+    const journalFields = (meta: UpdateMeta): Partial<JournalEntry> => ({
+      director: director ?? null,
+      ...(director && meta.journal.trim() !== director.journal.trim() ? { journalRevised: true } : {}),
+    });
     const d = this.deps;
     const prompt = buildPrompt(task, d.getWorldText());
     const messages: ChatMessage[] = [{ role: "system", content: prompt }];
@@ -172,9 +178,9 @@ export class Designer {
 
     const sendAndLog = async (): Promise<string> => {
       const whole = messages.map((m) => m.content).join("\n");
-      d.onLog({ kind: "sent", text: messages[messages.length - 1].content, chars: whole.length, tokensEst: estTokens(whole.length), timestamp: new Date().toISOString() });
+      d.onLog({ kind: "sent", role: "designer", text: messages[messages.length - 1].content, chars: whole.length, tokensEst: estTokens(whole.length), timestamp: new Date().toISOString() });
       const reply = await d.provider.send(messages);
-      d.onLog({ kind: "reply", text: reply, chars: reply.length, tokensEst: estTokens(reply.length), timestamp: new Date().toISOString() });
+      d.onLog({ kind: "reply", role: "designer", text: reply, chars: reply.length, tokensEst: estTokens(reply.length), timestamp: new Date().toISOString() });
       return reply;
     };
 
@@ -189,7 +195,7 @@ export class Designer {
           const loaded = await loadChecked(report);
           d.onStage(attempt, { stage: "Load", status: loaded.ok ? "pass" : "fail" });
           if (!loaded.ok) { d.onStatus("Load was refused: " + loaded.errors.map((e) => e.message).join("; ")); return { status: "stopped" }; }
-          await d.appendJournal({ ...meta, systemId: loaded.systemId ?? report.systemId ?? "", timestamp: new Date().toISOString() });
+          await d.appendJournal({ ...meta, systemId: loaded.systemId ?? report.systemId ?? "", timestamp: new Date().toISOString(), ...journalFields(meta) });
           d.onStatus(`Loaded "${loaded.systemId}" — the transition played and the journal was updated.`);
           return { status: "loaded", systemId: loaded.systemId ?? undefined };
         }
@@ -228,7 +234,7 @@ export class Designer {
         const loaded = await loadChecked(report);
         d.onStage(attempt, { stage: "Load", status: loaded.ok ? "pass" : "fail" });
         if (!loaded.ok) { d.onStatus("Load was refused: " + loaded.errors.map((e) => e.message).join("; ")); return { status: "stopped" }; }
-        if (meta) await d.appendJournal({ ...meta, systemId: loaded.systemId ?? "", timestamp: new Date().toISOString() });
+        if (meta) await d.appendJournal({ ...meta, systemId: loaded.systemId ?? "", timestamp: new Date().toISOString(), ...journalFields(meta) });
         d.onStatus(`Corrected module passed and was loaded as "${loaded.systemId}".`);
         return { status: "loaded", systemId: loaded.systemId ?? undefined };
       }

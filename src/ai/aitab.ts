@@ -3,6 +3,9 @@ import { ManualProvider } from "./provider";
 import { Designer, estTokens, type AiLogEntry } from "./designer";
 import { renderArtBoard } from "../engine/render";
 import { appendAiLog, appendJournal } from "../pipeline/persistence";
+import { parseDirectorReply, HAND_TASK_NOTE, type DirectorEntry } from "./director";
+import { renderMapImage } from "./mapimage";
+import { catalogGet } from "../engine/catalog";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag); e.className = cls; if (text !== undefined) e.textContent = text; return e;
@@ -12,6 +15,10 @@ function download(name: string, href: string) { const a = document.createElement
 /** The AI tab in the dev panel: task -> prompt -> paste reply -> attempts -> visual check -> load. */
 export class AiTab {
   provider = new ManualProvider();
+  directorProvider = new ManualProvider();
+  private directorPromptEl!: HTMLTextAreaElement;
+  private directorReplyEl!: HTMLTextAreaElement;
+  private directorCardEl!: HTMLDivElement;
   private promptEl: HTMLTextAreaElement;
   private replyEl: HTMLTextAreaElement;
   private statusEl: HTMLDivElement;
@@ -30,6 +37,10 @@ export class AiTab {
     routeStage: (handler: ((ev: StageEvent) => void) | null) => void;
     isEnabled: () => boolean;
     setEnabled: (on: boolean) => void;
+    buildDirectorPrompt: () => string;
+    refreshJournal: () => Promise<void>;
+    getLoadedIds: () => string[];
+    getEngine: () => import("../engine/engine").Engine;
   }) {
     root.appendChild(el("div", "devsec", "AI designer — you are the messenger"));
     const setting = document.createElement("label"); setting.className = "dev-loaded";
@@ -40,7 +51,30 @@ export class AiTab {
     const taskRow = el("div", "fixture-list");
     const task = document.createElement("input"); task.type = "text"; task.placeholder = "Task for the AI designer…"; task.className = "task-input"; task.id = "ai-task";
     const start = el("button", "", "Start") as HTMLButtonElement;
-    taskRow.appendChild(task); taskRow.appendChild(start); root.appendChild(taskRow);
+    const askDir = el("button", "", "Ask the director") as HTMLButtonElement; askDir.id = "director-ask";
+    taskRow.appendChild(task); taskRow.appendChild(start); taskRow.appendChild(askDir); root.appendChild(taskRow);
+
+    // --- Director step ---
+    root.appendChild(el("div", "devsec", "Director message — copy this to the AI"));
+    const dirPrompt = document.createElement("textarea"); dirPrompt.readOnly = true; dirPrompt.rows = 7; dirPrompt.className = "ai-text"; dirPrompt.id = "director-prompt";
+    root.appendChild(dirPrompt);
+    const dirBtns = el("div", "fixture-list");
+    const dirCopy = el("button", "", "Copy prompt") as HTMLButtonElement; dirCopy.id = "director-copy";
+    dirCopy.addEventListener("click", () => { void navigator.clipboard?.writeText(dirPrompt.value); this.status("Director prompt copied — paste it into your AI chat."); });
+    const dlMap = el("button", "", "Download map") as HTMLButtonElement; dlMap.id = "director-map";
+    dlMap.addEventListener("click", () => { void renderMapImage(opts.getEngine()).then((b) => download("map.png", URL.createObjectURL(b))).catch((e) => this.status("Map render failed: " + (e as Error).message)); });
+    const dirLen = el("span", "ai-len", "") as HTMLSpanElement; dirLen.id = "director-length";
+    dirBtns.appendChild(dirCopy); dirBtns.appendChild(dlMap); dirBtns.appendChild(dirLen); root.appendChild(dirBtns);
+    const dirReply = document.createElement("textarea"); dirReply.rows = 6; dirReply.className = "ai-text"; dirReply.id = "director-reply"; dirReply.placeholder = "Paste the director's reply here…";
+    root.appendChild(dirReply);
+    const dirSubmitRow = el("div", "fixture-list");
+    const dirSubmit = el("button", "", "Submit director reply") as HTMLButtonElement; dirSubmit.id = "director-submit";
+    dirSubmitRow.appendChild(dirSubmit); root.appendChild(dirSubmitRow);
+    const dirCard = el("div", "director-card"); dirCard.id = "director-card"; dirCard.hidden = true; root.appendChild(dirCard);
+    this.directorPromptEl = dirPrompt; this.directorReplyEl = dirReply; this.directorCardEl = dirCard;
+    this.directorProvider.onShow = (text) => { dirPrompt.value = text; dirPrompt.scrollTop = 0; dirLen.textContent = `${text.length} chars · ~${estTokens(text.length)} tokens`; };
+    dirSubmit.addEventListener("click", () => { if (this.directorProvider.waiting) this.directorProvider.deliver(dirReply.value); else this.status("No director message is waiting. Press Ask the director first."); });
+    askDir.addEventListener("click", () => void this.askDirector());
 
     const msgLabel = el("div", "devsec", "Message to copy to the AI"); msgLabel.id = "ai-message-label";
     root.appendChild(msgLabel);
@@ -97,11 +131,51 @@ export class AiTab {
 
     start.addEventListener("click", () => {
       if (!task.value.trim()) { this.status("Type a task first."); return; }
-      this.attemptsEl.innerHTML = ""; this.totalSentTokens = 0; this.updateTotal();
-      // Render the art board now so Download art board has the PNG ready.
-      this.artCanvas = document.createElement("canvas"); renderArtBoard(this.artCanvas);
-      void this.designer.runUpdate(task.value.trim()).catch((e) => this.status("Designer stopped: " + (e as Error).message));
+      this.beginRun(task.value.trim() + "\n\n" + HAND_TASK_NOTE, null, true);
     });
+  }
+
+  /** Start the designer flow. Director runs keep their accumulated token total. */
+  private beginRun(taskText: string, director: DirectorEntry | null, resetTotal: boolean) {
+    this.attemptsEl.innerHTML = ""; this.attemptRows = []; this.lastReports = [];
+    if (resetTotal) { this.totalSentTokens = 0; this.updateTotal(); }
+    this.artCanvas = document.createElement("canvas"); renderArtBoard(this.artCanvas);
+    void this.designer.runUpdate(taskText, director).catch((e) => this.status("Designer stopped: " + (e as Error).message));
+  }
+
+  private async askDirector() {
+    await this.opts.refreshJournal(); // pick up entries appended since the tab opened
+    this.attemptsEl.innerHTML = ""; this.attemptRows = []; this.totalSentTokens = 0; this.updateTotal();
+    this.directorCardEl.hidden = true;
+    const prompt = this.opts.buildDirectorPrompt();
+    for (;;) {
+      this.addLog({ kind: "sent", role: "director", text: prompt, chars: prompt.length, tokensEst: estTokens(prompt.length), timestamp: new Date().toISOString() });
+      const reply = await this.directorProvider.send([{ role: "system", content: prompt }]);
+      this.addLog({ kind: "reply", role: "director", text: reply, chars: reply.length, tokensEst: estTokens(reply.length), timestamp: new Date().toISOString() });
+      const parsed = parseDirectorReply(reply, (id) => !!catalogGet(id), this.opts.getLoadedIds());
+      if (!parsed.entry) { this.status("Director reply problem: " + parsed.problems.join("; ") + ". Fix the reply in the director box and submit again."); continue; }
+      if (parsed.warnings.length) this.status(parsed.warnings.join("; ") + " — you can still continue.");
+      this.showDirectorCard(parsed.entry);
+      return;
+    }
+  }
+
+  private showDirectorCard(entry: DirectorEntry) {
+    const card = this.directorCardEl;
+    card.innerHTML = "";
+    card.hidden = false;
+    card.appendChild(el("div", "changed-title", entry.title));
+    card.appendChild(el("div", "", entry.experience));
+    card.appendChild(el("div", "", entry.brief));
+    const meta = [`buildsOn: ${entry.buildsOn.join(", ") || "(none)"}`, `sprites: ${entry.sprites.join(", ") || "(none)"}`,
+      ...(entry.where ? [`where: ${entry.where}`] : []), ...(entry.later ? [`later: ${entry.later}`] : []), `journal: ${entry.journal}`];
+    card.appendChild(el("div", "dev-loaded", meta.join("\n")));
+    const send = el("button", "", "Send to designer") as HTMLButtonElement; send.id = "director-send";
+    send.addEventListener("click", () => {
+      const task = "```json\n" + JSON.stringify(entry, null, 1) + "\n```";
+      this.beginRun(task, entry, false);
+    });
+    card.appendChild(send);
   }
 
   private attemptRows: { boxes: Map<Stage, HTMLDivElement>; shots: HTMLDivElement; info: HTMLDivElement }[] = [];
@@ -140,7 +214,7 @@ export class AiTab {
   }
   private addLog(entry: AiLogEntry) {
     if (entry.kind === "sent") { this.totalSentTokens += entry.tokensEst; this.updateTotal(); }
-    const line = `[${entry.timestamp}] ${entry.kind} · ${entry.chars} chars · ~${entry.tokensEst} tokens\n${entry.text.slice(0, 400)}${entry.text.length > 400 ? "…" : ""}`;
+    const line = `[${entry.timestamp}] ${entry.role} ${entry.kind} · ${entry.chars} chars · ~${entry.tokensEst} tokens\n${entry.text.slice(0, 400)}${entry.text.length > 400 ? "…" : ""}`;
     this.logEl.textContent += line + "\n\n";
     void appendAiLog(JSON.stringify(entry));
   }
