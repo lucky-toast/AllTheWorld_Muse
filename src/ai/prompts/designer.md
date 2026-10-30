@@ -24,6 +24,18 @@ Example systems, written the way yours should be:
 
 {{EXAMPLES}}
 
+### How your code is checked
+Before anything reaches the player, your module goes through these stages in order. It stops at the first failure, and you get a report saying which stage failed and why.
+1. **Static rules.** Your source is parsed and rejected if it uses `window`, `document`, `fetch`, `eval`, `Function`, timers, any import except `import { defineSystem } from "engine/define"`, assigns to `e.pos`, or names a sprite id that isn't in the catalog.
+2. **Compile.** It's type-checked against the API above. Any call or field the API doesn't declare fails here.
+3. **Sandbox run.** Your system is loaded into a copy of the current world, `migrate` runs, then a few hundred ticks. Any thrown error fails, and so does a tick that takes too long or never finishes.
+4. **Tests.** Your own `tests` run first, each on a fresh copy of the real map from the same fixed seed, with your system loaded, so they must pass every time. Then every base system's tests run in an empty test arena with your system loaded too. Your `migrate`, `onTick` and handlers must not break them.
+5. **Invariants.** Your `contract` is compared with what your code actually did in the tests and the sandbox run: every event you emitted must be in `emits`, and every input you set `handled` on must be in `claims`. Afterwards the player must still exist, every entity on the map must stand on walkable tiles, and the world must still save and load. Then a short scripted run (walk, pick up, drop, push, use) is replayed with your system loaded, and the base systems must behave exactly as they do without it.
+6. **Shots.** Each of your `shots` is rendered as an image, and its `setup` must not throw. If every stage passes, you're shown the images and asked to confirm the result looks right, or to send a corrected module. A corrected module goes through every stage again from the start.
+7. **Load.** Only then is your system hot-loaded into the live game. A snapshot is taken first, so it can be undone.
+
+You get up to 3 repairs for failures, and 1 look at your shots.
+
 Your task:
 
 {{TASK}}
