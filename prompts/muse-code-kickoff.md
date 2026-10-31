@@ -101,16 +101,16 @@ Document `sim` in `api.d.ts` too.
 
 ## World
 
-A hand-made forest clearing of about 30x20 tiles. This map is a blank canvas that the AI designer will fill in over time, so it should start sparse and calm. Most of the inside should be open, walkable ground, with a wide meadow in the middle. Lay it out the way a real clearing looks. The forest doesn't stop at a hard ring: the open space has an organic shape, not a rectangle. Put everything where it would naturally be: stumps and fallen logs near trees, rocks along the stream, flowers in the sunny open patches. Group things in small natural clusters (odd numbers read best), never on a grid, in rows, or mirrored. The picture should feel like a calm, real place with room to grow. When in doubt, leave it out.
+A hand-made forest clearing of about 30x20 tiles. This map is a blank canvas that the game designer will fill in over time, so it should start sparse. Most of the inside should be open, walkable ground, with a wide meadow in the middle. Lay it out the way a real clearing looks. The open space has an organic shape, not a rectangle, and the border is roughly surrounded by trees. Place things where they would naturally be: stumps and fallen logs near trees, rocks along the stream, flowers in the sunny open patches. Group things in small natural clusters (odd numbers read best), never on a grid, in rows, or mirrored. The picture should feel like a real place with room to grow. When in doubt, leave it out.
 - Ground: lighter `grass` (with `grass_detail` sprinkled in) forms a sunlit area in the open middle of the clearing, and `grass_dark` is the shade toward the trees. Skip `dirt` paths for now.
-- Border: dense `tree_pine_cluster` and `tree_cluster` close off the map so the player can't leave. Vary the depth so the edge reads as forest, not a ring.
-- Water: one short straight stream near an edge (`stream_h_left`, `stream_h` repeated, `stream_h_right`). The `pond` is optional.
+- Border: dense `tree_pine_cluster` and `tree_cluster` close off the map so the player can't leave. Vary the depth so the edge reads as forest.
+- Water: one short straight stream near (`stream_h_left`, `stream_h` repeated, `stream_h_right`). The `pond` is optional.
 - Trees and rocks inside (optional, use sparingly): a few `tree_round`, `tree_big_green`, `stump_big`, `rock_brown` and `rock_gray`. All of these are `solid`.
 - Decoration (optional, light touch, not solid): `bush`, `fern`, `grass_tuft`, `daisy`, `flower_red`.
 - Things to interact with, kept to a handful: 2 `log_fallen` (`item`, `pushable`), 1 `crate` (`pushable`), and a few `branch` and `stone` (`item`).
 - The player is the `player` sprite.
 - There is no hunger, health or survival stat.
-- There are no light sources besides the player's faint glow: no fires, torches, lanterns or glowing things. Those are for the AI to add later.
+- The base game has no light sources besides the player's faint glow: no fires, torches, lanterns or glowing things.
 
 ## Presentation
 
@@ -129,7 +129,7 @@ A hand-made forest clearing of about 30x20 tiles. This map is a blank canvas tha
 
 **Screen fit.** The whole map and the HUD are always visible, with no camera movement and no page scrolling. Use the largest whole-number scale at which both fit the window, recompute on resize, and center the canvas. Set the page to `overflow: hidden`.
 
-**UI rules** (including anything systems add later): text never shifts layout. Every text slot reserves room for its widest possible value and anchors its text within it, and digits draw in fixed-width cells because the pixel font's digits vary in width. The map is never covered except by short banners that fade.
+**UI rules** (including anything systems add later): text never shifts layout. Every text slot reserves room for its widest possible value and anchors its text within it, and digits draw in fixed-width cells because the pixel font's digits vary in width. The map is never permanently covered - temporary UI elements like short banners that fade, mini-games, or dialog are ok.
 
 ## Feel and tuning
 
@@ -139,8 +139,8 @@ Choose the numbers yourself. The game should feel calm and deliberate, like walk
 
 All dev hotkeys call `preventDefault()`, as do the arrow keys, WASD and Space, so the page never scrolls or reloads.
 - **T** cycles the time speed: 1x, 4x, 16x.
-- **Shift+R** unloads and reloads all systems without losing world state.
-- **Backtick** opens a dev panel, which swallows game input while open. Its first tab, "sprites", draws every catalog sprite at 4× zoom on a grass tile with the tile outline shown, and plays each named anim.
+- **Shift+R** unloads and reloads all systems, and clears the world state.
+- **Backtick** opens a dev panel in the open space to the right edge of the map, which swallows game input while open. Its first tab, "sprites", draws every catalog sprite at 4× zoom on a grass tile with the tile outline shown, and plays each named anim.
 
 ## Unspecified behaviour
 
