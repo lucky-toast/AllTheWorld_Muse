@@ -7,7 +7,9 @@
 // shows a short notice for a few seconds while a few leaves fall out of it.
 import { drawSprite, NATIVE_W } from "./render";
 
-export const TOP_H = 18;
+export const TOP_H = 20;
+/** Text baseline for one line, and for the two lines of a wrapped change title. */
+const BASE = 13, LINE1 = 8, LINE2 = 17;
 
 export type ThinkingPhase = "planner" | "designer";
 
@@ -63,13 +65,18 @@ export function drawTopBar(ctx: CanvasRenderingContext2D, s: TopBarState, now: n
 }
 
 function drawIdle(ctx: CanvasRenderingContext2D, s: TopBarState) {
-  const area = `~ ${areaLabel(s.area)} ~`;
-  ctx.fillStyle = TAN; fixedText(ctx, area, Math.round(NATIVE_W / 2 - (area.length * CELL) / 2), 12);
+  // The area's name on the left, the latest change on the right.
+  const area = areaLabel(s.area);
+  ctx.fillStyle = TAN; fixedText(ctx, area, 6, BASE);
   if (s.last) {
-    const last = `Last: ${s.last}`.slice(0, 26);
-    const x = NATIVE_W - 6 - last.length * CELL;
-    drawSprite(ctx, "book", x - 20, 17, 0);
-    ctx.fillStyle = DIM; fixedText(ctx, last, x, 12);
+    // The title wraps onto up to two lines of at most 44 characters, kept clear of the area name.
+    const BOOK = 20, room = NATIVE_W - 6 - (6 + area.length * CELL + 24) - BOOK;
+    const lines = wrapText(`Last: ${s.last}`, Math.min(44, Math.floor(room / CELL)), 2);
+    const x = NATIVE_W - 6 - Math.max(...lines.map((l) => l.length)) * CELL;
+    drawSprite(ctx, "book", x - BOOK, 18, 0);
+    ctx.fillStyle = DIM;
+    if (lines.length === 1) fixedText(ctx, lines[0], x, BASE);
+    else { fixedText(ctx, lines[0], x, LINE1); fixedText(ctx, lines[1], x, LINE2); }
   }
 }
 
@@ -78,7 +85,7 @@ function drawThinking(ctx: CanvasRenderingContext2D, phase: ThinkingPhase, now: 
   const span = NATIVE_W + 24;
   for (let i = 0; i < LEAVES[phase]; i++) {
     const x = ((i * 97.3 + now * (0.012 + (i % 4) * 0.005)) % span) - 12;
-    const y = 9 + Math.round(Math.sin(now / 420 + i * 2.1) * 3);
+    const y = 10 + Math.round(Math.sin(now / 420 + i * 2.1) * 3);
     ctx.globalAlpha = 0.55 + 0.45 * ((i * 7) % 3) / 2;
     drawSprite(ctx, "fx_leaf", Math.round(x), y, 0, { frame: i % 6 });
   }
@@ -93,7 +100,7 @@ function drawThinking(ctx: CanvasRenderingContext2D, phase: ThinkingPhase, now: 
     g.addColorStop(0, "rgba(32,40,18,0)"); g.addColorStop(1, "rgba(32,40,18,1)");
     ctx.fillStyle = g; ctx.fillRect(Math.min(a, b), 0, fade, TOP_H - 1);
   }
-  ctx.fillStyle = CREAM; fixedText(ctx, words, x0, 12);
+  ctx.fillStyle = CREAM; fixedText(ctx, words, x0, BASE);
 }
 
 function drawNotice(ctx: CanvasRenderingContext2D, text: string, age: number) {
@@ -105,6 +112,24 @@ function drawNotice(ctx: CanvasRenderingContext2D, text: string, age: number) {
     drawSprite(ctx, "fx_leaf", Math.round(x), Math.round(4 + t * 0.012), 0, { frame: i % 6 });
   }
   ctx.globalAlpha = Math.min(1, age / 300, (NOTICE_MS - age) / NOTICE_FADE_MS);
-  ctx.fillStyle = RUST; fixedText(ctx, text, Math.round(NATIVE_W / 2 - (text.length * CELL) / 2), 12);
+  ctx.fillStyle = RUST; fixedText(ctx, text, Math.round(NATIVE_W / 2 - (text.length * CELL) / 2), BASE);
   ctx.globalAlpha = 1;
+}
+
+/** Split text into at most `maxLines` lines of `width` characters at spaces (a word longer than a line is split);
+ *  the last line ends in "…" when the text doesn't all fit. */
+export function wrapText(text: string, width: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean).flatMap((w) => w.match(new RegExp(`.{1,${width}}`, "gu")) ?? []);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= width) line = next;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  kept[maxLines - 1] = kept[maxLines - 1].slice(0, width - 1) + "…";
+  return kept;
 }
