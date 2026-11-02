@@ -16,3 +16,8 @@ body { min-height: 100vh; background: #2a331e; color: #e8e4c8; font-family: mono
 .tab.active { background: #486222; }
 #devcanvas { image-rendering: pixelated; background: #2a331e; }
 button, input, textarea, select { font: 11px monospace; }
+#transition { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
+.stagebox { color: #f2ecd0; border: 1px solid #666; background: #333; padding: 2px 7px; cursor: pointer; }
+.report { white-space: pre-wrap; word-break: break-word; background: #141a0c; border: 1px solid #4a5a30; padding: 6px; max-height: 260px; overflow: auto; }
+.shots { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.shotimg { width: 216px; height: auto; image-rendering: pixelated; border: 1px solid #4a5a30; }

@@ -7,7 +7,7 @@ import { buildWorld } from "../world/map";
 import { createGame } from "../systems/base/index";
 import { loadWasmModule, type WasmModuleHandle } from "./module";
 
-export interface SystemTestResult { name: string; checks: { label: string; passed: boolean }[]; passed: boolean; faults: string[] }
+export interface SystemTestResult { name: string; checks: { label: string; passed: boolean }[]; passed: boolean; faults: string[]; events?: { tick: number; name: string; payload: unknown }[]; denied?: { tick: number; system: string; op: string; code: string; msg: string }[]; entities?: { type: string; pos: { x: number; y: number; area: string } | null; components: Record<string, unknown> }[] }
 export interface SystemShotResult { name: string; passed: boolean; faults: string[]; entities: { type: string; pos: { x: number; y: number; area: string } | null }[] }
 
 function freshGame(): Game {
@@ -39,7 +39,10 @@ export function runSystemTests(manifest: Manifest, bytes: Uint8Array): SystemTes
     const checks = [...game.checks];
     if (!checks.length) checks.push({ label: "at least one check ran", passed: false });
     const faults = game.faults.slice(faultsBefore).map((f) => f.message);
-    out.push({ name, checks, passed: ran && checks.every((c) => c.passed), faults });
+    const entities = [...game.eng.entities.values()]
+      .filter((r) => game.eng.entityOwner.get(r.id) === manifest.id || r.tags.has("player"))
+      .map((r) => ({ type: r.type, pos: r.pos ? { ...r.pos } : null, components: Object.fromEntries(r.comps.entries()) as Record<string, unknown> }));
+    out.push({ name, checks, passed: ran && checks.every((c) => c.passed), faults, events: game.eventLog.slice(-100), denied: [...game.eng.deniedLog], entities });
   }
   return out;
 }

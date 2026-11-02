@@ -10,11 +10,13 @@
 <div id="wrap">
   <div id="stage">
     <canvas id="game" width="480" height="348"></canvas>
+    <canvas id="transition" width="480" height="348" hidden></canvas>
   </div>
   <div id="devpanel" hidden>
     <div class="devsec">Dev (backtick to close)</div>
-    <div class="tabrow"><span class="tab active">Sprites</span></div>
-    <canvas id="devcanvas" width="792" height="2000"></canvas>
+    <div class="tabrow"><span class="tab active" id="tab-sprites">Sprites</span><span class="tab" id="tab-pipeline">Pipeline</span></div>
+    <div id="sprites-tab"><canvas id="devcanvas" width="792" height="2000"></canvas></div>
+    <div id="pipeline-tab" hidden></div>
   </div>
 </div>
 <script type="module" src="/src/main.ts"></script>

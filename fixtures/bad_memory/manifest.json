@@ -1,0 +1,12 @@
+{
+  "id": "bad_memory",
+  "why": "Its onTick allocates without bound.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

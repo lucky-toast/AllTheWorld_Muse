@@ -1,0 +1,12 @@
+{
+  "id": "bad_prefix",
+  "why": "Emits an event it does not own.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": { "fire.lit": { "pos": "pos" } },
+  "shots": []
+}

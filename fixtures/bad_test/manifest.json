@@ -1,0 +1,12 @@
+{
+  "id": "bad_test",
+  "why": "Its test checks for a spark the system never spawns.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

@@ -1,0 +1,12 @@
+{
+  "id": "bad_breaks_base",
+  "why": "Its migrate floods the tiles around the player.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

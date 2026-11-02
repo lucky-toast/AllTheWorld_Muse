@@ -1,0 +1,12 @@
+{
+  "id": "bad_loop",
+  "why": "Its onTick loops forever on its 50th tick.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

@@ -1,0 +1,12 @@
+{
+  "id": "bad_export",
+  "why": "Lists an interaction but exports no perform.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [{ "verb": "poke", "label": "Poke", "target": "log_fallen" }],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

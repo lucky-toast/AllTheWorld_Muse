@@ -26,6 +26,8 @@ export class Game {
   eventLog: { tick: number; name: string; payload: unknown }[] = [];
   faults: { tick: number; system: string; handler: string; message: string }[] = [];
   testMode = false;
+  /** Set during a live Load (spec 13.1): ticks and input pause. */
+  paused = false;
   private emitDepth = 0;
   private nextTweenId = 1;
   /** Movement entry points, set by the base-systems loader. */
@@ -253,6 +255,7 @@ export class Game {
 
   // --- Main tick ---
   tick(): void {
+    if (this.paused) return;
     this.eng.tick();
     for (const s of [...this.systems]) if (s.onTick) this.invoke(s, "onTick", () => s.onTick!());
     const due = this.timers.filter((t) => t.due <= this.eng.tickCount);

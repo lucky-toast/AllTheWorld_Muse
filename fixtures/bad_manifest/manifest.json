@@ -1,0 +1,12 @@
+{
+  "id": "bad_manifest",
+  "why": "Declares an entity with a sprite that is not in the catalog.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": { "dragon": { "sprite": "dragon_huge", "tags": ["solid"] } },
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}

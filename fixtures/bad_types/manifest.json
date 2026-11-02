@@ -1,0 +1,12 @@
+{
+  "id": "bad_types",
+  "why": "Calls a helper that does not exist in the SDK.",
+  "buildsOn": [],
+  "replaces": [],
+  "entities": {},
+  "components": {},
+  "interactions": [],
+  "reactions": [],
+  "emits": {},
+  "shots": []
+}
