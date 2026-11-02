@@ -24,9 +24,11 @@
 // Every call into your module has a fuel budget: 50,000,000 units for onTick (it runs every frame),
 // 200,000,000 for the other handlers (perform, onEvent, onTimer, onInput, onTween), 500,000,000 for
 // migrate, a test or a shot (a handler that runs during a test keeps its own budget). Running out
-// undoes everything the call did. Helpers are the expensive part: each one costs roughly 60,000 to
-// 250,000 units (info and query are among the dearest), so onTick has room for about two hundred. Call info once per entity and keep what it returned
-// (posOf and typeOf each call it again), and narrow a query by a specific tag first.
+// undoes everything the call did. Helpers are the expensive part: each one costs roughly 50,000 to
+// 200,000 units (info and query are among the dearest), so onTick has room for about three hundred.
+// A read asked again in the same call (typeOf then posOf of one entity, say) is remembered and costs
+// almost nothing, until your next write, emit or sim step; a new call always asks afresh. Narrow a
+// query by a specific tag rather than filtering a broad one.
 //
 // Placing things: pick a spot and let the host find the nearest fit. The player keeps playing
 // while you are built, so the tile you chose may be taken by the time your code runs (the
@@ -157,6 +159,8 @@ export function quote(s: string): string {
 /** Builds a JSON object: new Obj().int("x", 3).str("name", "a").toString() is {"x":3,"name":"a"}. */
 export class Obj {
   private body: string = "";
+  /** Internal: the op name when made by the SDK's request helpers ("" otherwise). */
+  _op: string = "";
   /** Add a number field. */
   num(key: string, v: f64): Obj { return this.raw(key, numText(v)); }
   /** Add an integer field. */

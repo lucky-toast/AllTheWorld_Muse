@@ -6,13 +6,37 @@ import { callHost } from "./host";
 let lastErr = "";
 let lastTruncated = false;
 
+// Reads remembered within one call. Inside a call nothing changes the world except the module's
+// own requests, so a read asked again gets the same answer until the module makes any request that
+// could change something (a write, an emit, a sim.* step). The host clears it whenever it calls into
+// the module (forgetReads), because other systems and the player act between calls.
+const READS = new Set<string>();
+READS.add("info"); READS.add("get"); READS.add("tile.get"); READS.add("at"); READS.add("query");
+READS.add("catalog.get"); READS.add("catalog.find"); READS.add("tile.find"); READS.add("space.find");
+READS.add("area.list"); READS.add("area.current"); READS.add("area.size"); READS.add("time"); READS.add("state.get");
+// Requests that change nothing but aren't worth remembering (rand differs every time).
+const NEUTRAL = new Set<string>();
+NEUTRAL.add("rand"); NEUTRAL.add("check"); NEUTRAL.add("sim.events"); NEUTRAL.add("state.getReplaced");
+const REMEMBER_MAX = 512;
+let remembered = new Map<string, Json>();
+let rememberedTruncated = new Map<string, bool>();
+export function forgetReads(): void {
+  if (remembered.size) { remembered = new Map<string, Json>(); rememberedTruncated = new Map<string, bool>(); }
+}
+
 /** Send a request; remember why it was refused (or "" when it succeeded). */
 export function send(req: Obj): Json {
-  const res = parse(callHost(req.toString()));
+  const text = req.toString();
+  const name = req._op;
+  const read = READS.has(name);
+  if (read && remembered.has(text)) { lastErr = ""; lastTruncated = rememberedTruncated.get(text); return remembered.get(text); }
+  const res = parse(callHost(text));
+  if (!read && !NEUTRAL.has(name)) forgetReads();
   if (res.get("ok").bool()) {
     lastErr = "";
     const r = res.get("r");
     lastTruncated = r.isObject() && r.get("truncated").bool();
+    if (read && remembered.size < REMEMBER_MAX) { remembered.set(text, r); rememberedTruncated.set(text, lastTruncated); }
     return r;
   }
   lastErr = res.get("code").str("bad_request") + ": " + res.get("msg").str();
@@ -20,7 +44,7 @@ export function send(req: Obj): Json {
 }
 export function failure(): string { return lastErr; }
 export function truncated(): bool { return lastTruncated; }
-export function op(name: string): Obj { return new Obj().str("op", name); }
+export function op(name: string): Obj { const o = new Obj().str("op", name); o._op = name; return o; }
 export function tileReq(name: string, x: i32, y: i32, area: string): Obj { const o = op(name).int("x", x).int("y", y); if (area.length) o.str("area", area); return o; }
 export function done(req: Obj): bool { send(req); return lastErr.length == 0; }
 

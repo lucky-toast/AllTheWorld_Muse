@@ -17,7 +17,7 @@
 // module's instance is then thrown away and re-created on its next call, because the
 // AssemblyScript runtime can't be trusted after a trap.
 import { inspect, meter, typeName, WasmError, FUEL_EXPORT, type FuncType, type WasmInfo } from "./meter";
-import { START_EXPORT } from "./abi";
+import { COLLECT_EXPORT, FORGET_EXPORT, START_EXPORT } from "./abi";
 import type { HostCall, SystemDef, SystemModule } from "../engine/systems";
 import type { Host, Request } from "../engine/host";
 import { LIMITS } from "../tuning";
@@ -47,7 +47,7 @@ const GLUE: Record<string, FuncType> = {
   [START_EXPORT]: { params: [], results: [] },
 };
 /** asc adds this when an exported function has optional parameters. Allowed, never called. */
-const OPTIONAL_EXPORTS: Record<string, FuncType> = { __setArgumentsLength: { params: [I32], results: [] } };
+const OPTIONAL_EXPORTS: Record<string, FuncType> = { __setArgumentsLength: { params: [I32], results: [] }, [COLLECT_EXPORT]: { params: [], results: [] }, [FORGET_EXPORT]: { params: [], results: [] } };
 const NO_ARGS: FuncType = { params: [], results: [] };
 
 export class ModuleError extends Error {
@@ -221,7 +221,7 @@ class Runner {
     frames.push({ runner: this, acc });
     fuel.value = acc.remaining;
     let threw = true;
-    try { body(this.ex); threw = false; }
+    try { if (kind !== "start") this.ex[FORGET_EXPORT]?.(); body(this.ex); threw = false; }
     catch (e) { const x = this.explain(e, name, acc); this.lastError = x; throw x; }
     finally {
       const left = fuel.value as bigint;
@@ -241,7 +241,21 @@ class Runner {
         this.stats.calls.push({ name, used }); if (this.stats.calls.length > STATS_KEPT) this.stats.calls.shift();
         this.host.logNearLimit(this.prep.systemId, "fuel", Number(used), Number(acc.limit));
       }
+      if (!threw && !frames.some((f) => f.runner === this)) this.collect();
     }
+  }
+
+  /**
+   * Free the module's garbage once none of its calls is running. Modules are built with the
+   * minimal runtime, which never collects on its own (so allocating costs no collector work under
+   * fuel), and it can only collect when nothing of the module is on the stack. Not under fuel.
+   * Modules built before the collect export keep their own collector and are left alone.
+   */
+  private collect() {
+    const fn = this.ex[COLLECT_EXPORT]; if (!fn || !this.instance) return;
+    const fuel = this.fuel!; const before = fuel.value as bigint;
+    fuel.value = 1n << 62n;
+    try { fn(); } catch { this.instance = null; } finally { fuel.value = before; }
   }
 
   /** Turn a trap into a readable SandboxTrap. Errors from deeper calls (another module's trap, a host bug) pass through. */
