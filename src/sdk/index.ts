@@ -500,6 +500,19 @@ export function isFree(x: i32, y: i32, selfId: i32 = 0, area: string = ""): bool
   }
   return true;
 }
+/**
+ * The doorstep of a building: the tile in front of (just below) its door, where the player stands
+ * and faces up to use it. null when the entity is gone, lifted, or its sprite has no door (catalog
+ * "door"). The door itself is part of the solid footprint: nothing can stand in it.
+ */
+export function doorOf(id: i32): Pos | null {
+  if (id <= 0) return null;
+  const i = info(id); if (!i) return null;
+  const p = i.pos; if (!p) return null;
+  const door = catalogGet(get(id, "sprite").get("id").str()).get("door");
+  if (!door.isObject()) return null;
+  return new Pos(p.x + door.get("x").int(), p.y + 1, p.area);
+}
 /** The tiles a sprite covers with its bottom-left at (x, y). Footprints extend upward and rightward. */
 export function footprintTiles(sprite: string, x: i32, y: i32, area: string = ""): Pos[] {
   const fp = catalogGet(sprite).get("footprint");

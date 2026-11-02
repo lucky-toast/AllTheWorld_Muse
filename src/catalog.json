@@ -58343,10 +58343,13 @@
     "house",
     "solid"
    ],
-   "desc": "house with orange roof and plaster walls, door at bottom centre; whole building 4x3 tiles, solid except the doorway tile",
+   "desc": "house with orange roof and plaster walls, door at bottom centre; whole building 4x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58366,10 +58369,13 @@
     "house",
     "solid"
    ],
-   "desc": "tan stone house with flat roof, door at bottom centre; whole building 4x3 tiles, solid except the doorway tile",
+   "desc": "tan stone house with flat roof, door at bottom centre; whole building 4x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58388,10 +58394,13 @@
     "house",
     "solid"
    ],
-   "desc": "house with orange roof, brick lower wall; whole building 4x3 tiles, solid except the doorway tile",
+   "desc": "house with orange roof, brick lower wall; whole building 4x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58411,10 +58420,13 @@
     "house",
     "solid"
    ],
-   "desc": "house with red tiled roof; whole building 4x3 tiles, solid except the doorway tile",
+   "desc": "house with red tiled roof; whole building 4x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58434,10 +58446,13 @@
     "house",
     "solid"
    ],
-   "desc": "small shop with blue roof and burger sign; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "small shop with blue roof and burger sign; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58456,10 +58471,13 @@
     "house",
     "solid"
    ],
-   "desc": "house with dark green roof and paper lanterns; whole building 4x3 tiles, solid except the doorway tile",
+   "desc": "house with dark green roof and paper lanterns; whole building 4x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 2
    },
    "layer": "object",
    "materials": [
@@ -58478,10 +58496,13 @@
     "house",
     "solid"
    ],
-   "desc": "round stone hut with round windows; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "round stone hut with round windows; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58500,10 +58521,13 @@
     "house",
     "solid"
    ],
-   "desc": "wooden house with gabled roof; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "wooden house with gabled roof; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58522,10 +58546,13 @@
     "house",
     "solid"
    ],
-   "desc": "log cabin with round attic window and front porch; whole building 4x4 tiles, solid except the doorway tile",
+   "desc": "log cabin with round attic window and front porch; whole building 4x4 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 3
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58544,10 +58571,13 @@
     "house",
     "solid"
    ],
-   "desc": "brown mud hut with dark doorway; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "brown mud hut with dark doorway; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58566,10 +58596,13 @@
     "house",
     "solid"
    ],
-   "desc": "round thatched straw hut; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "round thatched straw hut; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58588,10 +58621,13 @@
     "house",
     "solid"
    ],
-   "desc": "round igloo; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "round igloo; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58610,10 +58646,13 @@
     "house",
     "solid"
    ],
-   "desc": "tall igloo; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "tall igloo; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58632,10 +58671,13 @@
     "house",
     "solid"
    ],
-   "desc": "square ice-brick house; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "square ice-brick house; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58655,10 +58697,13 @@
     "house",
     "solid"
    ],
-   "desc": "round tent / yurt with doorway; whole building 4x4 tiles, solid except the doorway tile",
+   "desc": "round tent / yurt with doorway; whole building 4x4 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 4,
     "h": 3
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58678,10 +58723,13 @@
     "house",
     "solid"
    ],
-   "desc": "small wooden shack with lattice window; whole building 3x3 tiles, solid except the doorway tile",
+   "desc": "small wooden shack with lattice window; whole building 3x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 3,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -58700,10 +58748,13 @@
     "house",
     "solid"
    ],
-   "desc": "sandstone dome hut; whole building 2x2 tiles, solid except the doorway tile",
+   "desc": "sandstone dome hut; whole building 2x2 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 2,
     "h": 1
+   },
+   "door": {
+    "x": 0
    },
    "layer": "object",
    "materials": [
@@ -58722,10 +58773,13 @@
     "house",
     "solid"
    ],
-   "desc": "mossy gray stone dome hut; whole building 2x2 tiles, solid except the doorway tile",
+   "desc": "mossy gray stone dome hut; whole building 2x2 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 2,
     "h": 1
+   },
+   "door": {
+    "x": 0
    },
    "layer": "object",
    "materials": [
@@ -58745,10 +58799,13 @@
     "house",
     "solid"
    ],
-   "desc": "small dome hut with a white cap; whole building 2x3 tiles, solid except the doorway tile",
+   "desc": "small dome hut with a white cap; whole building 2x3 tiles; the whole footprint is solid: the door is used from the tile in front of it (doorOf)",
    "footprint": {
     "w": 2,
     "h": 2
+   },
+   "door": {
+    "x": 0
    },
    "layer": "object",
    "materials": [
@@ -61284,6 +61341,9 @@
     "w": 3,
     "h": 2
    },
+   "door": {
+    "x": 1
+   },
    "layer": "object",
    "materials": [
     "stone"
@@ -61352,6 +61412,9 @@
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [
@@ -67127,6 +67190,9 @@
    "footprint": {
     "w": 4,
     "h": 2
+   },
+   "door": {
+    "x": 1
    },
    "layer": "object",
    "materials": [

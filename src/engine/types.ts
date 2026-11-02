@@ -31,6 +31,9 @@ export interface CatalogEntry {
   desc: string;
   /** Tiles the entity blocks/occupies, from its bottom-left tile. `x` shifts it right by that many columns. Default 1x1. */
   footprint?: { x?: number; w: number; h: number };
+  /** A building's door: the column (from the sprite's left tile) of the door in the footprint's bottom
+   *  row. The whole footprint stays solid; the door is used from the tile in front of it (SDK doorOf). */
+  door?: { x: number };
   /** Pixel nudge applied when drawing. */
   offset?: PixelOffset;
   /** Draw layer: ground = flat, under everything; object = y-sorted with the player; above = drawn over objects; overlay = whole screen. Terrain tiles, UI and audio have none. */

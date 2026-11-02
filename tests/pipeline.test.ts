@@ -340,6 +340,29 @@ test("the watchdog kills a worker whose stage runs over its time limit", async (
   expect(g.stages.at(-1)).toMatchObject({ stage: "Tests", status: "fail" });
 });
 
+test("doorOf gives the tile in front of a building's door, and the door tile itself is solid", async () => {
+  const g = game();
+  const manifest = JSON.stringify({ id: "doors", why: "A house to test doorOf with.", entities: { house: { sprite: "house_orange_roof", tags: ["solid"] } } });
+  const source = `import { spawn, doorOf, posOf, isFree, check, simTeleport, simFace, simWalk, playerPos, spaceFind } from "sdk";
+export function migrate(): void {}
+export function test_door(): void {
+  const s = spaceFind(13, 4, 4, 3)!; // the house's two rows and the row in front of it
+  const h = spawn("house", s.x, s.y + 1);
+  const p = posOf(h)!;
+  const d = doorOf(h);
+  check(d != null && d.x == p.x + 1 && d.y == p.y + 1, "the doorstep is below the door column");
+  check(isFree(d!.x, d!.y), "the doorstep is free");
+  check(!isFree(d!.x, d!.y - 1), "the door tile itself is solid");
+  simTeleport(d!.x, d!.y); simFace("up"); simWalk("up");
+  const pp = playerPos()!;
+  check(pp.x == d!.x && pp.y == d!.y, "walking into the door is blocked");
+  check(doorOf(0) == null, "nothing has no door");
+}`;
+  const r = await g.pipeline.checkSystem(manifest, source);
+  expect(reportText(r)).not.toContain("failed");
+  expect(r.ok).toBe(true);
+});
+
 test("each test has its own time limit, and a timeout names the test that ran over", async () => {
   const slow = (): WorkerLike => {
     let handler: ((m: FromWorker) => void) | null = null;

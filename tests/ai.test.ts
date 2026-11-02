@@ -9,7 +9,7 @@ import { LiveLoader } from "../src/pipeline/live";
 import { LocalStore, type ModuleCache } from "../src/pipeline/store";
 import { buildPrompt, buildRepairMessage, parseDesignerReply, DESIGNER_TEMPLATE } from "../src/ai/designer";
 import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "../src/ai/planner";
-import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
+import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
 import { AiApiError, ManualProvider, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
@@ -70,6 +70,7 @@ describe("companion files", () => {
     expect(docOf("catalogGet")).toContain("ONE entity");
     expect(docOf("rand")).toContain("Math.random");
     expect(docOf("spawn")).toContain("posOf(id)");
+    expect(docOf("doorOf")).toContain("in front of");
     expect(docOf("simTime")).toContain("one tick");
     expect(docOf("areaCreate")).toContain("walkable");
     // Base systems give a one-line shape for every component they own; it's what the designer sees.
@@ -625,6 +626,18 @@ describe("catalog in the prompts", () => {
     const missing = CATALOG.sprites.filter((s) => s.tags.includes("terrain") && !s.tags.includes("walkable") && !s.tags.some((t) => blocked.has(t))).map((s) => s.id);
     expect(missing).toEqual([]);
     expect(catalogGet("interior_floor_brown_plain")!.tags).toContain("walkable");
+  });
+
+  test("buildings name their door column, inside their footprint, and no desc promises a walkable doorway", () => {
+    const doors = CATALOG.sprites.filter((s) => s.door);
+    expect(doors.length).toBeGreaterThanOrEqual(20);
+    for (const s of doors) {
+      expect(s.footprint, s.id).toBeDefined();
+      expect(s.door!.x, s.id).toBeGreaterThanOrEqual(s.footprint!.x ?? 0);
+      expect(s.door!.x, s.id).toBeLessThan((s.footprint!.x ?? 0) + s.footprint!.w);
+    }
+    expect(CATALOG.sprites.filter((s) => s.desc.includes("except the doorway")).map((s) => s.id)).toEqual([]);
+    expect(catalogLine(catalogGet("house_orange_roof")!)).toContain("door: column 1");
   });
 
   test("the chain hands each step its planner tags", async () => {

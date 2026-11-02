@@ -102,7 +102,7 @@ export function playerText(eng: Engine): string {
 }
 
 /** The first line of {{CATALOG}}: what each field of a sprite line is. */
-export const CATALOG_LEGEND = "Fields: id — description · layer, or kind for audio and fonts · size of ONE entity in tiles (WxH, not a grid of copies) · then, when present: footprint (tiles it occupies from its bottom-left; 1x1 when absent) · tags · materials · anims (names for anim()) · variants (related entries by name) · becomes (what it turns into after an event) · faceset (dialog portrait id)";
+export const CATALOG_LEGEND = "Fields: id — description · layer, or kind for audio and fonts · size of ONE entity in tiles (WxH, not a grid of copies) · then, when present: footprint (tiles it occupies from its bottom-left; 1x1 when absent) · door (a building's door column; doorOf(id) gives the tile in front of it) · tags · materials · anims (names for anim()) · variants (related entries by name) · becomes (what it turns into after an event) · faceset (dialog portrait id)";
 
 const pairs = (m: Record<string, string> | undefined) => m ? Object.entries(m).map(([k, v]) => `${k}=${v}`).join(", ") : "-";
 
@@ -118,7 +118,7 @@ export function catalogLine(s: CatalogEntry): string {
   const fp = kind !== "sprite" ? "-" : s.footprint ? `${s.footprint.x ? `+${s.footprint.x} ` : ""}${s.footprint.w}x${s.footprint.h}` : "-";
   const list = (a: string[] | undefined) => a?.length ? a.join(", ") : "-";
   const anims = s.anims ? Object.keys(s.anims).join(", ") : "-";
-  const named: [string, string][] = [["footprint", fp], ["tags", list(s.tags)], ["materials", list(s.materials)], ["anims", anims], ["variants", pairs(s.variants)], ["becomes", pairs(s.becomes)], ["faceset", s.faceset ?? "-"]];
+  const named: [string, string][] = [["footprint", fp], ["door", s.door ? `column ${s.door.x}` : "-"], ["tags", list(s.tags)], ["materials", list(s.materials)], ["anims", anims], ["variants", pairs(s.variants)], ["becomes", pairs(s.becomes)], ["faceset", s.faceset ?? "-"]];
   return [`${s.id} — ${s.desc ?? ""}`, layer, size, ...named.filter(([, v]) => v !== "-").map(([k, v]) => `${k}: ${v}`)].join(" · ");
 }
 
