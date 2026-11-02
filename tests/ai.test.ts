@@ -71,6 +71,8 @@ describe("companion files", () => {
     expect(docOf("rand")).toContain("Math.random");
     expect(docOf("spawn")).toContain("posOf(id)");
     expect(docOf("doorOf")).toContain("in front of");
+    // The header says positions in the prompt are only a rough guide.
+    expect(sdk.slice(0, sdk.indexOf("import "))).toContain("only a rough guide");
     expect(docOf("simTime")).toContain("one tick");
     expect(docOf("areaCreate")).toContain("walkable");
     // Base systems give a one-line shape for every component they own; it's what the designer sees.

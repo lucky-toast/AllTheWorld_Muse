@@ -10,7 +10,7 @@ import { Pipeline, type WorkerLike } from "../src/pipeline/client";
 import { inProcessWorker } from "../src/pipeline/inprocess";
 import { LiveLoader } from "../src/pipeline/live";
 import { DevServerStore, LocalStore, sha256Hex, type ModuleCache } from "../src/pipeline/store";
-import { reportText } from "../src/pipeline/report";
+import { reportText, POSITIONS_NOTE } from "../src/pipeline/report";
 import { compileSystem } from "../src/sandbox/compile";
 import type { FromWorker, Report, StageEvent } from "../src/pipeline/types";
 import { handleStorage } from "../devserver/storage";
@@ -132,6 +132,13 @@ describe("report text", () => {
     }] } as unknown as Parameters<typeof reportText>[0]);
     expect(text).toContain("spawn a cottage: asked (21, 6, clearing), placed (21, 5, clearing); in the way: tree_round#12 at (23, 6)");
     expect(text).toContain("posOf");
+    expect(text).toContain(POSITIONS_NOTE);
+  });
+  test("repeats the positions note only when the failure is about positions", () => {
+    const report = (e: Record<string, unknown>) => reportText({ ok: false, stage: "Tests", systemId: "s", durationMs: 1, shots: [], log: [], errors: [{ message: "s.test_x failed", ...e }] } as unknown as Parameters<typeof reportText>[0]);
+    expect(report({})).not.toContain(POSITIONS_NOTE);
+    expect(report({ events: [{ tick: 3, name: "player.blocked", payload: {}, blockedBy: "rock_brown_small#32 at (11, 15)" }] })).toContain(POSITIONS_NOTE);
+    expect(report({ denied: [{ op: "sim.teleport", code: "denied", msg: "(22, 6) in clearing isn't free for the player" }] })).toContain(POSITIONS_NOTE);
   });
 });
 

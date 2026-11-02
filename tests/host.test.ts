@@ -1,6 +1,7 @@
 import { buildWorld } from "../src/world/map";
 import { Host } from "../src/engine/host";
 import { BASE_AREA } from "../src/engine/types";
+import { loadBaseSystems } from "../src/systems/base";
 
 function setup() {
   const eng = buildWorld();
@@ -169,6 +170,21 @@ describe("transactions (4.4)", () => {
 });
 
 describe("sim.events", () => {
+  test("player.blocked carries what was in the way", () => {
+    const host = new Host(buildWorld()); loadBaseSystems(host);
+    host.addSystem({ id: "tester" }, false);
+    const call = (req: Record<string, unknown>) => host.call("tester", req as { op: string });
+    let seen: unknown = null;
+    host.systems.get("tester")!.module.test_b = () => {
+      call({ op: "sim.teleport", x: 10, y: 15 });
+      call({ op: "sim.face", dir: "right" });
+      call({ op: "sim.walk", dir: "right" });
+      seen = call({ op: "sim.events", name: "player.blocked" });
+      call({ op: "check", cond: true, label: "ran" });
+    };
+    host.runTest("tester", "b");
+    expect(seen).toMatchObject({ ok: true, r: [{ payload: { target: { x: 11, y: 15 } }, blockedBy: expect.stringMatching(/^rock_brown_small#\d+ at \(11, 15\)$/) }] });
+  });
   test("include migrate's events, marked, then the test's own", () => {
     const { host, call } = setup();
     call({ op: "emit", name: "tester.ping", payload: { n: 1 } }); // as if from migrate, before the test
@@ -212,6 +228,8 @@ describe("areas and travel", () => {
     denied(call({ op: "travel", area: BASE_AREA, x: 17, y: 9 })); // crate
     denied(call({ op: "travel", area: BASE_AREA, x: 5, y: 6 }));  // trunk of the big tree at (4, 6)
     expect(player.pos).toEqual({ x: 15, y: 11, area: BASE_AREA });
+    // The denial names what is in the way, even when it belongs to the base map.
+    expect(call({ op: "travel", area: BASE_AREA, x: 11, y: 15 })).toMatchObject({ ok: false, msg: expect.stringMatching(/in the way: rock_brown_small#\d+ at \(11, 15\)/) });
     expect(call({ op: "travel", area: BASE_AREA, x: 4, y: 6 })).toMatchObject({ ok: true }); // beside the trunk
   });
 });

@@ -31,7 +31,7 @@ export interface DenialEntry { tick: number; system: string; op: string; code: C
 /** A spawn or place that didn't go where it was asked, because something was in the way there. */
 export interface RelocationEntry { tick: number; system: string; op: string; what: string; asked: Pos; placed: Pos; inTheWay: string }
 export interface NearLimitEntry { tick: number; system: string; limit: string; used: number; max: number }
-export interface EventEntry { tick: number; name: string; payload: Record<string, unknown>; during?: "migrate" | "test" }
+export interface EventEntry { tick: number; name: string; payload: Record<string, unknown>; during?: "migrate" | "test"; /** player.blocked: what was in the way. */ blockedBy?: string }
 /** Two systems wrote the same entity while handling one event (logged, never failed). */
 export interface OverlapEntry { tick: number; event: string; entity: number; systems: string[] }
 /** A handler call that threw and was rolled back. */
@@ -409,7 +409,12 @@ export class Host {
 
   /** Deliver an event to every system that reacts to it, in load order, inside the open transaction (or one each). */
   private deliver(name: string, payload: Record<string, unknown>) {
-    const entry = { tick: this.eng.tickCount, name, payload };
+    const entry: EventEntry = { tick: this.eng.tickCount, name, payload };
+    if (name === "player.blocked") {
+      // Name what stopped the player, so a failure report shows it even when it isn't the system's own.
+      const t = payload.target as Pos | undefined; const p = this.eng.player();
+      if (t && p) { const w = this.inTheWay(this.eng.spriteIdOf(p), true, t, p.id); if (w) entry.blockedBy = w; }
+    }
     this.events.push(entry); if (this.events.length > LIMITS.eventLogMax) this.events.shift();
     this.capture?.events.push({ ...entry, during: "test" });
     if ((name === "player.moved" || name === "player.blocked") && this.lastAttemptTick !== this.eng.tickCount) { this.lastAttemptTick = this.eng.tickCount; this.stepAttempts++; }
@@ -608,6 +613,11 @@ export class Host {
       }
     }
     return [...out].map(([what, tiles]) => tiles.length ? `${what} at ${tiles.join(", ")}` : what).join("; ");
+  }
+  /** " (in the way: ...)" for the player at `to`, or "" when nothing can be named. */
+  private wayNote(player: EntRec, to: Pos): string {
+    const w = this.inTheWay(this.eng.spriteIdOf(player), true, to, player.id);
+    return w ? ` (in the way: ${w})` : "";
   }
   private placement(what: string, sprite: string, blocking: boolean, pos: Pos, exact: boolean, selfId = 0, system = "", op = ""): Pos {
     if (this.fits(sprite, blocking, pos, selfId)) return pos;
@@ -840,7 +850,7 @@ export class Host {
       }
       case "travel": {
         const player = eng.player()!; const to: Pos = { x, y, area };
-        if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `travel target (${x}, ${y}) in ${area} isn't free for the player`);
+        if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `travel target (${x}, ${y}) in ${area} isn't free for the player${this.wayNote(player, to)}`);
         const from = player.pos?.area ?? area;
         this.write(() => { eng.setPos(player.id, to); return [player]; });
         this.noteWrite(system, player.id);
@@ -931,7 +941,7 @@ export class Host {
       }
       case "sim.teleport": {
         const player = eng.player()!; const to: Pos = { x, y, area };
-        if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `(${x}, ${y}) in ${area} isn't free for the player`);
+        if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `(${x}, ${y}) in ${area} isn't free for the player${this.wayNote(player, to)}`);
         this.write(() => { eng.setPos(player.id, to); return [player]; });
         return null;
       }

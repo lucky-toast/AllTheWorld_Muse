@@ -30,6 +30,11 @@
 // So never assume the spot you asked for: read it back (posOf(id) after spawn, place's return)
 // and work from that, in code and in tests. A test that checks p.x == 21 because migrate asked
 // for 21 fails whenever a tree stood there; check against posOf, or where the thing really is.
+// The same goes for every position in your prompt (the map image, entity counts, coordinates in
+// the task): they were captured when the prompt was built and are only a rough guide. Tests run
+// on a fresh map with every system's migrate, and migrate later runs on the live world as it is
+// then, so neither matches that capture. Find spots when the code runs: spaceFind, isFree, at,
+// posOf, doorOf.
 import { send, failure, truncated, op, tileReq, done, numText, JsonParser } from "./internal";
 
 // ============================== JSON ==============================
