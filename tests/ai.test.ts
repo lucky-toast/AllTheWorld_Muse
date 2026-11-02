@@ -47,22 +47,14 @@ const aiSys = (id: string, extra: Record<string, unknown> = {}) => testSystem({ 
 // The companion files and templates
 // ---------------------------------------------------------------------------
 describe("companion files", () => {
-  test.each([
-    ["docs/designer.md", "src/ai/prompts/designer.md"],
-    ["docs/planner.md", "src/ai/prompts/planner.md"],
-    ["docs/pillars.md", "src/ai/pillars.md"],
-  ])("%s is copied byte for byte to %s", (a, b) => {
-    expect(readFileSync(b).equals(readFileSync(a))).toBe(true);
-  });
-
   test("the designer prompt is designer.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPrompt(host, "Let the player skip stones on the pond.");
     expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
-    const tpl = docSection("docs/designer.md", "System message");
+    const tpl = docSection("src/ai/prompts/designer.md", "System message");
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
-    expect(p.slots.PILLARS).toBe(read("docs/pillars.md").trim());
+    expect(p.slots.PILLARS).toBe(read("src/ai/pillars.md").trim());
     expect(p.slots.API).toBe(read("src/sdk/index.ts").trim());
     expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
   });
@@ -88,14 +80,14 @@ describe("companion files", () => {
 
   test("the repair message is designer.md's repair section exactly, apart from its slots", () => {
     const msg = buildRepairMessage("Compile", "- module.ts:2:10 nope");
-    expect(msg).toBe(fillByHand(docSection("docs/designer.md", "Repair message"), { STAGE: "Compile", REPORT: "- module.ts:2:10 nope" }));
+    expect(msg).toBe(fillByHand(docSection("src/ai/prompts/designer.md", "Repair message"), { STAGE: "Compile", REPORT: "- module.ts:2:10 nope" }));
   });
 
   test("the planner prompt is planner.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPlannerPrompt(host, cleanWish("How can I eat this fish?"));
     expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "BASE_SYSTEMS", "CATALOG_TAGS", "ENTITY_COUNTS", "MAX_STEPS", "NEWEST_AI_SYSTEM", "PILLARS", "PLAYER", "TERRAIN_COUNTS", "WISH"]);
-    const tpl = docSection("docs/planner.md", "System message");
+    const tpl = docSection("src/ai/prompts/planner.md", "System message");
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.MAX_STEPS).toBe("4");
     expect(p.rest).toContain("<player_wish>How can I eat this fish?</player_wish>");

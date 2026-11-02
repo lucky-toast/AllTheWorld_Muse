@@ -2,7 +2,7 @@
 
 A small 2D top-down browser game that grows while it is played. The player types a wish, a planner AI splits it into a few small systems, a designer AI writes each one as a manifest plus an AssemblyScript module, an automatic pipeline checks it, and it goes live in the running game. No person reviews anything: the pipeline and the sandbox are the approval.
 
-Vite, TypeScript, plain Canvas 2D (no game framework), Vitest. The design is [docs/spec.md](docs/spec.md); the prompts are [docs/designer.md](docs/designer.md) and [docs/planner.md](docs/planner.md), and the pillars are [docs/pillars.md](docs/pillars.md). All three are copied byte for byte into `src/ai/`, and a test keeps them in step.
+Vite, TypeScript, plain Canvas 2D (no game framework), Vitest. The design is [docs/spec.md](docs/spec.md); the prompts are [src/ai/prompts/designer.md](src/ai/prompts/designer.md) and [src/ai/prompts/planner.md](src/ai/prompts/planner.md), and the pillars are [src/ai/pillars.md](src/ai/pillars.md).
 
 ## How to run
 

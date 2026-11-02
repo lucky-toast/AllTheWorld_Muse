@@ -41,7 +41,6 @@ describe("map slot", () => {
     expect(a.rest).toContain("(attached separately): (See the attached map image.)");
     expect(a.cached + a.rest).not.toContain("{{");
     expect(b.cached).toBe(a.cached);
-    expect(read("src/ai/prompts/designer.md")).toBe(read("docs/designer.md"));
   });
 });
 

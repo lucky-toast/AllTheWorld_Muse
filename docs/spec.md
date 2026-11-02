@@ -4,11 +4,11 @@ Nov 1, 2026 · single source of truth for the rebuild
 
 This file merges every architecture decision made so far: the original kickoff and pipeline prompts, the sandbox design, the sandbox implementation guide, the planner and designer guide, and the later decisions (no director, player wishes, succession with `replaces`). Where those older documents disagree with this one, this one wins. If something here turns out to be impossible or much harder than expected, stop and report it rather than inventing a workaround.
 
-Three companion files sit next to this one and are copied into the game as they are:
+Three companion files live in the game source, and the game reads them as they are:
 
-- `designer.md`: the designer prompt template. It becomes `src/ai/prompts/designer.md`.
-- `planner.md`: the planner prompt template. It becomes `src/ai/prompts/planner.md`.
-- `pillars.md`: the design pillars. It becomes `src/ai/pillars.md`.
+- `src/ai/prompts/designer.md`: the designer prompt template.
+- `src/ai/prompts/planner.md`: the planner prompt template.
+- `src/ai/pillars.md`: the design pillars.
 
 Toast owns the wording of all three. Don't reword them. If a slot or instruction doesn't fit the code, flag it in your final report instead of editing the text.
 
@@ -434,7 +434,7 @@ Pause ticks and input, play the ~2 s leaf transition (`fx_leaf` swirling across 
 
 ### 13.3 Designer (`src/ai/designer.ts`)
 
-Builds the prompt from `src/ai/prompts/designer.md` (the companion `designer.md`, copied verbatim; it has a `# System message` section and a `# Repair message` section). Slots:
+Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has a `# System message` section and a `# Repair message` section). Slots:
 
 | Slot | Content |
 | --- | --- |
@@ -473,7 +473,7 @@ entity types added:
 
 ### 13.4 Planner (`src/ai/planner.ts`)
 
-Builds `src/ai/prompts/planner.md` (the companion `planner.md`, copied verbatim) with the same section format and the same cache split. Slots:
+Builds `src/ai/prompts/planner.md` (the companion file) with the same section format and the same cache split. Slots:
 
 | Slot | Content |
 | --- | --- |
