@@ -21,7 +21,7 @@ export const TUNING = {
   timeSpeeds: [1, 4, 16],
   // Phase start hours (24h clock). Night (20->5) is shorter than the waking day.
   phases: { dawn: 5, day: 7, dusk: 17, night: 20 } as Record<string, number>,
-  // Player's faint glow, given by daynight.migrate (Phase 2).
+  // Player's faint glow, given by daynight.migrate.
   playerLight: { radius: 34, color: "#ffd9a0", strength: 0.85 },
   // Lighting per phase: darkness overlay colour + alpha (0 = full daylight).
   lighting: {
@@ -42,6 +42,10 @@ export const TUNING = {
   heldLiftPx: 10,
   // Longest real frame the fixed-step loop catches up on, in ms (a stalled tab doesn't fast-forward).
   maxFrameMs: 250,
+  // Most ticks sim.walk holds a key per step before giving up (a blocked or focused player never steps).
+  simWalkTicksPerStep: 300,
+  // Most ticks one sim.wait may run (10 game minutes at 1x).
+  simWaitMaxTicks: 36_000,
   // Size of every area in tiles (the clearing and every area systems create).
   areaW: 30,
   areaH: 20,

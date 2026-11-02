@@ -44,14 +44,12 @@ describe("host basics", () => {
     eng.destroy(id);
     denied(call({ op: "get", id, comp: "sprite" }), "missing");
   });
-  test("later-phase requests answer 'not yet'", () => {
+  test("test-only requests are refused outside tests", () => {
     const { call, host } = setup();
-    expect(call({ op: "timer", ticks: 5, name: "x" })).toMatchObject({ ok: false, code: "denied", msg: expect.stringMatching(/not yet/) });
-    expect(call({ op: "focus", mode: "freeze" })).toMatchObject({ msg: expect.stringMatching(/not yet/) });
     denied(call({ op: "sim.wait", ticks: 1 }), "phase");
     denied(call({ op: "check", cond: true, label: "x" }), "phase");
     host.mode = "test";
-    expect(call({ op: "sim.wait", ticks: 1 })).toMatchObject({ code: "denied", msg: expect.stringMatching(/not yet/) });
+    expect(call({ op: "sim.wait", ticks: 1 })).toMatchObject({ ok: true });
     denied(call({ op: "state.getReplaced", id: "old" }), "phase");
   });
 });

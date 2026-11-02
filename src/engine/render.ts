@@ -9,11 +9,6 @@ const HUD_H = 28;
 export const MAP_PX_H = 320;
 export const NATIVE_W = 480, NATIVE_H = MAP_PX_H + HUD_H;
 
-/** Hooks drawn in Phase 2: the one-line E prompt above the target, and the overlay panel. */
-export const renderHooks: {
-  prompt: (ctx: CanvasRenderingContext2D, eng: Engine) => void;
-  overlay: (ctx: CanvasRenderingContext2D, eng: Engine) => void;
-} = { prompt: () => {}, overlay: () => {} };
 
 type AnyImage = { width: number; height: number };
 const images = new Map<string, AnyImage>();
@@ -94,6 +89,12 @@ export function renderPos(rec: EntRec): { x: number; y: number } | null {
   return rec.pos;
 }
 
+/** The entities the renderer draws: those with a sprite in the player's current area. */
+export function drawnEntities(eng: Engine): EntRec[] {
+  const area = eng.currentArea();
+  return [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("sprite"));
+}
+
 export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, NATIVE_W, NATIVE_H);
@@ -103,7 +104,7 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   // Terrain
   if (tiles) for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
   // Entities with a sprite, by layer, then y, then z
-  const recs = [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("sprite"));
+  const recs = drawnEntities(eng);
   const spr = (r: EntRec) => r.comps.get("sprite") as SpriteComp;
   const order = (l: string) => (l === "ground" ? 0 : l === "object" ? 1 : l === "above" ? 2 : 3);
   const layerOf = (r: EntRec) => order(catalogGet(spr(r).id)?.layer ?? "object");
@@ -164,12 +165,42 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   }
   // Screen tint
   if (eng.tint) { ctx.globalAlpha = eng.tint.alpha * (1 - eng.tint.t / eng.tint.max); ctx.fillStyle = eng.tint.color; ctx.fillRect(0, 0, NATIVE_W, MAP_PX_H); ctx.globalAlpha = 1; }
-  // E prompt, then the overlay panel (Phase 2)
-  renderHooks.prompt(ctx, eng);
-  renderHooks.overlay(ctx, eng);
+  // E prompt, then the overlay panel
+  drawPrompt(ctx, eng);
+  drawOverlay(ctx, eng);
   // Banner
   if (eng.banner) { ctx.globalAlpha = Math.min(1, eng.banner.t / 30); ctx.fillStyle = "rgba(20,24,14,0.75)"; ctx.fillRect(0, 6, NATIVE_W, 14); ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0"; ctx.textAlign = "center"; drawFixedText(ctx, eng.banner.text, NATIVE_W / 2 - (eng.banner.text.length * 5) / 2, 16, 5); ctx.textAlign = "left"; ctx.globalAlpha = 1; }
   renderHud(ctx, eng);
+}
+
+const TEXT_CELL = 5;
+/** The one-line E prompt, centred above the target tile, kept on the map. */
+function drawPrompt(ctx: CanvasRenderingContext2D, eng: Engine) {
+  const p = eng.prompt; if (!p || p.area !== eng.currentArea()) return;
+  const w = p.text.length * TEXT_CELL + 8, h = 11;
+  const x = Math.max(1, Math.min(NATIVE_W - w - 1, Math.round(p.x * 16 + 8 - w / 2)));
+  let y = p.y * 16 - h - 3; if (y < 1) y = (p.y + 1) * 16 + 3; // no room above: draw below the tile
+  ctx.fillStyle = "rgba(20,24,14,0.82)"; ctx.fillRect(x, y, w, h);
+  ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0";
+  drawFixedText(ctx, p.text, x + 4, y + 8, TEXT_CELL);
+}
+/** The plain ui.overlay panel at the bottom of the map (the final layout waits on the asset review). */
+function drawOverlay(ctx: CanvasRenderingContext2D, eng: Engine) {
+  const o = eng.overlay?.value; if (!o) return;
+  const lines = o.lines; const h = 8 + (o.title ? 11 : 0) + lines.length * 10 + (o.bar ? 12 : 0);
+  const x = 8, w = NATIVE_W - 16, top = MAP_PX_H - h - 6;
+  ctx.fillStyle = "rgba(20,24,14,0.88)"; ctx.fillRect(x, top, w, h);
+  ctx.fillStyle = "#5a6b42"; ctx.fillRect(x, top, w, 1);
+  ctx.font = "8px monospace"; let y = top + 11;
+  if (o.title) { ctx.fillStyle = "#cdbf8a"; drawFixedText(ctx, o.title, x + 6, y, TEXT_CELL); y += 11; }
+  ctx.fillStyle = "#f2ecd0";
+  for (const line of lines) { drawFixedText(ctx, line, x + 6, y, TEXT_CELL); y += 10; }
+  if (o.bar) {
+    const bw = w - 12 - (o.bar.label ? o.bar.label.length * TEXT_CELL + 6 : 0);
+    ctx.fillStyle = "#3a4a24"; ctx.fillRect(x + 6, y - 6, bw, 6);
+    ctx.fillStyle = "#cdbf8a"; ctx.fillRect(x + 6, y - 6, bw * Math.max(0, Math.min(1, o.bar.value)), 6);
+    if (o.bar.label) { ctx.fillStyle = "#f2ecd0"; drawFixedText(ctx, o.bar.label, x + 12 + bw, y, TEXT_CELL); }
+  }
 }
 
 function renderHud(ctx: CanvasRenderingContext2D, eng: Engine) {

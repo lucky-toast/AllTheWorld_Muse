@@ -2,9 +2,21 @@
 // goes through host.call(systemId, request). Each request passes five checks in
 // order: shape, phase, blocked actions, budget, invariants. A denial is a normal
 // response (never a crash) and is logged with the near-limit log (4.7).
+//
+// The host also runs the systems: it loads them (registry, module, migrate), calls
+// their handlers as transactions, delivers events (spec 8), fires timers and tweens,
+// owns focus (spec 7), the controls and the E resolver (spec 6), and the test-only
+// sim.* and check requests.
 import { catalogGet, catalogFind } from "./catalog";
 import { Engine, cloneJson, type EntRec, type Overlay } from "./engine";
-import { ENGINE_OWNER, SYSTEM_ID_RE, type Manifest, type Pos, type SpriteComp } from "./types";
+import { ENGINE_OWNER, type Pos, type SpriteComp } from "./types";
+import { validateManifest, type Manifest } from "./manifest";
+import { Registry, ENGINE_EVENTS } from "./registry";
+import { checkPayload } from "./events";
+import { Focus, type FocusMode } from "./focus";
+import { Controls, KEYS, type Key } from "./input";
+import { Interactions } from "./interactions";
+import type { LoadedSystem, SystemDef, SystemModule } from "./systems";
 import { LIMITS, TUNING } from "../tuning";
 
 export type Code = "bad_request" | "denied" | "missing" | "limit" | "phase";
@@ -15,10 +27,15 @@ export type HostMode = "live" | "test" | "shot";
 /** The handler names a transaction can wrap (spec 4.4). */
 export type CallKind = "perform" | "onEvent" | "onTick" | "onTimer" | "onInput" | "onTween" | "migrate" | "test" | "shot";
 
-export interface SystemEntry { id: string; manifest: Manifest; base: boolean; order: number; ownedEvents: Set<string> }
 export interface DenialEntry { tick: number; system: string; op: string; code: Code; msg: string }
 export interface NearLimitEntry { tick: number; system: string; limit: string; used: number; max: number }
 export interface EventEntry { tick: number; name: string; payload: Record<string, unknown> }
+/** Two systems wrote the same entity while handling one event (logged, never failed). */
+export interface OverlapEntry { tick: number; event: string; entity: number; systems: string[] }
+/** A handler call that threw and was rolled back. */
+export interface FaultEntry { tick: number; system: string; kind: CallKind; msg: string }
+/** What the running test has recorded (checks and every event since it started). */
+export interface TestCapture { checks: { label: string; passed: boolean }[]; events: EventEntry[] }
 
 class Denial extends Error { constructor(public code: Code, msg: string) { super(msg); } }
 const deny = (code: Code, msg: string): never => { throw new Denial(code, msg); };
@@ -54,17 +71,12 @@ const OPS: Record<string, Record<string, FieldType>> = {
   "ui.overlay": { panel: "json" },
   "sim.walk": { dir: "name", "steps?": "int" }, "sim.face": { dir: "name" }, "sim.interact": {}, "sim.cycle": {},
   "sim.give": { type: "name" }, "sim.teleport": { ...TILE }, "sim.wait": { ticks: "int" },
-  "sim.time": { phaseOrHour: "json" }, "sim.key": { key: "name", kind: "name" },
+  "sim.time": { phaseOrHour: "json" }, "sim.key": { key: "name", kind: "name" }, "sim.events": { "name?": "name" },
   check: { cond: "bool", label: "text" },
 };
-/** Requests that need later phases. They pass the shape and phase checks, then are denied with "not yet". */
-const NOT_YET: Record<string, string> = {
-  timer: "timer callbacks arrive in Phase 2", focus: "focus arrives in Phase 2", release: "focus arrives in Phase 2",
-  "fx.tween": "onTween arrives in Phase 3", "sim.walk": "sim arrives in Phase 2", "sim.face": "sim arrives in Phase 2",
-  "sim.interact": "sim arrives in Phase 2", "sim.cycle": "sim arrives in Phase 2", "sim.give": "sim arrives in Phase 2",
-  "sim.teleport": "sim arrives in Phase 2", "sim.wait": "sim arrives in Phase 2", "sim.time": "sim arrives in Phase 2",
-  "sim.key": "sim arrives in Phase 2", check: "check arrives in Phase 2",
-};
+const DIRS = ["up", "down", "left", "right"];
+/** Errors thrown out of a module carry the id of the system whose handler threw. */
+const FAULT_SYSTEM = Symbol("faultSystem");
 const PLAYER_GUARDED = new Set(["destroy", "lift", "move", "place"]);
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const NONPRINT_RE = /\p{C}/u;
@@ -80,37 +92,111 @@ function isPlainJson(v: unknown, depth = 0): boolean {
 function utf8Len(s: string): number { return s.length * 3 <= LIMITS.requestBytes ? s.length : new TextEncoder().encode(s).length; }
 
 interface Txn { system: string; kind: CallKind; effects: (() => void)[] }
+interface EmitFrame { event: string; writes: Map<number, Set<string>> }
 
 export class Host {
-  systems = new Map<string, SystemEntry>();
+  /** Loaded systems by id, in load order. */
+  systems = new Map<string, LoadedSystem>();
+  registry = new Registry([]);
+  /** Goes up whenever the registry is rebuilt (the E resolver re-runs). */
+  registryVersion = 0;
+  focus: Focus;
+  controls: Controls;
+  interactions: Interactions;
   mode: HostMode = "live";
   /** System whose `migrate` is running, if any (state.getReplaced is allowed only then). */
   migrating: string | null = null;
   denials: DenialEntry[] = [];
   nearLimits: NearLimitEntry[] = [];
   events: EventEntry[] = [];
+  overlaps: OverlapEntry[] = [];
+  faults: FaultEntry[] = [];
+  /** The running test's checks and events, or null outside tests. */
+  capture: TestCapture | null = null;
   /** Called when a transaction rolls back (strikes arrive in Phase 3). */
   onFault: ((system: string, kind: CallKind, message: string) => void) | null = null;
   private txn: Txn | null = null;
+  private emitDepth = 0;
+  private emitFrames: EmitFrame[] = [];
+  /** Ticks on which the player tried a step (player.moved or player.blocked fired), for sim.walk. */
+  private stepAttempts = 0;
+  private lastAttemptTick = -1;
   private counterTick = -1;
   private calls = new Map<string, number>();
   private spawnsTick = new Map<string, number>();
   private fxTick = new Map<string, number>();
   private lastBanner = new Map<string, number>();
 
-  constructor(public eng: Engine) {}
+  constructor(public eng: Engine) {
+    this.focus = new Focus(eng);
+    this.focus.onForcedEnd = (system) => this.deliverInput(system, "escape", "down", true);
+    this.controls = new Controls(this);
+    this.interactions = new Interactions(this);
+  }
 
   // ======================= systems =======================
-  /** Register a system's manifest: its entity types and components (with ownership) and the events it owns. */
-  addSystem(m: Partial<Manifest> & { id: string }, base: boolean): SystemEntry {
-    if (!SYSTEM_ID_RE.test(m.id)) throw new Error(`bad system id "${m.id}"`);
-    if (this.systems.has(m.id)) throw new Error(`system "${m.id}" is already loaded`);
-    const manifest: Manifest = Object.freeze({ why: "", buildsOn: [], replaces: [], entities: {}, components: {}, interactions: [], reactions: [], emits: {}, shots: [], ...m }) as Manifest;
+  /**
+   * Load a system: validate and freeze its manifest, register its entity types and components,
+   * rebuild the registry, create its module, run `migrate` (one transaction) and emit system.loaded.
+   * Throws (and loads nothing) if the manifest is invalid, the id is taken or migrate fails.
+   */
+  load(def: SystemDef): LoadedSystem {
+    const raw = def.manifest as { id?: unknown; replaces?: unknown };
+    const inherited = Array.isArray(raw?.replaces) ? raw.replaces.flatMap((id) => Object.keys(this.systems.get(id as string)?.manifest.emits ?? {})) : [];
+    const res = validateManifest(def.manifest, { base: def.base, inherited });
+    if (!res.ok) throw new Error(`manifest of "${String(raw?.id)}" is invalid: ${res.errors.join("; ")}`);
+    const manifest = res.manifest;
+    if (this.systems.has(manifest.id)) throw new Error(`system "${manifest.id}" is already loaded`);
+    const snap = this.eng.snapshot();
     for (const [n, t] of Object.entries(manifest.entities)) this.eng.registerType(n, t, manifest.id);
     for (const c of Object.keys(manifest.components)) this.eng.declareComponent(c, manifest.id);
-    const entry: SystemEntry = { id: manifest.id, manifest, base, order: this.systems.size, ownedEvents: new Set(Object.keys(manifest.emits)) };
-    this.systems.set(manifest.id, entry);
-    return entry;
+    const sys: LoadedSystem = { id: manifest.id, manifest, base: def.base, def, module: {} };
+    this.systems.set(sys.id, sys);
+    this.rebuildRegistry();
+    sys.module = def.create((req) => this.call(sys.id, req));
+    if (sys.module.migrate) {
+      const r = this.invoke(sys.id, "migrate", () => sys.module.migrate!());
+      if (!r.ok) {
+        this.systems.delete(sys.id); this.rebuildRegistry(); this.eng.restore(snap);
+        throw new Error(`migrate of "${sys.id}" failed: ${r.error}`);
+      }
+    }
+    this.emitEngine("system.loaded", { id: sys.id });
+    return sys;
+  }
+
+  /** Load a manifest with no handlers (tests and tools). Missing fields get defaults. */
+  addSystem(m: Partial<Manifest> & { id: string }, base: boolean): LoadedSystem {
+    return this.load({ manifest: { why: "(test)", ...m }, base, create: () => ({}) });
+  }
+
+  /**
+   * Unload a system: its entities, components and tags stay in the world without behaviour; its
+   * focus, timers, tweens, HUD slots and overlay are cleared. Emits system.unloaded.
+   */
+  unload(id: string, reason: string) {
+    if (!this.systems.has(id)) return;
+    this.focus.endIfHolder(id, "unload");
+    this.systems.delete(id);
+    this.eng.timers = this.eng.timers.filter((t) => t.system !== id);
+    this.eng.tweens = this.eng.tweens.filter((t) => t.system !== id);
+    for (const [k, slot] of this.eng.hudSlots) if (slot.owner === id) this.eng.hudSlots.delete(k);
+    if (this.eng.overlay?.owner === id) this.eng.overlay = null;
+    this.rebuildRegistry();
+    this.emitEngine("system.unloaded", { id, reason });
+  }
+
+  /** Shift+R: rebuild the registry and re-create every loaded module, keeping the world. Nothing is migrated or duplicated. */
+  reloadSystems() {
+    this.rebuildRegistry();
+    for (const sys of this.systems.values()) sys.module = sys.def.create((req) => this.call(sys.id, req));
+  }
+
+  private rebuildRegistry() {
+    this.registry = new Registry([...this.systems.values()].map((s) => s.manifest));
+    this.registryVersion++;
+    // The clock advances only while daynight is loaded.
+    this.eng.clockRunning = this.systems.has("daynight");
   }
 
   // ======================= transactions (4.4) =======================
@@ -121,12 +207,18 @@ export class Host {
     this.calls.clear();
     const txn: Txn = { system, kind, effects: [] };
     this.txn = txn; this.eng.journal = [];
+    const depth = this.emitDepth; const frames = this.emitFrames.length;
     try { fn(); }
     catch (e) {
       this.eng.rollbackTo(0);
       this.eng.journal = null; this.txn = null;
+      this.emitDepth = depth; this.emitFrames.length = frames;
       const msg = e instanceof Error ? e.message : String(e);
-      this.onFault?.(system, kind, msg);
+      const who = (e as { [FAULT_SYSTEM]?: string } | null)?.[FAULT_SYSTEM] ?? system;
+      this.pushLog(this.faults, { tick: this.eng.tickCount, system: who, kind, msg });
+      // The holder faulted: the engine takes the controls back.
+      this.focus.endIfHolder(who, "fault");
+      this.onFault?.(who, kind, msg);
       return { ok: false, error: msg };
     }
     this.eng.journal = null; this.txn = null;
@@ -134,6 +226,117 @@ export class Host {
     return { ok: true };
   }
   get inTransaction() { return this.txn !== null; }
+
+  /** Call one handler of a loaded system as a transaction (or inside the open one). A missing handler does nothing. */
+  callHandler(system: string, kind: CallKind, fn: (m: SystemModule) => void): { ok: true } | { ok: false; error: string } {
+    const sys = this.systems.get(system); if (!sys) return { ok: true };
+    return this.invoke(system, kind, () => {
+      try { fn(sys.module); }
+      catch (e) {
+        const err = e instanceof Error ? e : new Error(String(e));
+        if (!(FAULT_SYSTEM in err)) Object.assign(err, { [FAULT_SYSTEM]: system });
+        throw err;
+      }
+    });
+  }
+
+  /** E: perform(verb, target, held) on the owner, as one transaction. */
+  runPerform(owner: string, verb: string, target: number, held: number) {
+    return this.callHandler(owner, "perform", (m) => m.perform?.(verb, target, held));
+  }
+
+  /** A key for a system's onInput (borrow focus, movement without focus, or "escape" when focus is taken back). */
+  deliverInput(system: string, key: Key | string, kind: string, ownTransaction = false) {
+    if (ownTransaction && this.txn) {
+      // Focus ended inside a transaction (the holder unloaded mid-call): tell it once the call is done.
+      this.txn.effects.push(() => this.deliverInput(system, key, kind));
+      return;
+    }
+    this.callHandler(system, "onInput", (m) => m.onInput?.(key, kind));
+  }
+
+  // ======================= events (spec 8) =======================
+  /** Emit an engine-owned event (player.traveled, interaction.performed, time.jumped, system.*). */
+  emitEngine(name: string, payload: Record<string, unknown>) {
+    const shape = ENGINE_EVENTS[name];
+    const chk = checkPayload(this.eng, name, shape, payload);
+    if (!chk.ok) throw new Error(chk.msg);
+    this.deliver(name, chk.payload);
+  }
+
+  /** Deliver an event to every system that reacts to it, in load order, inside the open transaction (or one each). */
+  private deliver(name: string, payload: Record<string, unknown>) {
+    const entry = { tick: this.eng.tickCount, name, payload };
+    this.events.push(entry); if (this.events.length > LIMITS.eventLogMax) this.events.shift();
+    this.capture?.events.push(entry);
+    if ((name === "player.moved" || name === "player.blocked") && this.lastAttemptTick !== this.eng.tickCount) { this.lastAttemptTick = this.eng.tickCount; this.stepAttempts++; }
+    const reactors = this.registry.reactors(name); if (!reactors.length) return;
+    const json = JSON.stringify(payload);
+    const frame: EmitFrame = { event: name, writes: new Map() };
+    this.emitDepth++; this.emitFrames.push(frame);
+    try {
+      for (const id of reactors) {
+        if (!this.systems.has(id)) continue;
+        const r = this.callHandler(id, "onEvent", (m) => m.onEvent?.(name, json));
+        void r; // outside a transaction each reactor is its own; a fault there is logged and rolled back alone
+      }
+    } finally {
+      this.emitDepth--; this.emitFrames.pop();
+    }
+    for (const [entity, systems] of frame.writes) if (systems.size > 1) this.pushLog(this.overlaps, { tick: this.eng.tickCount, event: name, entity, systems: [...systems] });
+  }
+
+  /** Note that `system` wrote `entity`, for the overlap log. */
+  private noteWrite(system: string, entity: number) {
+    for (const f of this.emitFrames) { let s = f.writes.get(entity); if (!s) { s = new Set(); f.writes.set(entity, s); } s.add(system); }
+  }
+
+  // ======================= ticking =======================
+  /** One tick: the engine, then keys, every system's onTick in load order, timers, tweens, focus limits and the E resolver. */
+  tick() {
+    this.eng.tick();
+    this.syncCounters();
+    this.controls.tick();
+    for (const sys of [...this.systems.values()]) if (sys.module.onTick && this.systems.has(sys.id)) this.callHandler(sys.id, "onTick", (m) => m.onTick!());
+    this.fireTimers();
+    this.runTweens();
+    this.focus.tick();
+    this.interactions.refresh();
+  }
+
+  private fireTimers() {
+    const now = this.eng.tickCount;
+    const due = this.eng.timers.filter((t) => t.at <= now).sort((a, b) => a.at - b.at || a.seq - b.seq);
+    if (!due.length) return;
+    this.eng.timers = this.eng.timers.filter((t) => t.at > now);
+    // Each callback is its own transaction. Requests about an entity that is gone by now answer "missing".
+    for (const t of due) this.callHandler(t.system, "onTimer", (m) => m.onTimer?.(t.name));
+  }
+
+  private runTweens() {
+    if (!this.eng.tweens.length) return;
+    for (const tw of [...this.eng.tweens]) {
+      tw.t++;
+      const value = tw.from + (tw.to - tw.from) * (tw.t / tw.ticks);
+      if (tw.t >= tw.ticks) this.eng.tweens = this.eng.tweens.filter((x) => x !== tw);
+      this.callHandler(tw.system, "onTween", (m) => m.onTween?.(tw.id, value));
+    }
+  }
+
+  // ======================= tests (spec 4.2, test-only requests) =======================
+  /** Run `test_<name>` of a loaded system on this world. Passes when every check passed and at least one ran. */
+  runTest(system: string, name: string): { passed: boolean; checks: { label: string; passed: boolean }[]; events: EventEntry[]; error: string | null } {
+    const sys = this.systems.get(system);
+    const fn = sys?.module[`test_${name}`];
+    const capture: TestCapture = { checks: [], events: [] };
+    const mode = this.mode; this.mode = "test"; this.capture = capture;
+    let error: string | null = null;
+    try { if (!fn) throw new Error(`"${system}" has no test_${name}`); fn.call(sys!.module); }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+    finally { this.mode = mode; this.capture = null; }
+    const passed = !error && capture.checks.length > 0 && capture.checks.every((c) => c.passed);
+    return { passed, checks: capture.checks, events: capture.events.slice(-LIMITS.eventLogMax), error };
+  }
 
   // ======================= the dispatcher =======================
   call(system: string, request: unknown): Response {
@@ -151,8 +354,6 @@ export class Host {
     return res;
   }
 
-  /** Advance one tick (systems' onTick arrives with Phase 2). */
-  tick() { this.eng.tick(); }
 
   // ======================= checks =======================
   private dispatch(system: string, request: unknown): unknown {
@@ -171,7 +372,7 @@ export class Host {
     this.checkShape(req, shape);
     const op = req.op;
     const area = this.resolveArea(req);
-    if ("x" in shape && op !== "tile.get" && !eng.inMap(req.x as number, req.y as number)) deny("bad_request", `tile (${req.x}, ${req.y}) is outside the ${eng.width}x${eng.height} map`);
+    if ("x" in shape && op !== "tile.get" && op !== "at" && !eng.inMap(req.x as number, req.y as number)) deny("bad_request", `tile (${req.x}, ${req.y}) is outside the ${eng.width}x${eng.height} map`);
 
     // ---- 2. Phase ----
     if ((op.startsWith("sim.") || op === "check") && this.mode === "live") deny("phase", `${op} is only allowed while tests or shots run`);
@@ -179,7 +380,8 @@ export class Host {
       const id = req.id as string;
       if (this.migrating !== system || !sys?.manifest.replaces.includes(id)) deny("phase", `state.getReplaced("${id}") is only allowed during migrate of a system that replaces "${id}"`);
     }
-    if (NOT_YET[op]) deny("denied", `not yet: ${NOT_YET[op]}`);
+    if ((op === "sim.walk" || op === "sim.face" || op === "sim.interact" || op === "sim.cycle" || op === "sim.wait" || op === "sim.key") && this.txn)
+      deny("phase", `${op} runs ticks, so it can't be used inside a handler call`);
 
     // Entities named by id must exist (a request on a gone entity is "missing", not a fault).
     const rec = typeof req.id === "number" && op !== "catalog.get" && op !== "state.getReplaced" ? eng.rec(req.id) ?? deny("missing", `entity ${req.id} no longer exists`) : undefined;
@@ -191,7 +393,7 @@ export class Host {
     if (op === "tile.set" && player?.pos && player.pos.area === area && !this.walkableSprite(req.sprite as string)
       && eng.footprintOfRec(player).some((t) => t.x === req.x && t.y === req.y))
       deny("denied", `tile.set can't make the tile under the player unwalkable`);
-    if (op === "emit" && system !== ENGINE_OWNER && !sys!.ownedEvents.has(req.name as string))
+    if (op === "emit" && system !== ENGINE_OWNER && !this.registry.owns(system, req.name as string))
       deny("denied", `"${system}" doesn't own the event "${req.name}"; list it in emits with the "${system}." prefix`);
     if (op === "fx.tint") {
       if ((req.alpha as number) > LIMITS.tintMaxAlpha) deny("denied", `fx.tint alpha is capped at ${LIMITS.tintMaxAlpha}`);
@@ -260,11 +462,6 @@ export class Host {
   private pushLog<T>(log: T[], e: T) { log.push(e); if (log.length > LIMITS.logMax) log.splice(0, log.length - LIMITS.logMax); }
   /** Queue an effect in the open transaction (dropped on rollback) or apply it now. */
   private effect(fn: () => void) { if (this.txn) this.txn.effects.push(fn); else fn(); }
-  /** Record an engine/base event (delivery to reactions arrives with Phase 2). */
-  private logEvent(name: string, payload: Record<string, unknown>) {
-    this.events.push({ tick: this.eng.tickCount, name, payload });
-    if (this.events.length > LIMITS.eventLogMax) this.events.shift();
-  }
 
   /** Apply a write; if it would break an invariant, undo it and deny. */
   private write(affected: () => EntRec[]): void {
@@ -333,30 +530,37 @@ export class Host {
         if (live > LIMITS.liveEntitiesPerSystem) deny("limit", `over ${LIMITS.liveEntitiesPerSystem} live entities spawned by "${system}"`);
         let id = 0;
         this.write(() => { const r = eng.spawn(type, pos(), system); id = r.id; return [r]; });
+        this.noteWrite(system, id);
         this.spawnsTick.set(system, n);
         this.near(system, "spawnsPerTick", n, LIMITS.spawnsPerTick);
         this.near(system, "liveEntitiesPerSystem", live, LIMITS.liveEntitiesPerSystem);
         return id;
       }
-      case "destroy": this.write(() => { eng.destroy(rec!.id); return []; }); return null;
-      case "move": this.write(() => { eng.setPos(rec!.id, pos(), req.instant !== true); return [rec!]; }); return null;
-      case "lift": this.write(() => { eng.setPos(rec!.id, null); return [rec!]; }); return null;
-      case "place": this.write(() => { eng.setPos(rec!.id, pos()); return [rec!]; }); return null;
+      case "destroy": this.write(() => { eng.destroy(rec!.id); return []; }); this.noteWrite(system, rec!.id); return null;
+      case "move": this.write(() => { eng.setPos(rec!.id, pos(), req.instant !== true); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
+      case "lift": this.write(() => { eng.setPos(rec!.id, null); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
+      case "place": this.write(() => { eng.setPos(rec!.id, pos()); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
       case "set": {
         const comp = req.comp as string; const value = cloneJson(req.value);
         if (comp === "sprite") this.checkSpriteComp(value);
         this.write(() => { eng.setComp(rec!.id, comp, value); return [rec!]; });
+        this.noteWrite(system, rec!.id);
         return null;
       }
-      case "remove": this.write(() => { eng.setComp(rec!.id, req.comp as string, undefined); return [rec!]; }); return null;
-      case "tag": this.write(() => { eng.setTag(rec!.id, req.tag as string, true); return [rec!]; }); return null;
-      case "untag": this.write(() => { eng.setTag(rec!.id, req.tag as string, false); return [rec!]; }); return null;
+      case "remove": this.write(() => { eng.setComp(rec!.id, req.comp as string, undefined); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
+      case "tag": this.write(() => { eng.setTag(rec!.id, req.tag as string, true); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
+      case "untag": this.write(() => { eng.setTag(rec!.id, req.tag as string, false); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
       case "anim": {
         const spr = (rec!.comps.get("sprite") as SpriteComp | undefined) ?? { id: eng.spriteIdOf(rec!) };
-        if (!catalogGet(spr.id)?.anims?.[req.name as string]) deny("bad_request", `sprite "${spr.id}" has no anim "${req.name}"`);
-        if (req.callback !== undefined) deny("denied", "not yet: anim callbacks arrive with timers in Phase 2");
+        const anim = catalogGet(spr.id)?.anims?.[req.name as string];
+        if (!anim) deny("bad_request", `sprite "${spr.id}" has no anim "${req.name}"`);
         this.write(() => { eng.setComp(rec!.id, "sprite", { ...spr, anim: req.name as string }); return [rec!]; });
+        this.noteWrite(system, rec!.id);
+        const start = eng.animStart.get(rec!.id);
         eng.animStart.set(rec!.id, eng.tickCount);
+        eng.recordUndo(() => { if (start === undefined) eng.animStart.delete(rec!.id); else eng.animStart.set(rec!.id, start); });
+        // onTimer(callback) when a non-looping anim ends, or after one loop of a looping one.
+        if (req.callback !== undefined) this.addTimer(system, req.callback as string, animTicks(anim!));
         return null;
       }
       case "tile.set": {
@@ -387,10 +591,114 @@ export class Host {
         if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `travel target (${x}, ${y}) in ${area} isn't free for the player`);
         const from = player.pos?.area ?? area;
         this.write(() => { eng.setPos(player.id, to); return [player]; });
-        this.logEvent("player.traveled", { from, to: area, pos: { ...to } });
+        this.noteWrite(system, player.id);
+        this.emitEngine("player.traveled", { from, to: area, pos: { ...to } });
         return null;
       }
-      case "emit": deny("denied", "not yet: event delivery arrives in Phase 2"); return null;
+      case "emit": {
+        const name = req.name as string;
+        const shape = this.registry.eventShape.get(name) ?? ENGINE_EVENTS[name];
+        if (!shape) deny("denied", `no system declares the event "${name}"`);
+        const chk = checkPayload(eng, name, shape!, req.payload);
+        if (!chk.ok) deny("denied", chk.msg);
+        if (this.emitDepth >= LIMITS.emitDepth) deny("limit", `events nest at most ${LIMITS.emitDepth} levels deep`);
+        this.near(system, "emitDepth", this.emitDepth + 1, LIMITS.emitDepth);
+        this.deliver(name, (chk as { payload: Record<string, unknown> }).payload);
+        return null;
+      }
+      case "timer": {
+        const ticks = req.ticks as number;
+        if (ticks < 1) deny("bad_request", "timer ticks must be 1 or more");
+        this.addTimer(system, req.name as string, ticks);
+        return null;
+      }
+      case "fx.tween": {
+        const ticks = req.ticks as number;
+        if (ticks < 1) deny("bad_request", "tween ticks must be 1 or more");
+        const id = eng.nextTweenId++;
+        this.effect(() => eng.tweens.push({ id, system, from: req.from as number, to: req.to as number, ticks, t: 0 }));
+        return id;
+      }
+      case "focus": {
+        const mode = req.mode as FocusMode;
+        if (mode !== "borrow" && mode !== "freeze") deny("bad_request", `focus mode is "borrow" or "freeze"`);
+        if (system === ENGINE_OWNER) deny("denied", "the engine doesn't take focus");
+        const inPerform = this.txn?.kind === "perform" && this.txn.system === system;
+        const why = this.focus.take(system, mode, inPerform);
+        if (why) deny("denied", why);
+        return null;
+      }
+      case "release": { const why = this.focus.release(system); if (why) deny("denied", why); return null; }
+
+      // ---- test only (spec 4.2): played through the same paths as real keys ----
+      case "sim.walk": {
+        const dir = this.dir(req.dir); const steps = (req.steps as number | undefined) ?? 1;
+        if (steps < 1 || steps > 100) deny("bad_request", "steps must be 1 to 100");
+        const start = this.stepAttempts; const cap = TUNING.tapTurnTicks + steps * TUNING.simWalkTicksPerStep;
+        this.controls.press(dir);
+        for (let i = 0; i < cap && this.stepAttempts - start < steps; i++) this.tick();
+        this.controls.release(dir); this.tick();
+        return { tried: this.stepAttempts - start };
+      }
+      case "sim.face": {
+        const dir = this.dir(req.dir);
+        // Tapping the direction the player already faces would step, so a face that is already right does nothing.
+        if (eng.player()?.comps.get("facing") === dir) return null;
+        this.controls.press(dir); this.tick(); this.controls.release(dir); this.tick();
+        return null;
+      }
+      case "sim.interact": this.controls.press("e"); this.controls.release("e"); this.tick(); return null;
+      case "sim.cycle": this.controls.press("q"); this.controls.release("q"); this.tick(); return null;
+      case "sim.key": {
+        const key = req.key as Key; const kind = req.kind as string;
+        if (!KEYS.includes(key)) deny("bad_request", `key is one of ${KEYS.join(", ")}`);
+        if (kind !== "down" && kind !== "up") deny("bad_request", `kind is "down" or "up"`);
+        if (kind === "down") this.controls.press(key); else this.controls.release(key);
+        this.tick();
+        return null;
+      }
+      case "sim.wait": {
+        const ticks = req.ticks as number;
+        if (ticks < 0 || ticks > TUNING.simWaitMaxTicks) deny("bad_request", `ticks must be 0 to ${TUNING.simWaitMaxTicks}`);
+        for (let i = 0; i < ticks; i++) this.tick();
+        return null;
+      }
+      case "sim.give": {
+        const type = req.type as string; const player = eng.player()!;
+        if (!eng.types.has(type)) deny("denied", `"${type}" isn't a registered entity type`);
+        if (player.comps.has("held")) deny("denied", "the player's hands are full");
+        if (!player.pos) deny("denied", "the player isn't on the map");
+        let id = 0;
+        // Spawned on the player's tile, then lifted and put in hand, exactly as pick up does.
+        this.write(() => {
+          const r = eng.spawn(type, { ...player.pos! }, system); id = r.id;
+          eng.setPos(r.id, null); eng.setComp(player.id, "held", { id: r.id });
+          return [r, player];
+        });
+        return id;
+      }
+      case "sim.teleport": {
+        const player = eng.player()!; const to: Pos = { x, y, area };
+        if (!eng.footprintFree(eng.spriteIdOf(player), to, player.id)) deny("denied", `(${x}, ${y}) in ${area} isn't free for the player`);
+        this.write(() => { eng.setPos(player.id, to); return [player]; });
+        return null;
+      }
+      case "sim.time": {
+        const v = req.phaseOrHour;
+        if (!(typeof v === "number" && v >= 0 && v < 24) && !(typeof v === "string" && ["dawn", "day", "daytime", "dusk", "night"].includes(v))) deny("bad_request", "phaseOrHour is dawn, day, dusk, night or an hour from 0 to 24");
+        const j = eng.jumpClock(v as string | number);
+        this.emitEngine("time.jumped", { from: j.from, to: j.to });
+        return null;
+      }
+      case "sim.events": {
+        const name = req.name as string | undefined;
+        const evs = this.capture?.events ?? [];
+        return evs.filter((e) => !name || e.name === name).slice(-LIMITS.eventLogMax).map((e) => cloneJson(e));
+      }
+      case "check": {
+        this.capture?.checks.push({ label: req.label as string, passed: req.cond as boolean });
+        return null;
+      }
 
       // ---- effects (queued in a transaction, dropped on rollback) ----
       case "fx.particles": {
@@ -444,6 +752,16 @@ export class Host {
     return deny("bad_request", `unknown op "${req.op}"`);
   }
 
+  private dir(v: unknown): Key {
+    if (typeof v !== "string" || !DIRS.includes(v)) deny("bad_request", "dir is up, down, left or right");
+    return v as Key;
+  }
+  /** Queue onTimer(name) for `system` after `ticks` (dropped if the call rolls back). */
+  private addTimer(system: string, name: string, ticks: number) {
+    const eng = this.eng;
+    this.effect(() => eng.timers.push({ system, name, at: eng.tickCount + ticks, seq: eng.nextTimerSeq++ }));
+  }
+
   private takeFx(system: string, want: number): number {
     const used = this.fxTick.get(system) ?? 0; const kept = Math.max(0, Math.min(want, LIMITS.fxPerTick - used));
     this.fxTick.set(system, used + kept);
@@ -466,4 +784,10 @@ export class Host {
     if (p.bar !== undefined && (typeof p.bar !== "object" || p.bar === null || typeof p.bar.value !== "number" || (p.bar.label !== undefined && typeof p.bar.label !== "string"))) bad();
     return p;
   }
+}
+
+/** Ticks a sprite anim takes to end (non-looping) or to play one loop (looping), at the renderer's frame pace. */
+export function animTicks(a: { from?: number; to?: number; rows?: number[]; fps?: number }): number {
+  const span = a.rows ? a.rows[1] - a.rows[0] + 1 : (a.to ?? a.from ?? 0) - (a.from ?? 0) + 1;
+  return Math.max(1, span * Math.max(1, Math.round(TUNING.ticksPerSecond / (a.fps ?? 8))));
 }

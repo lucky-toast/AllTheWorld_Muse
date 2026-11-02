@@ -2,7 +2,8 @@
 import { buildWorld } from "./world/map";
 import { Host } from "./engine/host";
 import { FixedLoop } from "./engine/loop";
-import { Input } from "./engine/input";
+import { attachKeyboard } from "./engine/input";
+import { loadBaseSystems } from "./systems/base";
 import { loadSheets, render, NATIVE_W, NATIVE_H } from "./engine/render";
 import { DevPanel } from "./dev/devpanel";
 import { TUNING } from "./tuning";
@@ -16,8 +17,8 @@ const params = new URLSearchParams(location.search);
 
 const eng = buildWorld();
 const host = new Host(eng);
+loadBaseSystems(host);
 const devPanel = new DevPanel(panelEl);
-const input = new Input();
 const loop = new FixedLoop();
 
 // Screen fit: the largest whole-number scale that fits (fractional below 1x), centered,
@@ -33,23 +34,29 @@ function fit() {
   ctx.imageSmoothingEnabled = false;
 }
 function setPanel(open: boolean) {
-  panelOpen = open; panelEl.hidden = !open; input.swallowed = open; fit();
+  panelOpen = open; panelEl.hidden = !open; fit();
+  if (open) host.controls.releaseAll(); // the panel swallows game input while open
 }
 window.addEventListener("resize", fit);
 setPanel(!!params.get("dev"));
 document.getElementById("devclose")?.addEventListener("click", () => setPanel(false));
 
-input.attach({
+attachKeyboard(host.controls, {
   onTimeSpeed() {
     const speeds = TUNING.timeSpeeds; eng.timeSpeed = speeds[(speeds.indexOf(eng.timeSpeed as 1) + 1) % speeds.length];
     eng.banner = { text: `Time ${eng.timeSpeed}x`, t: TUNING.bannerTicks };
   },
   onDevPanel() { setPanel(!panelOpen); },
-});
+  // Shift+R: rebuild the registry and re-create every loaded module, keeping the world.
+  onReloadSystems() { host.reloadSystems(); eng.banner = { text: "Systems reloaded", t: TUNING.bannerTicks }; },
+}, () => panelOpen);
 
 // URL aid: ?time=night|dusk|dawn|day jumps the clock on load.
 const time = params.get("time");
 if (time && ["night", "dusk", "dawn", "day"].includes(time)) eng.jumpClock(time);
+host.interactions.refresh(true);
+// Dev builds expose the engine and host for poking at from the console.
+if (import.meta.env.DEV) Object.assign(window, { atw: { eng, host } });
 
 // Pixel font from the pack path; this pack copy has no font file, so text falls back to monospace.
 try {

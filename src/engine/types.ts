@@ -22,22 +22,7 @@ export interface SpriteComp { id: string; anim?: string; frame?: number; z?: num
 /** A `light` component: cuts a soft glow out of the darkness. */
 export interface LightComp { radius: number; color: string; strength: number; flicker?: number }
 
-/** One interaction a manifest adds to E (section 6). */
-export interface Interaction { verb: string; label: string; target: string; held?: string }
-
-/** A system manifest (section 5.1). Read once at load and frozen. */
-export interface Manifest {
-  id: string;
-  why: string;
-  buildsOn: string[];
-  replaces: string[];
-  entities: Record<string, EntityType>;
-  components: Record<string, string>;
-  interactions: Interaction[];
-  reactions: string[];
-  emits: Record<string, Record<string, string>>;
-  shots: { name: string; ticks: number; focus: { x: number; y: number; area?: string }; time?: string }[];
-}
+export type { Interaction, Manifest } from "./manifest";
 
 /** Owner id used for engine-made things (base map types, engine events, the engine RNG stream). Not a valid system id. */
 export const ENGINE_OWNER = "@engine";

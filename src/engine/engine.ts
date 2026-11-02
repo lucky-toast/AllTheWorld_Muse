@@ -20,6 +20,12 @@ export interface Particle { area: string; sprite: string; x: number; y: number; 
 export interface FloatText { area: string; text: string; color: string; x: number; y: number; life: number; maxLife: number }
 export interface HudSlot { owner: string; key: string; text: string; width: number; icon?: string }
 export interface Overlay { title?: string; lines: string[]; bar?: { value: number; label?: string } }
+/** A pending `timer` or `anim` callback: onTimer(name) on `system` at tick `at`. */
+export interface Timer { system: string; name: string; at: number; seq: number }
+/** A running fx.tween: onTween(id, value) on `system` each tick until `t` reaches `ticks`. */
+export interface Tween { id: number; system: string; from: number; to: number; ticks: number; t: number }
+/** The E prompt: text drawn above tile (x, y) of `area`. */
+export interface Prompt { text: string; x: number; y: number; area: string }
 
 /** Deep copy of a plain-JSON value. */
 export function cloneJson<T>(v: T): T { return v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T); }
@@ -48,6 +54,11 @@ export class Engine {
   occupancy = new Map<string, Map<number, Set<number>>>();
   /** Undo journal of the open transaction, or null when none is open. */
   journal: Undo[] | null = null;
+  /** Pending timer and anim callbacks, and running tweens (saved with the world). */
+  timers: Timer[] = [];
+  tweens: Tween[] = [];
+  nextTimerSeq = 1;
+  nextTweenId = 1;
   private playerCache = 0;
 
   // ---- Transient, render-only state (not serialized) ----
@@ -59,6 +70,8 @@ export class Engine {
   overlay: { owner: string; value: Overlay } | null = null;
   /** Tick each entity's current sprite anim started, so anims play from their first frame. */
   animStart = new Map<number, number>();
+  /** The E prompt the interaction resolver wants drawn, or null. */
+  prompt: Prompt | null = null;
 
   constructor(width: number = TUNING.areaW, height: number = TUNING.areaH, seed: number = TUNING.seed) {
     this.width = width; this.height = height; this.seed = seed;
@@ -66,6 +79,8 @@ export class Engine {
 
   // ======================= journal =======================
   private record(u: Undo) { if (this.journal) this.journal.push(u); }
+  /** Journal an undo step for engine state kept outside the world primitives (focus, for example). */
+  recordUndo(u: Undo) { this.record(u); }
   /** Undo every journaled write after `mark` (newest first). */
   rollbackTo(mark: number) {
     const j = this.journal; if (!j) return;
@@ -279,7 +294,7 @@ export class Engine {
   }
 
   // ======================= tick =======================
-  /** One fixed logic step of the engine itself (systems run from the host in later phases). */
+  /** One fixed logic step of the engine itself: clock, slides and effects. Systems run from Host.tick. */
   tick() {
     this.tickCount++;
     this.tickClock();
@@ -304,6 +319,7 @@ export class Engine {
       components: Object.fromEntries(this.componentOwner),
       state: Object.fromEntries(this.systemState),
       rng: Object.fromEntries(this.rngState),
+      timers: this.timers, tweens: this.tweens, nextTimerSeq: this.nextTimerSeq, nextTweenId: this.nextTweenId,
     });
   }
   deserialize(json: string) {
@@ -320,6 +336,8 @@ export class Engine {
     for (const e of d.entities) this.insertRaw({ id: e.id, type: e.type, pos: e.pos, tags: new Set(e.tags), comps: new Map(Object.entries(e.comps)), slideFrom: null, slideT: 0 }, e.owner);
     this.systemState = new Map(Object.entries(d.state));
     this.rngState = new Map(Object.entries(d.rng));
+    this.timers = (d.timers ?? []).map((t) => ({ ...t })); this.tweens = (d.tweens ?? []).map((t) => ({ ...t }));
+    this.nextTimerSeq = d.nextTimerSeq ?? 1; this.nextTweenId = d.nextTweenId ?? 1;
   }
   snapshot(): string { return this.serialize(); }
   restore(snap: string) {
@@ -337,4 +355,5 @@ interface SaveFile {
   components: Record<string, string>;
   state: Record<string, unknown>;
   rng: Record<string, number>;
+  timers?: Timer[]; tweens?: Tween[]; nextTimerSeq?: number; nextTweenId?: number;
 }
