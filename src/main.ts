@@ -59,6 +59,7 @@ const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSett
 chain = new WishChain({
   host, planner: new SwitchProvider(() => aiTab.pickPlanner()), designer: new SwitchProvider(() => aiTab.pickDesigner()), pipeline, journal, log: aiLog,
   mapImages: () => (aiTab.sendsImages ? mapImagesBase64(eng) : Promise.resolve([])),
+  stats: store, // data/ai-usage.jsonl and data/ai-wishes.jsonl; npm run ai-report
   hooks: { ...aiTab.hooks, onJournal: () => changed.setEntries(journal.entries) },
   routeStages: (fn) => { aiStages = fn; },
 });

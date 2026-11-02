@@ -51,6 +51,25 @@ describe("dev server storage guards (13.2)", () => {
       expect(listAll(data)).toEqual([]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+  test("the AI stats files append lines and Start fresh keeps them", () => {
+    const root = mkdtempSync(join(tmpdir(), "atw-"));
+    const data = join(root, "data");
+    const enc = (s: string) => new TextEncoder().encode(s);
+    const text = (r: { body: unknown }) => (typeof r.body === "string" ? r.body : new TextDecoder().decode(r.body as Uint8Array));
+    try {
+      expect(text(handleStorage(data, "GET", "/ai-usage.jsonl"))).toBe("");
+      for (const f of ["ai-usage.jsonl", "ai-wishes.jsonl"]) {
+        expect(handleStorage(data, "POST", `/${f}`, enc(`{"n":1}`)).status).toBe(200);
+        expect(handleStorage(data, "POST", `/${f}`, enc(`{"n":2}`)).status).toBe(200);
+        expect(handleStorage(data, "POST", `/${f}`, enc(`not json`)).status).toBe(400);
+        expect(handleStorage(data, "PUT", `/${f}`, enc(`{"n":3}`)).status).toBe(405);
+      }
+      expect(handleStorage(data, "POST", "/ai-log.jsonl", enc(`{"x":1}`)).status).toBe(200);
+      expect(handleStorage(data, "POST", "/fresh").status).toBe(200);
+      expect(listAll(data).sort()).toEqual(["ai-usage.jsonl", "ai-wishes.jsonl"]);
+      expect(text(handleStorage(data, "GET", "/ai-wishes.jsonl"))).toBe(`{"n":1}\n{"n":2}\n`);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   test("paths must stay inside data/ and never be code files", () => {
     expect(safeDataPath("/x/data", "systems", "a", "manifest.json")).toBe(resolve("/x/data", "systems", "a", "manifest.json")); // C:\x\data\... on Windows
     expect(safeDataPath("/x/data", "..", "vite.config.ts")).toBeNull();

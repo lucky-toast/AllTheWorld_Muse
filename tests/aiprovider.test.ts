@@ -63,6 +63,7 @@ describe("MuseProvider", () => {
     expect(shown).toEqual(["cached part\n\nrest part"]);
     expect(replies).toEqual([["hello", { input: 100, cachedInput: 80, output: 20 }]]);
     expect(p.lastUsage).toEqual({ input: 100, cachedInput: 80, output: 20 });
+    expect(p.lastCall).toMatchObject({ model: "muse-spark-1.3", ok: true, finishReason: "stop" });
   });
   test("rejects on a non-2xx answer with the server's message", async () => {
     const { f } = fakeFetch([{ status: 503, body: { error: "MUSE_API_KEY isn't set; add it to .env.local and restart npm run dev" } }]);
@@ -75,6 +76,8 @@ describe("MuseProvider", () => {
     let replied = false; p.onReply = () => { replied = true; };
     await expect(p.send(sys)).rejects.toThrow("the designer's reply was cut off at max_tokens (32000)");
     expect(replied).toBe(false);
+    // The cut-off call still cost tokens, so it is reported for the usage log.
+    expect(p.lastCall).toMatchObject({ model: "muse-wonder-1.0", ok: false, finishReason: "length", usage: { input: 100, cachedInput: 80, output: 20 } });
   });
   test("the planner's re-ask alternates user and assistant after the leading turn", async () => {
     const { f, sent } = fakeFetch([ok("not json at all"), ok('```json\n{ "steps": [] }\n```')]);

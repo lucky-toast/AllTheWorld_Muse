@@ -86,6 +86,15 @@ To use API mode:
 
 The planner uses Muse Spark (`muse-spark-1.3`) and the designer uses Muse Wonder (`muse-wonder-1.0`). Change the models, their output caps (`maxTokens`, which reasoning tokens count toward) and their reasoning effort in `AI_MODELS` in `src/tuning.ts`. A reply cut off at its cap is an error, not a repair round.
 
+### Reviewing test rounds
+
+Every wish writes stats to two files in `data/` (`src/ai/stats.ts`). Start fresh keeps them, so several rounds can be compared; delete the files to start counting again.
+
+- `ai-usage.jsonl`: one line per API request, with the wish, role, step, attempt, model, input tokens, cached input tokens (and the cached share), output tokens (reasoning included), the time it took, and whether it failed. A reply cut off at `maxTokens` still counts, since it cost tokens.
+- `ai-wishes.jsonl`: one line per wish when it ends. It has the status, how many steps the planner gave, and for each step how many designer attempts failed before its system loaded, and at which stage. It also has the token totals for the planner, the designer and the whole wish, from the wish going in to its last system loading.
+
+`npm run ai-report` prints a summary of every wish, then totals: average designer failures before a load, failures by stage, tokens per role and per model, and the cache hit rate. `-- --last 5` shows only the last 5 wishes, and `-- --requests` lists every request under its wish. In the AI tab, the AI log also shows a `wish total:` line when an API wish ends. Wishes run in Dev panel mode are logged with mode `manual` and no token counts.
+
 The plan and the messages show only in the AI tab. The player sees only the leaf transition and "The world feels different". Each prompt is sent as two system messages, the first marked `cache: true`; `ManualProvider` joins them into one text, and API mode sends them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; in API mode a `usage:` note with the real counts follows each reply.
 
 ## Storage
@@ -103,11 +112,13 @@ data/
   world.json                autosaved every 5 s and when the page closes
   journal.json              "What changed" entries
   ai-log.jsonl              every planner and designer message and reply
+  ai-usage.jsonl            one line per API request: real tokens, cached tokens, time (kept by Start fresh)
+  ai-wishes.jsonl           one line per wish: steps, designer failures, token totals (kept by Start fresh)
 ```
 
 The dev server checks every id against `^[a-z][a-z0-9_]{0,39}$` and answers 400 otherwise, keeps every resolved path inside `data/`, and never writes a file Vite would treat as code or config.
 
-In a built copy, manifests, sources, the world, the journal and the AI log live in `localStorage` (`atw.systems`, `atw.world`, `atw.journal`, `atw.aiLog`), and compiled modules are cached in IndexedDB (`atw`), keyed by source hash and recompiled from source when missing.
+In a built copy, manifests, sources, the world, the journal and the AI log live in `localStorage` (`atw.systems`, `atw.world`, `atw.journal`, `atw.aiLog`, plus `atw.aiUsage` and `atw.aiWishes` for the stats), and compiled modules are cached in IndexedDB (`atw`), keyed by source hash and recompiled from source when missing.
 
 At startup the base systems load, then every stored AI system in order (skipping replaced ones), each through the Module stage again so a tampered binary is still validated and metered. A system that fails is skipped with everything that builds on it, and the dev panel lists it. "Start fresh" in the Pipeline tab deletes everything saved and reloads with only the base game.
 

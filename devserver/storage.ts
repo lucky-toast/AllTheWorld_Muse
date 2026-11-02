@@ -5,14 +5,17 @@
 //   data/world.json     the saved world
 //   data/journal.json   journal entries
 //   data/ai-log.jsonl   one JSON line per AI message
+//   data/ai-usage.jsonl one JSON line per API request (src/ai/stats.ts)
+//   data/ai-wishes.jsonl one JSON line per wish: steps, failures, token totals
 //
 // Routes:
 //   GET|PUT          /systems.json, /world.json, /journal.json
 //   GET|PUT          /systems/<id>/<file>        (the four files above)
 //   DELETE           /systems/<id>               (the folder)
-//   GET, POST        /ai-log.jsonl               (POST appends one line)
+//   GET, POST        /ai-log.jsonl, /ai-usage.jsonl, /ai-wishes.jsonl   (POST appends one line)
 //   POST             /world.json                 (same as PUT, for sendBeacon on unload)
-//   POST             /fresh                      (Start fresh: deletes all of the above)
+//   POST             /fresh                      (Start fresh: deletes all of the above but the
+//                                                 usage and wish stats, kept to compare test rounds)
 //
 // Every route with an id validates it against ^[a-z][a-z0-9_]{0,39}$ before any file
 // operation and answers 400 otherwise. Every final path is resolved and must stay inside
@@ -26,7 +29,11 @@ export const SYSTEM_ID_RE = /^[a-z][a-z0-9_]{0,39}$/;
 /** The only files a system folder may hold. */
 export const SYSTEM_FILES = new Set(["manifest.json", "source.as", "module.wasm", "module.sha256"]);
 /** The top-level data files. */
-const DATA_FILES = new Set(["systems.json", "world.json", "journal.json", "ai-log.jsonl"]);
+const DATA_FILES = new Set(["systems.json", "world.json", "journal.json", "ai-log.jsonl", "ai-usage.jsonl", "ai-wishes.jsonl"]);
+/** Append-only JSON-lines files. */
+const LINE_FILES = new Set(["ai-log.jsonl", "ai-usage.jsonl", "ai-wishes.jsonl"]);
+/** Files Start fresh keeps. */
+const KEPT_BY_FRESH = new Set(["ai-usage.jsonl", "ai-wishes.jsonl"]);
 /** Extensions Vite would treat as code or config. Never written. */
 const CODE_EXT = /\.(c|m)?(j|t)sx?$|\.(vue|svelte|html?|css|json5|cjs|mjs)$|(^|[\\/])(vite|vitest|tsconfig|package)[^\\/]*$/i;
 /** Largest request body (16 MB). */
@@ -76,8 +83,8 @@ export function handleStorage(dataDir: string, method: string, url: string, body
     if (!DATA_FILES.has(file)) return json(404, { error: "unknown route" });
     const target = safeDataPath(dataDir, file);
     if (!target) return bad("bad path");
-    if (method === "GET") return file === "ai-log.jsonl" && !existsSync(target) ? { status: 200, body: "", type: "text/plain" } : readFile(target, file);
-    if (file === "ai-log.jsonl") {
+    if (method === "GET") return LINE_FILES.has(file) && !existsSync(target) ? { status: 200, body: "", type: "text/plain" } : readFile(target, file);
+    if (LINE_FILES.has(file)) {
       if (method !== "POST") return json(405, { error: "method not allowed" });
       if (!body) return bad("missing body");
       const line = new TextDecoder().decode(body).replace(/\r?\n/g, " ");
@@ -91,7 +98,7 @@ export function handleStorage(dataDir: string, method: string, url: string, body
   }
   if (path === "/fresh") {
     if (method !== "POST") return json(405, { error: "method not allowed" });
-    for (const f of ["systems", ...DATA_FILES]) { const t = safeDataPath(dataDir, f); if (t) rmSync(t, { recursive: true, force: true }); }
+    for (const f of ["systems", ...[...DATA_FILES].filter((d) => !KEPT_BY_FRESH.has(d))]) { const t = safeDataPath(dataDir, f); if (t) rmSync(t, { recursive: true, force: true }); }
     return json(200, { ok: true });
   }
   // ---- system folders ----

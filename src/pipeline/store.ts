@@ -2,11 +2,13 @@
 //
 // - DevServerStore: the dev server's /__data endpoints (devserver/storage.ts), which keep
 //   data/systems/<id>/{manifest.json, source.as, module.wasm, module.sha256}, data/systems.json,
-//   data/world.json, data/journal.json and data/ai-log.jsonl.
+//   data/world.json, data/journal.json and data/ai-log.jsonl, plus the AI stats files
+//   data/ai-usage.jsonl and data/ai-wishes.jsonl (src/ai/stats.ts), which Start fresh keeps.
 // - LocalStore (built copies): manifests, source and order in localStorage; compiled modules in
 //   IndexedDB keyed by the source's hash, compiled again from source when missing.
 //
 // No screenshots are stored anywhere.
+import type { StatsFile } from "../ai/stats";
 
 /** One row of systems.json: load order, dependencies, succession and when it was saved. */
 export interface IndexEntry { id: string; order: number; buildsOn: string[]; replacedBy: string | null; timestamp: string }
@@ -30,7 +32,9 @@ export interface Store {
   loadJournal(): Promise<unknown[]>;
   saveJournal(entries: unknown[]): Promise<void>;
   appendAiLog(line: string): Promise<void>;
-  /** Start fresh: delete saved systems, world, journal and log. */
+  /** Append one line to an AI stats file. Start fresh keeps these, so test rounds can be compared. */
+  appendStats(file: StatsFile, line: string): Promise<void>;
+  /** Start fresh: delete saved systems, world, journal and log (not the stats files). */
   clear(): Promise<void>;
 }
 
@@ -87,6 +91,7 @@ export class DevServerStore implements Store {
   async loadJournal() { const t = await this.text("/journal.json"); return t ? (JSON.parse(t) as unknown[]) : []; }
   async saveJournal(entries: unknown[]) { await this.req("PUT", "/journal.json", JSON.stringify(entries, null, 1)); }
   async appendAiLog(line: string) { await this.req("POST", "/ai-log.jsonl", line, "text/plain"); }
+  async appendStats(file: StatsFile, line: string) { await this.req("POST", `/${file}`, line, "text/plain"); }
   async clear() { await this.req("POST", "/fresh"); }
 }
 
@@ -123,6 +128,8 @@ export class IdbModuleCache implements ModuleCache {
 
 interface LocalRow extends IndexEntry { manifestJson: string; source: string }
 const LS = { systems: "atw.systems", world: "atw.world", journal: "atw.journal", aiLog: "atw.aiLog" };
+/** The stats files' keys. Not in LS, so Start fresh keeps them. */
+const LS_STATS: Record<StatsFile, string> = { "ai-usage.jsonl": "atw.aiUsage", "ai-wishes.jsonl": "atw.aiWishes" };
 
 export class LocalStore implements Store {
   readonly kind = "local" as const;
@@ -152,6 +159,7 @@ export class LocalStore implements Store {
   async loadJournal() { try { return JSON.parse(this.ls.getItem(LS.journal) ?? "[]") as unknown[]; } catch { return []; } }
   async saveJournal(entries: unknown[]) { this.set(LS.journal, JSON.stringify(entries)); }
   async appendAiLog(line: string) { this.set(LS.aiLog, (this.ls.getItem(LS.aiLog) ?? "") + line + "\n"); }
+  async appendStats(file: StatsFile, line: string) { const k = LS_STATS[file]; this.set(k, (this.ls.getItem(k) ?? "") + line + "\n"); }
   async clear() { for (const k of Object.values(LS)) this.ls.removeItem(k); await this.cache.clear(); }
 }
 

@@ -16,10 +16,22 @@ export interface ChatMessage { role: "system" | "user" | "assistant"; content: s
 /** Real token counts from an API reply. `output` includes reasoning tokens. */
 export interface AiUsage { input: number; cachedInput: number; output: number }
 
+/** One API call, as the provider saw it: for the usage log (src/ai/stats.ts). */
+export interface AiCall {
+  model: string;
+  /** Null when the call failed before the API answered. */
+  usage: AiUsage | null;
+  /** Wall time of the call, in milliseconds. */
+  ms: number;
+  ok: boolean;
+  finishReason: string | null;
+  error?: string;
+}
+
 export interface AiProvider {
   send(messages: ChatMessage[]): Promise<string>;
-  /** The usage of the last reply, when the provider knows it. */
-  readonly lastUsage?: AiUsage | null;
+  /** The last API call, when the provider makes them (ManualProvider doesn't). Set even when the send rejects. */
+  readonly lastCall?: AiCall | null;
 }
 
 /** The text a person pastes into an AI chat for this send: every message after the last reply, joined. */
@@ -107,27 +119,36 @@ export class AiApiError extends Error { override name = "AiApiError"; }
 export class MuseProvider implements AiProvider {
   onShow: (text: string, messages: ChatMessage[]) => void = () => {};
   onReply: (text: string, usage: AiUsage | null) => void = () => {};
-  lastUsage: AiUsage | null = null;
+  lastCall: AiCall | null = null;
+  /** The usage of the last reply, if any. */
+  get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 
   constructor(private opts: { role: AiRoleName; model: string; maxTokens: number; reasoningEffort?: ReasoningEffort; fetch?: typeof fetch; url?: string }) {}
 
   async send(messages: ChatMessage[]): Promise<string> {
     const { role, model, maxTokens, reasoningEffort } = this.opts;
-    this.lastUsage = null;
+    this.lastCall = null;
     this.onShow(outgoingText(messages), messages);
+    const t0 = Date.now();
+    const fail = (msg: string, usage: AiUsage | null = null, finishReason: string | null = null): never => {
+      this.lastCall = { model, usage, ms: Date.now() - t0, ok: false, finishReason, error: msg };
+      throw new AiApiError(msg);
+    };
     const body = JSON.stringify({ role, model, max_tokens: maxTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), messages: toChatCompletions(messages) });
     const f = this.opts.fetch ?? globalThis.fetch.bind(globalThis);
     let res: Response;
     try { res = await f(this.opts.url ?? "/__ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body }); }
-    catch (e) { throw new AiApiError(`the ${role} request couldn't reach the dev server (${e instanceof Error ? e.message : String(e)})`); }
+    catch (e) { return fail(`the ${role} request couldn't reach the dev server (${e instanceof Error ? e.message : String(e)})`); }
     let data: { text?: unknown; finishReason?: unknown; usage?: AiUsage; error?: unknown } = {};
     try { data = await res.json(); } catch { /* handled below */ }
-    if (!res.ok) throw new AiApiError(`the ${role} request failed (${res.status}): ${typeof data.error === "string" ? data.error : res.statusText || "no message"}`);
-    if (data.usage) this.lastUsage = data.usage;
-    if (data.finishReason === "length") throw new AiApiError(`the ${role}'s reply was cut off at max_tokens (${maxTokens})`);
-    if (data.finishReason === "content_filter") throw new AiApiError(`the ${role}'s reply was stopped by the API's content filter`);
-    if (typeof data.text !== "string" || !data.text.trim()) throw new AiApiError(`the ${role}'s reply was empty`);
-    this.onReply(data.text, this.lastUsage);
+    if (!res.ok) return fail(`the ${role} request failed (${res.status}): ${typeof data.error === "string" ? data.error : res.statusText || "no message"}`);
+    const usage = data.usage ?? null;
+    const finish = typeof data.finishReason === "string" ? data.finishReason : null;
+    if (finish === "length") return fail(`the ${role}'s reply was cut off at max_tokens (${maxTokens})`, usage, finish);
+    if (finish === "content_filter") return fail(`the ${role}'s reply was stopped by the API's content filter`, usage, finish);
+    if (typeof data.text !== "string" || !data.text.trim()) return fail(`the ${role}'s reply was empty`, usage, finish);
+    this.lastCall = { model, usage, ms: Date.now() - t0, ok: true, finishReason: finish };
+    this.onReply(data.text, usage);
     return data.text;
   }
 }
@@ -137,5 +158,6 @@ export class SwitchProvider implements AiProvider {
   private last: AiProvider | null = null;
   constructor(private pick: () => AiProvider) {}
   send(messages: ChatMessage[]): Promise<string> { this.last = this.pick(); return this.last.send(messages); }
-  get lastUsage(): AiUsage | null { return this.last?.lastUsage ?? null; }
+  get lastCall(): AiCall | null { return this.last?.lastCall ?? null; }
+  get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 }

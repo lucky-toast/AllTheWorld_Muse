@@ -12,7 +12,8 @@ import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "..
 import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
-import { AiApiError, ManualProvider, outgoingText, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
+import { AiApiError, ManualProvider, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
+import type { StatsFile, UsageLine, WishLine } from "../src/ai/stats";
 import { WishChain } from "../src/ai/chain";
 import { AiLog, Journal } from "../src/ai/journal";
 import { promptMessages } from "../src/ai/template";
@@ -380,7 +381,7 @@ function memStore() {
   const lines: string[] = []; let journal: unknown[] = [];
   return { lines, loadJournal: async () => journal, saveJournal: async (e: unknown[]) => { journal = JSON.parse(JSON.stringify(e)); }, appendAiLog: async (l: string) => { lines.push(l); } };
 }
-function chainGame(plannerReplies: string[], designerReplies: string[], designerOverride?: AiProvider) {
+function chainGame(plannerReplies: string[], designerReplies: string[], designerOverride?: AiProvider, plannerOverride?: AiProvider) {
   const host = liveHost();
   const ls = new Map<string, string>();
   const mem: ModuleCache = { get: async () => null, put: async () => {}, clear: async () => {} };
@@ -390,8 +391,9 @@ function chainGame(plannerReplies: string[], designerReplies: string[], designer
   const planner = new Scripted(plannerReplies); const designer = new Scripted(designerReplies);
   const journal = new Journal(store); const log = new AiLog(store);
   const done: unknown[] = [];
-  const chain = new WishChain({ host, planner, designer: designerOverride ?? designer, pipeline, journal, log, hooks: { onDone: (r) => done.push(r) } });
-  return { host, store, ls, planner, designer, journal, log, chain, done };
+  const stats: Record<StatsFile, string[]> = { "ai-usage.jsonl": [], "ai-wishes.jsonl": [] };
+  const chain = new WishChain({ host, planner: plannerOverride ?? planner, designer: designerOverride ?? designer, pipeline, journal, log, hooks: { onDone: (r) => done.push(r) }, stats: { appendStats: async (f, l) => { stats[f].push(l); } } });
+  return { host, store, ls, planner, designer, journal, log, chain, done, stats };
 }
 const plan = (...steps: string[]) => "```json\n" + JSON.stringify({ steps }) + "\n```";
 
@@ -449,9 +451,12 @@ describe("wish chain", () => {
   test("a send that rejects ends the chain with error, fires onDone and keeps the earlier step's system", async () => {
     let n = 0;
     const usage: AiUsage = { input: 12345, cachedInput: 11000, output: 2100 };
-    const flaky: AiProvider & { lastUsage: AiUsage | null } = {
-      lastUsage: null,
-      async send() { if (n++ === 0) { this.lastUsage = usage; return replyFor("chop"); } this.lastUsage = null; throw new AiApiError("the designer request failed (500): boom"); },
+    const flaky: AiProvider & { lastCall: AiCall | null } = {
+      lastCall: null,
+      async send() {
+        if (n++ === 0) { this.lastCall = { model: "m", usage, ms: 1, ok: true, finishReason: "stop" }; return replyFor("chop"); }
+        this.lastCall = { model: "m", usage: null, ms: 1, ok: false, finishReason: null, error: "boom" }; throw new AiApiError("the designer request failed (500): boom");
+      },
     };
     const g = chainGame([plan("An axe.", "A campfire.")], [], flaky);
     const r = await g.chain.run("make a fire");
@@ -464,6 +469,58 @@ describe("wish chain", () => {
     const notes = g.log.entries.filter((e) => e.kind === "note");
     expect(notes.find((e) => e.text.startsWith("API error:"))).toMatchObject({ role: "chain", step: 2, text: "API error: the designer request failed (500): boom" });
     expect(notes.find((e) => e.text.startsWith("usage:"))).toMatchObject({ role: "designer", step: 1, text: "usage: in 12,345 (cached 11,000) · out 2,100 tokens" });
+  }, 120_000);
+
+  test("stats: one usage line per request and one wish line with steps, failures and token totals", async () => {
+    /** A scripted provider that reports an API call for each reply, like MuseProvider. */
+    class Metered implements AiProvider {
+      lastCall: AiCall | null = null;
+      constructor(private model: string, private replies: string[], private usage: AiUsage) {}
+      async send() { const r = this.replies.shift()!; this.lastCall = { model: this.model, usage: this.usage, ms: 5, ok: true, finishReason: "stop" }; return r; }
+    }
+    const planner = new Metered("muse-spark-1.3", [plan("An axe.", "A campfire.")], { input: 1000, cachedInput: 0, output: 100 });
+    const designer = new Metered("muse-wonder-1.0", ["not a reply", replyFor("bad_prefix"), replyFor("chop"), replyFor("campfire", { ...META, title: "Campfire" })], { input: 5000, cachedInput: 4000, output: 1000 });
+    const g = chainGame([], [], designer, planner);
+    const r = await g.chain.run("make a fire");
+    expect(r.status).toBe("done");
+    await g.chain.statsFlushed();
+    const usage = g.stats["ai-usage.jsonl"].map((l) => JSON.parse(l) as UsageLine);
+    expect(usage.map((u) => [u.role, u.step, u.attempt, u.model])).toEqual([
+      ["planner", null, 0, "muse-spark-1.3"],
+      ["designer", 1, 0, "muse-wonder-1.0"], ["designer", 1, 1, "muse-wonder-1.0"], ["designer", 1, 2, "muse-wonder-1.0"],
+      ["designer", 2, 0, "muse-wonder-1.0"],
+    ]);
+    expect(usage[1]).toMatchObject({ input: 5000, cachedInput: 4000, output: 1000, cachedPct: 80, ok: true, wish: "make a fire" });
+    const wishes = g.stats["ai-wishes.jsonl"].map((l) => JSON.parse(l) as WishLine);
+    expect(wishes).toHaveLength(1);
+    const w = wishes[0];
+    expect(w).toMatchObject({ mode: "api", status: "done", plannerAttempts: 1, stepsPlanned: 2, stepsLoaded: 2, designerFailures: 2, loaded: ["chop", "campfire"] });
+    expect(w.steps.map((s) => [s.step, s.attempts, s.failures, s.failedAt, s.systemId])).toEqual([[1, 3, 2, ["Reply format", "Manifest"], "chop"], [2, 1, 0, [], "campfire"]]);
+    expect(w.steps[0].tokens).toEqual({ requests: 3, input: 15000, cachedInput: 12000, output: 3000 });
+    expect(w.planner).toEqual({ requests: 1, input: 1000, cachedInput: 0, output: 100 });
+    expect(w.tokens).toEqual({ requests: 5, input: 21000, cachedInput: 16000, output: 4100 });
+    expect(usage.every((u) => u.wishId === w.wishId)).toBe(true);
+    expect(g.log.entries.some((e) => e.text === "wish total: 5 requests · in 21,000 (cached 16,000) · out 4,100 tokens")).toBe(true);
+  }, 120_000);
+
+  test("stats: a reply cut off at max_tokens is still counted; a manual wish logs zero tokens", async () => {
+    const cut: AiProvider & { lastCall: AiCall | null } = {
+      lastCall: null,
+      async send() { this.lastCall = { model: "muse-wonder-1.0", usage: { input: 9000, cachedInput: 0, output: 32000 }, ms: 9, ok: false, finishReason: "length", error: "cut off" }; throw new AiApiError("cut off"); },
+    };
+    const g = chainGame([plan("An axe.")], [], cut);
+    expect((await g.chain.run("an axe")).status).toBe("error");
+    await g.chain.statsFlushed();
+    const u = JSON.parse(g.stats["ai-usage.jsonl"][0]) as UsageLine;
+    expect(u).toMatchObject({ role: "designer", step: 1, attempt: 0, ok: false, finishReason: "length", output: 32000 });
+    const w = JSON.parse(g.stats["ai-wishes.jsonl"][0]) as WishLine;
+    expect(w).toMatchObject({ mode: "api", status: "error", stepsPlanned: 1, stepsLoaded: 0 });
+    expect(w.tokens.output).toBe(32000);
+    const m = chainGame([plan()], []);
+    await m.chain.run("nothing");
+    await m.chain.statsFlushed();
+    expect(m.stats["ai-usage.jsonl"]).toHaveLength(0);
+    expect(JSON.parse(m.stats["ai-wishes.jsonl"][0])).toMatchObject({ mode: "manual", status: "nothing", stepsPlanned: 0, tokens: { requests: 0, input: 0, cachedInput: 0, output: 0 } });
   }, 120_000);
 
   test("a planner send that rejects ends the chain with error and loads nothing", async () => {
