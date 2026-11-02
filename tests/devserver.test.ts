@@ -1,6 +1,6 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { handleStorage, safeDataPath } from "../devserver/storage";
 
 function listAll(dir: string): string[] {
@@ -51,7 +51,7 @@ describe("dev server storage guards (13.2)", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
   test("paths must stay inside data/ and never be code files", () => {
-    expect(safeDataPath("/x/data", "systems", "a", "manifest.json")).toBe("/x/data/systems/a/manifest.json");
+    expect(safeDataPath("/x/data", "systems", "a", "manifest.json")).toBe(resolve("/x/data", "systems", "a", "manifest.json")); // C:\x\data\... on Windows
     expect(safeDataPath("/x/data", "..", "vite.config.ts")).toBeNull();
     expect(safeDataPath("/x/data", "systems", "..", "..", "src", "main.ts")).toBeNull();
     expect(safeDataPath("/x/data", "systems", "a", "evil.js")).toBeNull();

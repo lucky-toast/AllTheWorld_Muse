@@ -90,9 +90,10 @@ function toError(d: Diagnostic, fs: Record<string, string>): CompileError {
 /**
  * Answer asc's file lookups from the in-memory files. asc looks for package "sdk" in nested
  * node_modules folders that depend on its working directory (different in Node and in a
- * browser), so any path ending in node_modules/sdk/<file> is the SDK's <file>.
+ * browser, and with backslashes on Windows), so any path ending in node_modules/sdk/<file> is the SDK's <file>.
  */
-function read(fs: Record<string, string>, name: string): string | null {
+export function read(fs: Record<string, string>, name: string): string | null {
+  name = name.replace(/\\/g, "/"); // asc builds package paths with path.join, so on Windows they use backslashes
   const sdk = /(?:^|\/)node_modules\/sdk\/([a-z]+\.ts)$/.exec(name);
   const key = sdk ? `node_modules/sdk/${sdk[1]}` : name;
   return Object.prototype.hasOwnProperty.call(fs, key) ? fs[key] : null;

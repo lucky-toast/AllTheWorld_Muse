@@ -1,7 +1,7 @@
 // Phase 3: AI systems as metered WebAssembly modules (spec 10, 14).
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { compileSystem, formatCompileError, ASC_VERSION } from "../src/sandbox/compile";
+import { compileSystem, formatCompileError, ASC_VERSION, read } from "../src/sandbox/compile";
 import { meter, inspect, WasmError, FUEL_EXPORT } from "../src/sandbox/meter";
 import { checkModule, loadAiSystem, prepareModule, ModuleError, type AiSystemDef } from "../src/sandbox/module";
 import { runAiTests, runShots, worldHost } from "../src/sandbox/runners";
@@ -64,6 +64,15 @@ test("campfire's shots show a lit fire at night and an ash ring", () => {
   const fire = (s: typeof lit) => s.host.eng.rec(s.host.eng.query("campfire")[0]);
   expect(fire(lit)?.tags.has("lit")).toBe(true);
   expect((fire(ash)?.comps.get("sprite") as { id: string }).id).toBe("firepit_ash");
+});
+
+test("the compiler finds the SDK whatever path style asc asks with (Windows uses backslashes)", () => {
+  const fs = { "node_modules/sdk/index.ts": "sdk", "module.ts": "mine" };
+  expect(read(fs, "node_modules\\sdk\\index.ts")).toBe("sdk");
+  expect(read(fs, "node_modules\\sdk\\node_modules\\sdk\\index.ts")).toBe("sdk");
+  expect(read(fs, "../../node_modules/sdk/index.ts")).toBe("sdk");
+  expect(read(fs, "module.ts")).toBe("mine");
+  expect(read(fs, "node_modules\\sdk\\nope.ts")).toBeNull();
 });
 
 describe("compile errors", () => {
