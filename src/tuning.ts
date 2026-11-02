@@ -172,6 +172,6 @@ export function phaseStart(phase: Phase): number { return TUNING.phases[phase]; 
 // separate providers so they can use different models. Reasoning tokens count toward maxTokens,
 // so keep the caps generous: a reply cut off at the cap is an error, not a repair round.
 export const AI_MODELS = {
-  planner: { model: "muse-spark-1.3", maxTokens: 8000, reasoningEffort: "medium" },
-  designer: { model: "muse-wonder-1.0", maxTokens: 32000, reasoningEffort: "high" },
+  planner: { model: "muse-spark-1.3", maxTokens: 8000, reasoningEffort: "low" },
+  designer: { model: "muse-wonder-1.0", maxTokens: 32000, reasoningEffort: "medium" },
 } as const;
