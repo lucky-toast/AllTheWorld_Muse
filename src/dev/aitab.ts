@@ -162,12 +162,30 @@ export class AiTab {
     m.manual.disabled = running; m.api.disabled = running || !this.apiReady;
   }
 
+  /** Whether the dev server has the API key, so a wish can go through the Muse API. */
+  get canUseApi(): boolean { return this.apiReady; }
+  /** Whether a wish started here or in the game is being built. */
+  get running(): boolean { return this.startBtn.disabled; }
+
   private async start() {
-    const wish = this.wishEl.value;
+    await this.run(this.wishEl.value, this.apiReady && aiMode() === "api" ? "api" : "manual");
+  }
+
+  /**
+   * The in-game wish box: the same path as Start with "Send messages: API" picked, whatever the
+   * setting says. The wish shows in the "Player wish" box so the panel follows along.
+   */
+  startApi(wish: string): Promise<ChainResult> | null {
+    if (!this.apiReady || this.running) return null;
+    this.wishEl.value = wish;
+    return this.run(wish, "api");
+  }
+
+  private async run(wish: string, mode: AiMode): Promise<ChainResult> {
     this.startBtn.disabled = true;
-    this.runMode = this.apiReady && aiMode() === "api" ? "api" : "manual";
+    this.runMode = mode;
     this.drawMode(true);
-    try { await this.opts.start(wish); } finally { this.startBtn.disabled = false; this.drawMode(); }
+    try { return await this.opts.start(wish); } finally { this.startBtn.disabled = false; this.drawMode(); }
   }
 
   /** The hooks the wish chain calls. */

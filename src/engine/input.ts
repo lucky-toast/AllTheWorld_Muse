@@ -8,9 +8,11 @@
 // tap-to-turn and hold-to-walk timing on its own timer), E and Space run the highlighted
 // action, Q cycles. With borrow focus: arrows, E and Q go to the holder's onInput, with
 // "repeat" at the walking pace from the engine's own timer. With freeze focus: every key
-// but Escape is ignored. Escape always ends focus.
+// but Escape is ignored. Escape always ends focus. F (or Enter) opens the wish box, which then
+// takes every key until it closes, since keys typed into an input never reach the game.
 import type { Host } from "./host";
 import { TUNING } from "../tuning";
+import { WISH_KEY } from "./wishbox";
 
 export type Key = "up" | "down" | "left" | "right" | "e" | "q" | "escape";
 export const KEYS: readonly Key[] = ["up", "down", "left", "right", "e", "q", "escape"];
@@ -85,9 +87,13 @@ const CODE_KEY: Record<string, Key> = {
   KeyE: "e", Space: "e", KeyQ: "q", Escape: "escape",
 };
 /** Every game and dev key calls preventDefault (spec 3). */
-const PREVENT = new Set([...Object.keys(CODE_KEY), "KeyT", "KeyC", "Backquote"]);
+const PREVENT = new Set([...Object.keys(CODE_KEY), "KeyT", "KeyC", "Backquote", WISH_KEY.code]);
 
-export interface DevKeys { onTimeSpeed(): void; onDevPanel(): void; onReloadSystems(): void; /** C: the "What changed" panel. */ onChanged?(): void }
+export interface DevKeys {
+  onTimeSpeed(): void; onDevPanel(): void; onReloadSystems(): void; /** C: the "What changed" panel. */ onChanged?(): void;
+  /** F, or Enter when nothing on the page has focus: open the wish box (src/engine/wishbox.ts). */
+  onWish?(): void;
+}
 
 /** Browser keyboard: dev keys, and game keys queued on `controls` unless `swallowed()` (dev panel open). */
 export function attachKeyboard(controls: Controls, dev: DevKeys, swallowed: () => boolean, target: Window = window) {
@@ -99,6 +105,9 @@ export function attachKeyboard(controls: Controls, dev: DevKeys, swallowed: () =
     if (e.code === "Backquote") { dev.onDevPanel(); return; }
     if (e.code === "KeyT") { dev.onTimeSpeed(); return; }
     if (e.code === "KeyC" && !e.ctrlKey && !e.metaKey) { dev.onChanged?.(); return; }
+    // The wish box. Enter only when no button or link has focus, so Enter still presses those.
+    const bare = !t || t === document.body || t.tagName === "CANVAS";
+    if (dev.onWish && !e.ctrlKey && !e.metaKey && !e.altKey && (e.code === WISH_KEY.code || (e.key === "Enter" && bare))) { e.preventDefault(); dev.onWish(); return; }
     if (e.code === "KeyR" && e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); dev.onReloadSystems(); return; }
     const key = CODE_KEY[e.code];
     if (key && !swallowed()) controls.press(key);
