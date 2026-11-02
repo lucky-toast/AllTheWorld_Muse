@@ -99,13 +99,25 @@ export function playerText(eng: Engine): string {
   ].join("\n");
 }
 
-/** {{CATALOG}}: one line per sprite, `id — desc · layer · WxH tiles · materials · anims: a, b`. */
+/** The first line of {{CATALOG}}: what each field of a sprite line is. */
+export const CATALOG_LEGEND = "Fields: id — description · layer, or kind for audio and fonts · size of ONE entity in tiles (WxH, not a grid of copies) · then, when present: footprint (tiles it occupies from its bottom-left; 1x1 when absent) · tags · materials · anims (names for anim()) · variants (related entries by name) · becomes (what it turns into after an event) · faceset (dialog portrait id)";
+
+const pairs = (m: Record<string, string> | undefined) => m ? Object.entries(m).map(([k, v]) => `${k}=${v}`).join(", ") : "-";
+
+/** {{CATALOG}}: the legend, then one line per entry, its fields in legend order; named fields are left out when absent. */
 export function catalogText(): string {
-  return CATALOG.sprites.map((s) => {
+  return [CATALOG_LEGEND, ...CATALOG.sprites.map((s) => {
     const pxW = s.w ?? s.frameW ?? 16, pxH = s.h ?? s.frameH ?? 16;
     const tiles = `${Math.max(1, Math.ceil(pxW / 16))}x${Math.max(1, Math.ceil(pxH / 16))}`;
+    const kind = s.kind ?? "sprite";
+    const audio = kind === "sound" || kind === "music";
+    const layer = kind === "sprite" ? (s.layer ?? "terrain")
+      : `${kind}${audio && s.durationMs !== undefined ? ` ${s.durationMs}ms` : ""}${audio && s.loop ? " loop" : ""}`;
+    const size = kind === "sprite" ? `${tiles} tiles` : "-";
+    const fp = kind !== "sprite" ? "-" : s.footprint ? `${s.footprint.x ? `+${s.footprint.x} ` : ""}${s.footprint.w}x${s.footprint.h}` : "-";
+    const list = (a: string[] | undefined) => a?.length ? a.join(", ") : "-";
     const anims = s.anims ? Object.keys(s.anims).join(", ") : "-";
-    const mats = s.materials?.length ? s.materials.join(", ") : "-";
-    return `${s.id} — ${s.desc ?? ""} · ${s.layer ?? "terrain"} · ${tiles} tiles · ${mats} · anims: ${anims}`;
-  }).join("\n");
+    const named: [string, string][] = [["footprint", fp], ["tags", list(s.tags)], ["materials", list(s.materials)], ["anims", anims], ["variants", pairs(s.variants)], ["becomes", pairs(s.becomes)], ["faceset", s.faceset ?? "-"]];
+    return [`${s.id} — ${s.desc ?? ""}`, layer, size, ...named.filter(([, v]) => v !== "-").map(([k, v]) => `${k}: ${v}`)].join(" · ");
+  })].join("\n");
 }

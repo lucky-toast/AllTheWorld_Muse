@@ -2,7 +2,7 @@
 // the player's current area. It reads the engine directly: it is engine code, not a system.
 import { CATALOG, catalogGet } from "./catalog";
 import type { Engine, EntRec } from "./engine";
-import type { LightComp, SpriteComp } from "./types";
+import type { Dir, LightComp, SpriteComp } from "./types";
 import { TUNING, phaseAt } from "../tuning";
 
 const HUD_H = 28;
@@ -44,7 +44,7 @@ export function drawSprite(ctx: CanvasRenderingContext2D, id: string, px: number
   const ox = (e.offset?.x ?? 0) + (opts?.offset?.x ?? 0), oy = (e.offset?.y ?? 0) + (opts?.offset?.y ?? 0);
   // Player: columns are directions, rows are animation frames.
   if (e.dirs) {
-    const col = Math.max(0, e.dirs.indexOf(opts?.facing ?? "down"));
+    const col = Math.max(0, e.dirs.indexOf((opts?.facing ?? "down") as Dir));
     let row = 0;
     if (opts?.moving) { const range = e.anims?.walk?.rows ?? [0, 3]; const span = range[1] - range[0] + 1; row = range[0] + Math.floor(tick / 6) % span; }
     ctx.drawImage(img as CanvasImageSource, col * 16, row * 16, 16, 16, px + ox, pyBottom - 16 + oy, 16, 16);

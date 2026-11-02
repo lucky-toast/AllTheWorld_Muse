@@ -267,8 +267,8 @@ export function tileFind(tag: string, area: string = ""): Pos[] {
   for (let i = 0; i < r.length; i++) { const p = Pos.from(r.at(i)); if (p) out.push(p); }
   return out;
 }
-/** A catalog entry as JSON (id, tags, materials, desc, footprint, anims, ...), or null. Anim names
- *  for anim() come from its "anims". */
+/** A catalog entry as JSON (id, tags, materials, desc, footprint, anims, ...), or null. A size like
+ *  "3x3 tiles" is ONE entity, not a grid of copies. Anim names come from "anims". */
 export function catalogGet(sprite: string): Json { return request(op("catalog.get").str("id", sprite)); }
 /** Sprite ids with this catalog tag. Pick art by meaning (tags, materials, desc), not by id. */
 export function catalogFind(tag: string): string[] { return request(op("catalog.find").str("tag", tag)).strs(); }
