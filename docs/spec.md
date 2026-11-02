@@ -162,7 +162,7 @@ Additions beyond the original design draft are marked ⁺. They fill gaps the dr
 | | `sim.face`, `sim.interact`, `sim.cycle` | `dir` / none / none (same paths as real keys) |
 | | `sim.give` | `type` → id (spawns and puts it in the player's hands, exactly as pick up does) |
 | | `sim.teleport`, `sim.wait` | `x, y, area?` / `ticks` |
-| | `sim.time`⁺ | `phaseOrHour` (jumps the clock, emits `time.jumped`) |
+| | `sim.time`⁺ | `phaseOrHour` (jumps the clock, emits `time.jumped`, then runs one tick so `time.phase` has fired when it returns) |
 | | `sim.key`⁺ | `key, kind` (sends a key to whoever holds focus) |
 | | `check` | `cond, label` |
 

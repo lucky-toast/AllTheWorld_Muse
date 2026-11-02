@@ -54,6 +54,12 @@ export const daynight: SystemDef = {
         w.check(phases.some((e) => e.payload.phase === "dusk" && e.payload.previous === "day"), "time.phase fired for dusk, after day");
         w.check(w.events("time.dusk").length === 1, "the time.dusk shortcut fired");
       },
+      test_sim_time_has_emitted_phase_when_it_returns() {
+        w.must("sim.time", { phaseOrHour: "night" });
+        const phases = w.events("time.phase");
+        w.check(phases.some((e) => e.payload.phase === "night"), "time.phase fired for night before sim.time returned");
+        w.check(w.events("time.night").length === 1, "the time.night shortcut fired too");
+      },
       test_sim_time_emits_jumped() {
         w.must("sim.time", { phaseOrHour: 12 });
         const j = w.events("time.jumped");

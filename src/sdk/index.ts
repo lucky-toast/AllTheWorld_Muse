@@ -438,9 +438,10 @@ export function simTeleport(x: i32, y: i32, area: string = ""): bool { return do
 /** Run the world for `ticks` ticks. */
 export function simWait(ticks: i32): bool { return done(op("sim.wait").int("ticks", ticks)); }
 /** Jump the clock to a phase ("dawn", "day", "dusk", "night"). Does not change the day. Emits
- *  time.jumped, then time.phase if the phase changed. */
+ *  time.jumped, then runs one tick, so time.phase (if the phase changed) and every system's
+ *  reaction to it have already happened when this returns. */
 export function simTime(phase: string): bool { return done(op("sim.time").str("phaseOrHour", phase)); }
-/** Jump the clock to an hour (0 to 24). Does not change the day. Events as simTime. */
+/** Jump the clock to an hour (0 to 24). Does not change the day. Events and the one tick as simTime. */
 export function simTimeHour(hour: f64): bool { return done(op("sim.time").num("phaseOrHour", hour)); }
 /** Send a key ("up", "down", "left", "right", "e", "q", "escape") "down" or "up", then run one tick. */
 export function simKey(key: string, kind: string): bool { return done(op("sim.key").str("key", key).str("kind", kind)); }

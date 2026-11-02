@@ -916,6 +916,9 @@ export class Host {
         if (!(typeof v === "number" && v >= 0 && v < 24) && !(typeof v === "string" && ["dawn", "day", "daytime", "dusk", "night"].includes(v))) deny("bad_request", "phaseOrHour is dawn, day, dusk, night or an hour from 0 to 24");
         const j = eng.jumpClock(v as string | number);
         this.emitEngine("time.jumped", { from: j.from, to: j.to });
+        // One tick, so daynight sees the new phase and time.phase (and every reaction to it) has
+        // happened by the time the call returns, like every other sim.* call.
+        this.tick();
         return null;
       }
       case "sim.events": {
