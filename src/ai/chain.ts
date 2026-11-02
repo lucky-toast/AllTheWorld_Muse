@@ -65,7 +65,7 @@ export class WishChain {
         hooks.onStatus?.(`Step ${i + 1} of ${plan.steps.length}: waiting for the designer's reply.`);
         const dh = hooks.designer?.(i) ?? {};
         const r = await runStep({
-          host: this.opts.host, provider: this.opts.designer, pipeline: this.opts.pipeline, task: step, routeStages: this.opts.routeStages,
+          host: this.opts.host, provider: this.opts.designer, pipeline: this.opts.pipeline, task: step, tags: plan.tags[i], routeStages: this.opts.routeStages,
           hooks: {
             ...dh,
             onAttempt: (a, text) => { log.add("sent", "designer", text, { wish, step: i + 1 }); dh.onAttempt?.(a, text); },

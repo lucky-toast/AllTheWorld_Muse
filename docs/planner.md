@@ -10,7 +10,7 @@ Every step must honour these:
 
 ## How to plan
 
-- The player may write a wish, a question or a complaint. Work out what they want to be able to do. "How can I eat this fish?" means they want to eat the fish they're holding.
+- The player may write a wish, a question or a complaint. Work out what they want to be able to do.
 - Use the player's situation (what they hold, what they face, the time) to work out what "this" or "here" means.
 - Each step is one small system: one new thing the player can do or notice. It must be playable and make sense on its own, because the chain can stop after any step.
 - Steps don't have to depend on each other. A campfire and a fishing rod can come from the same wish. When a step needs another step, put it after that one.
@@ -18,19 +18,23 @@ Every step must honour these:
 - Use what already exists. If a system below already does part of it, skip that part. If the world already lets the player do what they want, return no steps.
 - Use at most {{MAX_STEPS}} steps. If the wish needs more, plan the first {{MAX_STEPS}} and stop.
 - Every item, tool or object a step needs must already be in the world (see the entity and terrain counts), or come from an earlier step. If it doesn't exist yet, say where the player gets it: found lying somewhere, made from things that exist, or given by something. Name exact item types.
-- Don't choose tiles or coordinates. Say where something goes by what it's near, such as beside water, near the player or under a tree. The designer finds the exact spot.
-- Only plan things the sprite catalog can show.
+- Don't choose tiles or coordinates. You can offer where something goes by what it's near, such as beside water or near the player. The designer finds the exact spot.
+- Only plan things the sprite catalog can show. You see its tag index below, not the whole catalog.
+- For each step, pick the catalog tags the designer will need to find its art and sounds: the things the step adds, uses or reacts to. The designer sees only the entries with the tags you pick (plus the sprites already in the world), so a thing whose tag you leave out can't be drawn. Prefer specific tags (fish, firepit, axe) over broad ones (character, npc, ui, solid, prop), which bring hundreds of entries and push useful ones out. You may also name an exact entry id from the examples. Use at most 8 per step.
 - If the wish breaks a pillar, plan the closest version that doesn't, or return no steps.
 
-Sprite catalog (one line per sprite):
+Sprite catalog tag index (one line per tag: the tag, how many entries carry it, and a few example entry ids):
 
-{{CATALOG}}
+{{CATALOG_TAGS}}
 
 ## Reply format
 
 Reply with exactly one fenced `json` block and nothing outside it:
 
-{ "steps": ["what to build first, concretely: what the player does and what happens", "what to build next", "..."] }
+{ "steps": [
+  { "task": "what to build first, concretely: what the player does and what happens", "tags": ["catalog tags or entry ids this step needs"] },
+  { "task": "what to build next", "tags": ["..."] }
+] }
 
 An empty list means nothing needs building.
 

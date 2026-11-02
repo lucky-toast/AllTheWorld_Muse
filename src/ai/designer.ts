@@ -7,14 +7,13 @@ import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
-import { catalogText, entityCounts, systemSlots } from "./blocks";
+import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
 import { examplesText } from "./examples";
 import { outgoingText, type AiProvider, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
 export const PILLARS = normalizeEol(pillarsRaw).trim();
-export const ART_BOARD_NOTE = "(See the attached art board image.)";
 /** The maps go as images (src/ai/mapimage.ts; the AI tab's Download maps). */
 export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
@@ -23,19 +22,21 @@ function fixedSlots(host: Host): Record<string, string> {
   return {
     PILLARS,
     API: normalizeEol(apiRaw).trim(),
-    CATALOG: catalogText(),
-    ART_BOARD: ART_BOARD_NOTE,
     MAP_IMAGE: MAP_IMAGE_NOTE,
     SYSTEM_EXAMPLES: examplesText(),
     ...systemSlots(host),
   };
 }
 
-/** The designer's system message for one task, split for caching. */
-export function buildPrompt(host: Host, task: string): BuiltPrompt {
+/**
+ * The designer's system message for one task, split for caching. `tags` are the catalog tags or
+ * entry ids the planner picked for the step; with none, the tags the task names are used.
+ */
+export function buildPrompt(host: Host, task: string, tags: readonly string[] = []): BuiltPrompt {
   return buildSplit(section(DESIGNER_TEMPLATE, "System message"), {
     ...fixedSlots(host),
     ENTITY_COUNTS: entityCounts(host.eng),
+    CATALOG: stepCatalogText(tags.length ? tags : tagsInText(task), worldSprites(host.eng)),
     TASK: task,
   });
 }
@@ -109,11 +110,13 @@ export type StepResult =
  */
 export async function runStep(opts: {
   host: Host; provider: AiProvider; pipeline: DesignerPipeline; task: string; hooks?: DesignerHooks;
+  /** Catalog tags or entry ids the planner picked for this step. */
+  tags?: readonly string[];
   /** Lets the caller route the pipeline's stage events to this attempt while it runs. */
   routeStages?(fn: ((e: StageEvent) => void) | null): void;
 }): Promise<StepResult> {
   const { host, provider, pipeline, task, hooks = {} } = opts;
-  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task));
+  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags));
   let lastReason = "";
   for (let attempt = 0; attempt <= LIMITS.repairsPerStep; attempt++) {
     hooks.onAttempt?.(attempt, outgoingText(messages));

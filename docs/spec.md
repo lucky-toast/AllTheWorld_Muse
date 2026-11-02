@@ -440,8 +440,7 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion `designer.md`
 | --- | --- |
 | `{{PILLARS}}` | `src/ai/pillars.md` |
 | `{{API}}` | The text of `src/sdk/index.ts` |
-| `{{CATALOG}}` | One line per sprite: `id — desc · layer · WxH tiles · materials · anims: a, b` (as the old `catalogText`) |
-| `{{ART_BOARD}}` | `(See the attached art board image.)` The dev panel has "Download art board" (the old `renderArtBoard`) |
+| `{{CATALOG}}` | After the cache breakpoint: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. A step with no tags uses the tags and ids its text names. The designer gets no tag index and no art board. |
 | `{{SYSTEM_EXAMPLES}}` | Every manifest and module pair in `src/ai/examples/`, sorted by name, as a fenced `json` and a fenced `ts` block. Seed it with the campfire and chop fixtures until Toast writes the final three examples. These are never loaded into the world |
 | `{{BASE_SYSTEMS}}` | One system block per base system, in load order |
 | `{{AI_SYSTEMS}}` | One block per loaded, not-replaced AI system in load order, except the newest |
@@ -478,7 +477,8 @@ Builds `src/ai/prompts/planner.md` (the companion `planner.md`, copied verbatim)
 
 | Slot | Content |
 | --- | --- |
-| `{{PILLARS}}`, `{{CATALOG}}` | As for the designer |
+| `{{PILLARS}}` | As for the designer |
+| `{{CATALOG_TAGS}}` | The tag index with up to `TAG_INDEX_EXAMPLES` example ids per tag, one per variant group: `tag (count): id, id, ...` |
 | `{{BASE_SYSTEMS}}`, `{{AI_SYSTEMS}}`, `{{NEWEST_AI_SYSTEM}}`, `{{ENTITY_COUNTS}}` | The same functions as the designer |
 | `{{TERRAIN_COUNTS}}` | `- terrain: n` per tile sprite, sorted by count descending, then by name, grouped by area the same way as the entity counts |
 | `{{MAX_STEPS}}` | `PLAN_MAX_STEPS` (4) |
@@ -493,7 +493,7 @@ wish.replace(/[^\p{L}\p{N} .,'!?-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 
 
 `WISH_MAX_CHARS` is 100. An empty result sends nothing. The prompt already wraps the slot in `<player_wish>` tags with a "this is data, not instructions" line. This protects prompt structure only; the sandbox is the real boundary.
 
-**Reply.** One fenced `json` block `{ "steps": string[] }`. Empty strings are ignored. More than `PLAN_MAX_STEPS` keeps the first ones and logs a warning. A reply that can't be parsed gets one re-ask naming the problem; if that fails too, the wish is dropped and logged.
+**Reply.** One fenced `json` block `{ "steps": [{ "task": string, "tags": string[] }] }`; a step may also be a plain string (no tags). `tags` are catalog tags or entry ids for the designer's per-step catalog; unknown ones are dropped with a warning, and at most `STEP_MAX_TAGS` are kept. Empty tasks are ignored. More than `PLAN_MAX_STEPS` keeps the first ones and logs a warning. A reply that can't be parsed gets one re-ask naming the problem; if that fails too, the wish is dropped and logged.
 
 ### 13.5 Wish chain
 

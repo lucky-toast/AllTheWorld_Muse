@@ -9,7 +9,8 @@ import { LiveLoader } from "../src/pipeline/live";
 import { LocalStore, type ModuleCache } from "../src/pipeline/store";
 import { buildPrompt, buildRepairMessage, parseDesignerReply, DESIGNER_TEMPLATE } from "../src/ai/designer";
 import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "../src/ai/planner";
-import { systemBlock, entityCounts, terrainCounts, playerText } from "../src/ai/blocks";
+import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
+import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
 import { ManualProvider, outgoingText, type AiProvider, type ChatMessage } from "../src/ai/provider";
 import { WishChain } from "../src/ai/chain";
@@ -56,13 +57,12 @@ describe("companion files", () => {
   test("the designer prompt is designer.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPrompt(host, "Let the player skip stones on the pond.");
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "ART_BOARD", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
     const tpl = docSection("docs/designer.md", "System message");
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.PILLARS).toBe(read("docs/pillars.md").trim());
     expect(p.slots.API).toBe(read("src/sdk/index.ts").trim());
-    expect(p.slots.ART_BOARD).toBe("(See the attached art board image.)");
     expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
   });
 
@@ -93,7 +93,7 @@ describe("companion files", () => {
   test("the planner prompt is planner.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPlannerPrompt(host, cleanWish("How can I eat this fish?"));
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAX_STEPS", "NEWEST_AI_SYSTEM", "PILLARS", "PLAYER", "TERRAIN_COUNTS", "WISH"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "BASE_SYSTEMS", "CATALOG_TAGS", "ENTITY_COUNTS", "MAX_STEPS", "NEWEST_AI_SYSTEM", "PILLARS", "PLAYER", "TERRAIN_COUNTS", "WISH"]);
     const tpl = docSection("docs/planner.md", "System message");
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.MAX_STEPS).toBe("4");
@@ -298,32 +298,43 @@ describe("wish cleaning", () => {
 // ---------------------------------------------------------------------------
 describe("planner parsing", () => {
   test("zero steps", () => {
-    expect(parsePlannerReply('```json\n{ "steps": [] }\n```')).toEqual({ ok: true, steps: [], warnings: [] });
-    expect(parsePlannerReply('```json\n{ "steps": ["", "  "] }\n```')).toEqual({ ok: true, steps: [], warnings: [] });
+    expect(parsePlannerReply('```json\n{ "steps": [] }\n```')).toEqual({ ok: true, steps: [], tags: [], warnings: [] });
+    expect(parsePlannerReply('```json\n{ "steps": ["", "  "] }\n```')).toEqual({ ok: true, steps: [], tags: [], warnings: [] });
   });
 
   test("too many steps are kept to 4 with a warning", () => {
     const r = parsePlannerReply("```json\n" + JSON.stringify({ steps: ["a", "b", "", "c", "d", "e", "f"] }) + "\n```");
-    expect(r).toEqual({ ok: true, steps: ["a", "b", "c", "d"], warnings: ["the plan had 6 steps; kept the first 4"] });
+    expect(r).toEqual({ ok: true, steps: ["a", "b", "c", "d"], tags: [[], [], [], []], warnings: ["the plan had 6 steps; kept the first 4"] });
   });
 
   test("malformed replies name the problem", () => {
     expect(parsePlannerReply("I think you should build a pond.")).toMatchObject({ ok: false, problem: "the reply has no fenced json block" });
     expect(parsePlannerReply("```json\n{ steps: [ }\n```")).toMatchObject({ ok: false, problem: expect.stringMatching(/isn't valid JSON/) });
     expect(parsePlannerReply('```json\n{ "plan": [] }\n```')).toMatchObject({ ok: false, problem: 'the json block needs a "steps" list' });
-    expect(parsePlannerReply('```json\n{ "steps": [1, 2] }\n```')).toMatchObject({ ok: false, problem: '"steps" must be a list of strings' });
+    expect(parsePlannerReply('```json\n{ "steps": [1, 2] }\n```')).toMatchObject({ ok: false, problem: 'each step must be { "task": string, "tags": [string, ...] }' });
   });
 
   test("a malformed reply gets one re-ask naming the problem", async () => {
     const host = liveHost();
     const p = new Scripted(["no json here", '```json\n{ "steps": ["a pond"] }\n```']);
     const r = await runPlanner({ host, provider: p, wish: "a pond" });
-    expect(r).toEqual({ ok: true, steps: ["a pond"], warnings: [] });
+    expect(r).toEqual({ ok: true, steps: ["a pond"], tags: [[]], warnings: [] });
     expect(p.sent).toHaveLength(2);
     const reask = p.sent[1].at(-1)!;
     expect(reask.role).toBe("user");
     expect(reask.content).toContain("the reply has no fenced json block");
     expect(p.sent[1].map((m) => m.role)).toEqual(["system", "system", "assistant", "user"]);
+  });
+
+  test("steps may carry catalog tags; unknown tags are dropped with a warning", () => {
+    const r = parsePlannerReply("```json\n" + JSON.stringify({ steps: [{ task: "cook a fish", tags: ["fish", "fire", "no_such_tag", "fish"] }, "a plain step"] }) + "\n```");
+    expect(r).toEqual({ ok: true, steps: ["cook a fish", "a plain step"], tags: [["fish", "fire"], []], warnings: ["step 1: dropped unknown tag no_such_tag"] });
+  });
+
+  test("a step keeps at most STEP_MAX_TAGS tags", () => {
+    const many = ["fish", "fire", "water", "tree", "wood", "food", "rock", "stone", "sand"];
+    const r = parsePlannerReply("```json\n" + JSON.stringify({ steps: [{ task: "t", tags: many }] }) + "\n```");
+    expect(r.ok && r.tags[0]).toEqual(many.slice(0, LIMITS.STEP_MAX_TAGS));
   });
 
   test("a second unreadable reply drops the wish", async () => {
@@ -472,4 +483,62 @@ test('there is no director: no file in src/ mentions "director"', async () => {
   };
   walk("src");
   expect(hits).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Catalog in the prompts: the tag index and the per-step catalog
+// ---------------------------------------------------------------------------
+describe("catalog in the prompts", () => {
+  test("neither prompt carries the whole catalog", () => {
+    const host = liveHost();
+    const full = catalogText().length;
+    expect(buildPlannerPrompt(host, "a wish").slots.CATALOG_TAGS.length).toBeLessThan(full / 20);
+    const d = buildPrompt(host, "Cook a fish on a fire.", ["fishing", "fire"]);
+    expect(d.slots.CATALOG.length).toBeLessThanOrEqual(LIMITS.STEP_CATALOG_MAX_CHARS + 300);
+  });
+
+  test("the per-step catalog sits after the cache breakpoint, so the cached part doesn't change with the task", () => {
+    const host = liveHost();
+    const a = buildPrompt(host, "a fishing rod", ["fishing"]);
+    const b = buildPrompt(host, "a treehouse", ["tree"]);
+    expect(a.cached).toBe(b.cached);
+    expect(a.rest).not.toBe(b.rest);
+  });
+
+  test("the per-step catalog has the picked tags' entries, ids named directly, and the world's sprites", () => {
+    const host = liveHost();
+    const fish = catalogFind("fishing");
+    const someId = catalogFind("tree")[0];
+    const text = stepCatalogText(["fishing", someId], worldSprites(host.eng));
+    for (const id of fish) expect(text).toContain(`${id} — `);
+    expect(text).toContain(`${someId} — `);
+    for (const id of worldSprites(host.eng).filter((s) => catalogGet(s))) expect(text).toContain(`${id} — `);
+    expect(text.split("\n")[0]).toBe(CATALOG_LEGEND);
+  });
+
+  test("a broad tag is cut to the budget with a note", () => {
+    const text = stepCatalogText(["npc"]);
+    expect(text.length).toBeLessThanOrEqual(LIMITS.STEP_CATALOG_MAX_CHARS + 300);
+    expect(text).toMatch(/more entries tagged npc left out/);
+  });
+
+  test("a step with no tags falls back to the tags its text names", () => {
+    expect(tagsInText("Let the player go fishing and cook over a fire")).toEqual(expect.arrayContaining(["fishing", "fire"]));
+    const d = buildPrompt(liveHost(), "Let the player go fishing and cook over a fire");
+    expect(d.slots.CATALOG).toContain(`${catalogFind("fishing")[0]} — `);
+  });
+
+  test("the tag index lists every tag with its count", () => {
+    const idx = tagIndexText();
+    const tags = new Set(CATALOG.sprites.flatMap((s) => s.tags));
+    expect(idx.split("\n")).toHaveLength(tags.size);
+    expect(idx).toContain(`fishing (${catalogFind("fishing").length})`);
+  });
+
+  test("the chain hands each step its planner tags", async () => {
+    const g = chainGame(["```json\n" + JSON.stringify({ steps: [{ task: "cook a fish", tags: ["fishing"] }] }) + "\n```"], ["not a reply", "no", "no", "no"]);
+    await g.chain.run("cook fish");
+    const sent = g.designer.sent[0].map((m) => m.content).join("");
+    expect(sent).toContain(`${catalogFind("fishing")[0]} — `);
+  });
 });

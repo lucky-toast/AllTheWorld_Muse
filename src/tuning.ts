@@ -122,6 +122,12 @@ export const LIMITS = {
   PLAN_MAX_STEPS: 4,
   // Longest cleaned wish. Wish cut.
   WISH_MAX_CHARS: 100,
+  // Example ids per tag in the catalog tag index the planner and designer see.
+  TAG_INDEX_EXAMPLES: 5,
+  // Longest per-step catalog (the entries for the step's tags) in the designer prompt. Entries past it are left out.
+  STEP_CATALOG_MAX_CHARS: 60000,
+  // Most tags or entry ids the planner may pick for one step. Extra picks dropped with a warning.
+  STEP_MAX_TAGS: 8,
   // Most area maps sent to the designer (current area first, then the newest). The rest are left out.
   MAP_IMAGE_MAX_AREAS: 4,
   // Share of a limit used in one call that gets logged.

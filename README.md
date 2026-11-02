@@ -71,7 +71,7 @@ A new system can retire a loaded AI system by listing it in `replaces`. It must 
 There is no API provider yet. The AI tab runs the whole chain by hand through `ManualProvider`:
 
 1. Type a wish in "Player wish" and press Start. The wish is cleaned (letters, digits and simple punctuation, at most 100 characters).
-2. The planner's message appears. Copy it to a model, paste the reply (one fenced `json` block, `{ "steps": [...] }`) and press Submit. At most 4 steps are kept. An unreadable reply gets one re-ask.
+2. The planner's message appears. Copy it to a model, paste the reply (one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`) and press Submit. At most 4 steps are kept. An unreadable reply gets one re-ask.
 3. For each step in order, the designer's message appears, with Copy, Download art board and Download maps. Paste the reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) and press Submit. The attempt row lights the stage boxes as the pipeline runs.
 4. A failed attempt gets the repair message to send back, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
 

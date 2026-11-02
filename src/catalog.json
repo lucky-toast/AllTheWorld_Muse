@@ -45078,7 +45078,10 @@
    "file": "Items/Weapons/Fishing Rod/Sprite.png",
    "tags": [
     "weapon",
-    "item"
+    "item",
+    "tool",
+    "fishing",
+    "icon"
    ],
    "desc": "fishing rod (inventory / ground icon)",
    "layer": "object",
@@ -45633,7 +45636,8 @@
    "tags": [
     "net",
     "fishing",
-    "water"
+    "water",
+    "tool"
    ],
    "desc": "empty round fishing net",
    "layer": "object",
@@ -45654,7 +45658,8 @@
    "tags": [
     "net",
     "fishing",
-    "water"
+    "water",
+    "tool"
    ],
    "desc": "round fishing net full of fish",
    "layer": "object",

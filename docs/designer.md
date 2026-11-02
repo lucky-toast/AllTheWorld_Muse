@@ -117,13 +117,7 @@ The target is valid, executable AssemblyScript compatible with the supplied SDK,
 
 {{API}}
 
-## Sprites and example systems
-
-Sprite catalog (one line per sprite; the art board image is attached separately):
-
-{{CATALOG}}
-
-{{ART_BOARD}}
+## Example systems
 
 These are example systems, written the way yours should be. They show the format only and are not loaded in the world, so don't build on them:
 
@@ -172,6 +166,12 @@ Maps of the current area and the newest areas, in daylight with a tile grid and 
 ## Entity counts by type
 
 {{ENTITY_COUNTS}}
+
+## Sprite catalog entries for your task
+
+These are the sprites with the tags picked for this task, and the sprites already in the world:
+
+{{CATALOG}}
 
 ## Your task
 
