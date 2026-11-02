@@ -1,6 +1,6 @@
 // The dev panel's AI tab (spec 13.6): a "Player wish" box and Start; then the planner's message
 // (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy,
-// Download art board), reply box and Submit, with an attempt row of stage boxes and a token
+// Download art board, Download maps), reply box and Submit, with an attempt row of stage boxes and a token
 // estimate. A "What changed" on/off setting. The plan shows here only, never in the game.
 import { renderArtBoard } from "../engine/render";
 import { STAGES, type Report, type Stage, type StageEvent } from "../pipeline/types";
@@ -19,7 +19,7 @@ const button = (text: string, cls = "") => { const b = el("button", cls, text); 
 const sizeText = (text: string) => `${text.length} chars · ~${estTokens(text.length)} tokens`;
 
 /** One message box with Copy, and a reply box with Submit, wired to a ManualProvider. */
-function exchange(provider: ManualProvider, opts: { cls: string; status: (t: string) => void; art?: () => void }) {
+function exchange(provider: ManualProvider, opts: { cls: string; status: (t: string) => void; art?: () => void; maps?: () => void }) {
   const root = el("div", `aix ${opts.cls}`);
   const msg = el("textarea", "ai-text ai-message"); msg.readOnly = true; msg.rows = 6;
   const row = el("div", "pipebtns");
@@ -27,6 +27,7 @@ function exchange(provider: ManualProvider, opts: { cls: string; status: (t: str
   copy.addEventListener("click", () => { msg.select(); void navigator.clipboard?.writeText(msg.value).then(() => opts.status("Copied. Paste it into your AI chat."), () => { document.execCommand?.("copy"); }); });
   row.append(copy);
   if (opts.art) { const art = button("Download art board"); art.addEventListener("click", opts.art); row.append(art); }
+  if (opts.maps) { const maps = button("Download maps"); maps.addEventListener("click", opts.maps); row.append(maps); }
   const size = el("span", "ai-len", ""); row.append(size);
   const reply = el("textarea", "ai-text ai-reply"); reply.rows = 5; reply.placeholder = "Paste the AI's reply here";
   const submit = button("Submit", "ai-submit");
@@ -61,7 +62,11 @@ export class AiTab {
   /** Where designer messages go: the attempt box shown next. */
   private nextDesignerBox: ReturnType<typeof exchange> | null = null;
 
-  constructor(private opts: { start(wish: string): Promise<ChainResult>; log: AiLog; onChangedSetting(on: boolean): void }) {
+  constructor(private opts: {
+    start(wish: string): Promise<ChainResult>; log: AiLog; onChangedSetting(on: boolean): void;
+    /** The designer's map images, drawn from the world as it is when called. */
+    mapImages(): Promise<{ fileName: string; png: Blob }[]>;
+  }) {
     const b = this.body;
     b.append(el("div", "devsec", "Player wish"));
     const row = el("div", "pipebtns");
@@ -122,7 +127,7 @@ export class AiTab {
       onAttempt: (attempt) => {
         const step = this.stepEls[i]; if (!step) return;
         step.append(el("div", "ai-attempt", attempt === 0 ? "Designer message" : `Repair ${attempt} of ${LIMITS.repairsPerStep}`));
-        const x = exchange(this.designer, { cls: "ai-designer", status: (t) => this.say(t), art: () => downloadArtBoard() });
+        const x = exchange(this.designer, { cls: "ai-designer", status: (t) => this.say(t), art: () => downloadArtBoard(), maps: () => void this.downloadMaps() });
         const stages = el("div", "stagerow"); const row = new Map<Stage, HTMLDivElement>();
         for (const s of STAGES) { const bx = el("div", "stagebox grey"); bx.append(el("span", "name", s), el("span", "ms", "")); row.set(s, bx); stages.append(bx); }
         x.root.insertBefore(stages, x.result);
@@ -144,6 +149,19 @@ export class AiTab {
         x.result.textContent = r.ok ? `${r.systemId} loaded in ${r.durationMs} ms` : `Failed at ${r.stage}: ${r.errors.map((e) => e.message).join("; ")}`;
       },
     };
+  }
+
+  /** Download maps: one PNG per area, as the world is at this moment. */
+  private async downloadMaps() {
+    try {
+      const maps = await this.opts.mapImages();
+      for (const m of maps) {
+        const url = URL.createObjectURL(m.png);
+        const a = document.createElement("a"); a.href = url; a.download = m.fileName; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      }
+      this.say(`Downloaded ${maps.length} map${maps.length === 1 ? "" : "s"}: ${maps.map((m) => m.fileName).join(", ")}`);
+    } catch (e) { this.say(`The maps couldn't be drawn: ${e instanceof Error ? e.message : String(e)}`); }
   }
 
   private drawLog() {

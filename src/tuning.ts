@@ -122,6 +122,8 @@ export const LIMITS = {
   PLAN_MAX_STEPS: 4,
   // Longest cleaned wish. Wish cut.
   WISH_MAX_CHARS: 100,
+  // Most area maps sent to the designer (current area first, then the newest). The rest are left out.
+  MAP_IMAGE_MAX_AREAS: 4,
   // Share of a limit used in one call that gets logged.
   nearLimitShare: 0.5,
   // Characters allowed in ui.* and fx.float text. Denied.

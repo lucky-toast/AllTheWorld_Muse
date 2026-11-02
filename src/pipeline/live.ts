@@ -5,13 +5,16 @@
 // snapshot the live world, add the system to the registry, instantiate it (the Module stage
 // runs again on the checked bytes), run migrate, save it, emit system.loaded. Then fade back
 // and show "The world feels different". If anything throws, the snapshot is restored and Load
-// fails. Undo restores the latest load's snapshot, takes that system out and removes it from
+// fails. The player kept playing while the check ran, so before any of that, still under the
+// leaf, the World check runs again on a copy of the live world as it is now; if it fails,
+// nothing loads and the report fails at "World check" (the designer gets a repair message). Undo restores the latest load's snapshot, takes that system out and removes it from
 // storage.
 import type { Host } from "../engine/host";
-import { aiSystem, prepareModuleAsync } from "../sandbox/module";
+import { aiSystem, prepareModuleAsync, type AiSystemDef } from "../sandbox/module";
+import { rerunWorldCheck } from "./worldcheck";
 import { TUNING } from "../tuning";
 import type { LiveSide } from "./client";
-import type { LoadedModule, Report } from "./types";
+import type { LoadedModule, PipelineError, Report } from "./types";
 import { sha256Hex, type IndexEntry, type Store } from "./store";
 
 /** A loaded AI system with what it was built from. */
@@ -81,6 +84,13 @@ export class LiveLoader implements LiveSide {
       catch (e) { return fail(`the module didn't load: ${msgOf(e)}`); }
       await this.wait(TUNING.transitionInMs); // the screen is covered now
       const snapshot = eng.snapshot();
+      // The World check again, on a copy of the live world as it is now (the game is paused under the leaf).
+      const recheck = await this.recheck(snapshot, def);
+      if (recheck.errors.length) {
+        eng.restore(snapshot); host.interactions.refresh(true);
+        await this.wait(TUNING.transitionOutMs);
+        return { ...report, ok: false, stage: "World check", errors: recheck.errors, log: [...report.log, ...recheck.log] };
+      }
       const entry: IndexEntry = { id, order: this.index.reduce((m, e) => Math.max(m, e.order + 1), 0), buildsOn: [...((manifest as { buildsOn?: string[] }).buildsOn ?? [])], replacedBy: null, timestamp: new Date().toISOString() };
       try {
         host.load(def, { announce: false });
@@ -104,6 +114,18 @@ export class LiveLoader implements LiveSide {
     } finally {
       this.busy = false; this.transitionStart = 0;
     }
+  }
+
+  /** The World check on a copy of `world` with the loaded AI systems and the candidate. Errors are empty when it passed. */
+  private async recheck(world: string, candidate: AiSystemDef): Promise<{ errors: PipelineError[]; log: string[] }> {
+    const lead = "the world changed while your system was being checked (the player kept playing), and the World check now fails on the world as it is:";
+    const log: string[] = [];
+    try {
+      const loadedDefs: AiSystemDef[] = [];
+      for (const m of this.checkInputs().loaded) loadedDefs.push(aiSystem(await prepareModuleAsync(m.wasm, m.manifest)));
+      const errors = rerunWorldCheck(world, loadedDefs, candidate, log);
+      return { errors: errors.length ? [{ message: lead }, ...errors] : [], log };
+    } catch (e) { return { errors: [{ message: `the World check couldn't run again on the live world: ${msgOf(e)}` }], log }; }
   }
 
   /** Undo the latest live load. Returns what happened, in words. */

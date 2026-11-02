@@ -16,6 +16,13 @@
 //   export function test_<name>(): void
 //   export function shot_<name>(): void
 // Globals don't survive a reload: keep lasting state in components, tags or stateSet.
+//
+// Placing things: pick a spot and let the host find the nearest fit. The player keeps playing
+// while you are built, so the tile you chose may be taken by the time your code runs (the
+// player stands there, or dropped a branch on it). spawn, place and tileStamp use (x, y) when it
+// is free and otherwise the closest spot where the whole thing fits, and say where they put it.
+// Pass exact = true only when nowhere else will do: then a taken spot is refused instead.
+// Nothing solid, pushable or an item ever lands on the player's tile.
 import { send, failure, truncated, op, tileReq, done, numText, JsonParser } from "./internal";
 
 // ============================== JSON ==============================
@@ -209,6 +216,15 @@ export function query(tagOrComponent: string): i32[] {
 }
 /** True when the last query had more than 5,000 matches and was cut. */
 export function queryTruncated(): bool { return truncated(); }
+/**
+ * Top-left of the closest w x h block, from (x, y), where every tile is free (walkable, with no
+ * player, solid, pushable or item on it), or null when there is none in the area. Use it to place
+ * things that belong together. The answer holds only for the rest of this same call: nothing
+ * else runs until your handler returns, but after a timer or the next tick, find it again.
+ */
+export function spaceFind(x: i32, y: i32, w: i32, h: i32, area: string = ""): Pos | null {
+  return Pos.from(request(tileReq("space.find", x, y, area).int("w", w).int("h", h)));
+}
 /** Ids of entities whose footprint covers tile (x, y). */
 export function at(x: i32, y: i32, area: string = ""): i32[] { return request(tileReq("at", x, y, area)).ints(); }
 /** Type, position and tags of an entity, or null when it no longer exists. */
@@ -264,16 +280,29 @@ export function stateGetReplaced(id: string): Json { return request(op("state.ge
 
 // ---- writes ----
 
-/** Spawn a registered entity type at (x, y). Returns its id, or 0 when refused. */
-export function spawn(type: string, x: i32, y: i32, area: string = ""): i32 { return request(tileReq("spawn", x, y, area).str("type", type)).int(); }
+/**
+ * Spawn a registered entity type with its bottom-left at (x, y), or, when its footprint doesn't
+ * fit there, at the closest spot in the area where it does (posOf(id) tells where). Returns its
+ * id, or 0 when refused. With exact = true a spot that doesn't fit is refused instead.
+ */
+export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bool = false): i32 {
+  const o = tileReq("spawn", x, y, area).str("type", type); if (exact) o.bool("exact", true);
+  return request(o).int();
+}
 /** Remove an entity. */
 export function destroy(id: i32): bool { return done(op("destroy").int("id", id)); }
-/** Move an entity so its bottom-left is (x, y). It slides unless `instant`. */
+/** Move an entity so its bottom-left is (x, y). It slides unless `instant`. Refused (never moved elsewhere) if it would block the player's tile. */
 export function move(id: i32, x: i32, y: i32, instant: bool = false, area: string = ""): bool { return done(tileReq("move", x, y, area).int("id", id).bool("instant", instant)); }
 /** Take an entity off the map (pos becomes null). */
 export function lift(id: i32): bool { return done(op("lift").int("id", id)); }
-/** Put a lifted entity back on the map at (x, y). */
-export function place(id: i32, x: i32, y: i32, area: string = ""): bool { return done(tileReq("place", x, y, area).int("id", id)); }
+/**
+ * Put a lifted entity back on the map at (x, y), or at the closest spot where its footprint fits.
+ * Returns where it went, or null when refused. With exact = true a spot that doesn't fit is refused.
+ */
+export function place(id: i32, x: i32, y: i32, area: string = "", exact: bool = false): Pos | null {
+  const o = tileReq("place", x, y, area).int("id", id); if (exact) o.bool("exact", true);
+  return Pos.from(request(o));
+}
 /** Set a component to a JSON value (text, e.g. an Obj's toString()). */
 export function set(id: i32, comp: string, json: string): bool { return done(op("set").int("id", id).str("comp", comp).raw("value", json)); }
 /** Set a number component. */
@@ -293,7 +322,31 @@ export function anim(id: i32, name: string, callback: string = ""): bool {
   const o = op("anim").int("id", id).str("name", name); if (callback.length) o.str("callback", callback);
   return done(o);
 }
-/** Change the terrain sprite of a tile. */
+/**
+ * Set a block of terrain at once: rows[0] is the top row, starting at (x, y); each entry is a
+ * terrain sprite id, or null to leave that tile as it is. A stream's pieces or a 3x3 pond go down
+ * together, all or nothing. If a tile that changes isn't free for its new terrain (the player, or
+ * anything solid, pushable or an item, stands on it; for terrain you can't walk on, anything at all), the whole block
+ * moves to the closest place where every changing tile is free. Returns the top-left used, or null
+ * when refused. With exact = true a block that doesn't fit at (x, y) is refused instead.
+ */
+export function tileStamp(x: i32, y: i32, rows: Array<Array<string | null>>, area: string = "", exact: bool = false): Pos | null {
+  let t = "[";
+  for (let j = 0; j < rows.length; j++) {
+    if (j) t += ",";
+    t += "[";
+    const row = rows[j];
+    for (let i = 0; i < row.length; i++) {
+      if (i) t += ",";
+      const s = row[i];
+      if (s === null) t += "null"; else t += quote(s!);
+    }
+    t += "]";
+  }
+  const o = tileReq("tile.stamp", x, y, area).raw("rows", t + "]"); if (exact) o.bool("exact", true);
+  return Pos.from(request(o));
+}
+/** Change the terrain sprite of a tile. Refused if it would make the player's tile unwalkable. */
 export function tileSet(x: i32, y: i32, sprite: string, area: string = ""): bool { return done(tileReq("tile.set", x, y, area).str("sprite", sprite)); }
 /** Replace this system's whole saved state with a JSON value (text). */
 export function stateSet(json: string): bool { return done(op("state.set").raw("value", json)); }

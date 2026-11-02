@@ -13,6 +13,7 @@ import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
 import { LIMITS, TUNING } from "./tuning";
 import { AiTab } from "./dev/aitab";
+import { renderMapImages } from "./ai/mapimage";
 import { WishChain } from "./ai/chain";
 import { AiLog, Journal } from "./ai/journal";
 import { ChangedPanel } from "./ai/changed";
@@ -52,7 +53,7 @@ tab = new PipelineTab(pipeline, live, () => void startFresh());
 devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
 // The wish chain and the AI tab (spec 13.5, 13.6).
 let chain: WishChain | null = null;
-const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); } });
+const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); }, mapImages: () => renderMapImages(eng) });
 chain = new WishChain({
   host, planner: aiTab.planner, designer: aiTab.designer, pipeline, journal, log: aiLog,
   hooks: { ...aiTab.hooks, onJournal: () => changed.setEntries(journal.entries) },

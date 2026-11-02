@@ -89,9 +89,8 @@ export function renderPos(rec: EntRec): { x: number; y: number } | null {
   return rec.pos;
 }
 
-/** The entities the renderer draws: those with a sprite in the player's current area. */
-export function drawnEntities(eng: Engine): EntRec[] {
-  const area = eng.currentArea();
+/** The entities the renderer draws: those with a sprite in an area (the player's current one by default). */
+export function drawnEntities(eng: Engine, area: string = eng.currentArea()): EntRec[] {
   return [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("sprite"));
 }
 
@@ -100,35 +99,7 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, NATIVE_W, NATIVE_H);
   const tick = eng.tickCount;
   const area = eng.currentArea();
-  const tiles = eng.areas.get(area)?.tiles;
-  // Terrain
-  if (tiles) for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
-  // Entities with a sprite, by layer, then y, then z
-  const recs = drawnEntities(eng);
-  const spr = (r: EntRec) => r.comps.get("sprite") as SpriteComp;
-  const order = (l: string) => (l === "ground" ? 0 : l === "object" ? 1 : l === "above" ? 2 : 3);
-  const layerOf = (r: EntRec) => order(catalogGet(spr(r).id)?.layer ?? "object");
-  const sorted = recs.sort((a, b) => {
-    const d = layerOf(a) - layerOf(b); if (d) return d;
-    const rpA = renderPos(a)!, rpB = renderPos(b)!;
-    if (rpA.y !== rpB.y) return rpA.y - rpB.y;
-    return (spr(a).z ?? 0) - (spr(b).z ?? 0);
-  });
-  let playerRec: EntRec | undefined;
-  for (const r of sorted) {
-    if (r.tags.has("player")) playerRec = r;
-    const rp = renderPos(r)!; const s = spr(r);
-    const facing = r.comps.get("facing") as string | undefined;
-    const t = s.anim ? tick - (eng.animStart.get(r.id) ?? 0) : tick;
-    drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), t, { anim: s.anim, frame: s.frame, facing, moving: !!r.slideFrom && r.slideT > 0, offset: s.offset });
-  }
-  // Held item above the player
-  const held = playerRec?.comps.get("held") as { id: number } | undefined;
-  if (playerRec && held) {
-    const item = eng.rec(held.id); const rp = renderPos(playerRec)!;
-    const s = item?.comps.get("sprite") as SpriteComp | undefined;
-    if (s) drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16) - TUNING.heldLiftPx, tick);
-  }
+  drawArea(ctx, eng, area);
   // Particles / float text
   for (const p of eng.particles) if (p.area === area) drawSprite(ctx, p.sprite, Math.round(p.x * 16), Math.round((p.y + 1) * 16), tick, { frame: p.frame });
   for (const f of eng.floats) {
@@ -171,6 +142,45 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   // Banner
   if (eng.banner) { ctx.globalAlpha = Math.min(1, eng.banner.t / 30); ctx.fillStyle = "rgba(20,24,14,0.75)"; ctx.fillRect(0, 6, NATIVE_W, 14); ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0"; ctx.textAlign = "center"; drawFixedText(ctx, eng.banner.text, NATIVE_W / 2 - (eng.banner.text.length * 5) / 2, 16, 5); ctx.textAlign = "left"; ctx.globalAlpha = 1; }
   renderHud(ctx, eng);
+}
+
+/**
+ * Terrain, entities (by layer, then y, then z) and the held item of one area at 16 px per tile.
+ * No effects, lighting or HUD. `settled` draws each entity on its tile, not part way through a slide.
+ */
+export function drawArea(ctx: CanvasRenderingContext2D, eng: Engine, area: string, settled = false) {
+  ctx.imageSmoothingEnabled = false;
+  const tick = eng.tickCount;
+  const tiles = eng.areas.get(area)?.tiles;
+  // Terrain
+  if (tiles) for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
+  // Entities with a sprite, by layer, then y, then z
+  const recs = drawnEntities(eng, area);
+  const spr = (r: EntRec) => r.comps.get("sprite") as SpriteComp;
+  const order = (l: string) => (l === "ground" ? 0 : l === "object" ? 1 : l === "above" ? 2 : 3);
+  const layerOf = (r: EntRec) => order(catalogGet(spr(r).id)?.layer ?? "object");
+  const at = (r: EntRec) => (settled ? r.pos : renderPos(r));
+  const sorted = recs.sort((a, b) => {
+    const d = layerOf(a) - layerOf(b); if (d) return d;
+    const rpA = at(a)!, rpB = at(b)!;
+    if (rpA.y !== rpB.y) return rpA.y - rpB.y;
+    return (spr(a).z ?? 0) - (spr(b).z ?? 0);
+  });
+  let playerRec: EntRec | undefined;
+  for (const r of sorted) {
+    if (r.tags.has("player")) playerRec = r;
+    const rp = at(r)!; const s = spr(r);
+    const facing = r.comps.get("facing") as string | undefined;
+    const t = s.anim ? tick - (eng.animStart.get(r.id) ?? 0) : tick;
+    drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), t, { anim: s.anim, frame: s.frame, facing, moving: !!r.slideFrom && r.slideT > 0, offset: s.offset });
+  }
+  // Held item above the player
+  const held = playerRec?.comps.get("held") as { id: number } | undefined;
+  if (playerRec && held) {
+    const item = eng.rec(held.id); const rp = at(playerRec)!;
+    const s = item?.comps.get("sprite") as SpriteComp | undefined;
+    if (s) drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16) - TUNING.heldLiftPx, tick);
+  }
 }
 
 const TEXT_CELL = 5;

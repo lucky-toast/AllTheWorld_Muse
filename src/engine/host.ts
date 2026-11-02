@@ -7,7 +7,7 @@
 // their handlers as transactions, delivers events (spec 8), fires timers and tweens,
 // owns focus (spec 7), the controls and the E resolver (spec 6), and the test-only
 // sim.* and check requests.
-import { catalogGet, catalogFind } from "./catalog";
+import { catalogGet, catalogFind, footprintOf, footprintTiles } from "./catalog";
 import { Engine, cloneJson, type EntRec, type Overlay } from "./engine";
 import { ENGINE_OWNER, type Pos, type SpriteComp } from "./types";
 import { validateManifest, type Manifest } from "./manifest";
@@ -56,12 +56,13 @@ const OPS: Record<string, Record<string, FieldType>> = {
   "tile.get": { ...TILE }, "tile.find": { tag: "name", "area?": "name" },
   "catalog.get": { id: "name" }, "catalog.find": { tag: "name" },
   time: {}, rand: {}, "state.get": {}, "state.getReplaced": { id: "name" },
-  spawn: { type: "name", ...TILE }, destroy: { id: "id" }, move: { id: "id", ...TILE, "instant?": "bool" },
-  lift: { id: "id" }, place: { id: "id", ...TILE },
+  "space.find": { ...TILE, w: "int", h: "int" },
+  spawn: { type: "name", ...TILE, "exact?": "bool" }, destroy: { id: "id" }, move: { id: "id", ...TILE, "instant?": "bool" },
+  lift: { id: "id" }, place: { id: "id", ...TILE, "exact?": "bool" },
   set: { id: "id", comp: "name", value: "json" }, remove: { id: "id", comp: "name" },
   tag: { id: "id", tag: "name" }, untag: { id: "id", tag: "name" },
   anim: { id: "id", name: "name", "callback?": "name" },
-  "tile.set": { ...TILE, sprite: "name" }, "state.set": { value: "json" },
+  "tile.set": { ...TILE, sprite: "name" }, "tile.stamp": { ...TILE, rows: "json", "exact?": "bool" }, "state.set": { value: "json" },
   emit: { name: "name", "payload?": "json" }, timer: { ticks: "int", name: "name" },
   focus: { mode: "name" }, release: {},
   "area.create": { name: "name", fill: "name" }, "area.list": {}, "area.current": {},
@@ -82,6 +83,8 @@ const DIRS = ["up", "down", "left", "right"];
 /** Errors thrown out of a module carry the id of the system whose handler threw. */
 const FAULT_SYSTEM = Symbol("faultSystem");
 const PLAYER_GUARDED = new Set(["destroy", "lift", "move", "place"]);
+/** Tags and components that make a tile not free, and that may never cover the player's tile. */
+const BLOCKERS = ["player", "solid", "pushable", "item"];
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
 const NONPRINT_RE = /\p{C}/u;
 
@@ -503,6 +506,49 @@ export class Host {
     if (!this.eng.areas.has(a as string)) deny("bad_request", `unknown area "${String(a)}"`);
     return a as string;
   }
+  /** A solid, pushable or item entity (the player aside): one that makes its tiles not free. */
+  private blocks(r: EntRec) { return BLOCKERS.some((b) => this.eng.has(r, b)); }
+  /** Does `sprite` fit at `pos`: every footprint tile in the map, walkable, and, for a blocking entity, free of the player and other blockers. */
+  private fits(sprite: string, blocking: boolean, pos: Pos, selfId: number): boolean {
+    const eng = this.eng;
+    return footprintTiles(sprite, pos.x, pos.y).every((t) => eng.inMap(t.x, t.y) && (blocking ? eng.isFreeFor(pos.area, t.x, t.y, selfId) : eng.isWalkable(pos.area, t.x, t.y)));
+  }
+  /**
+   * Where an entity goes for spawn and place: (x, y) when it fits there, otherwise the closest
+   * position in the area where it fits (by distance from (x, y), then top to bottom, left to right).
+   * With exact, (x, y) or a denial.
+   */
+  private placement(what: string, sprite: string, blocking: boolean, pos: Pos, exact: boolean, selfId = 0): Pos {
+    if (this.fits(sprite, blocking, pos, selfId)) return pos;
+    const fp = footprintOf(sprite); const size = `${fp.w}x${fp.h}`;
+    if (exact) deny("denied", `(${pos.x}, ${pos.y}) isn't free for ${what} (${size} footprint, extending up from x, y); leave out exact to let the host use the nearest free spot`);
+    for (const [dx, dy] of this.offsets()) {
+      const p = { x: pos.x + dx, y: pos.y + dy, area: pos.area };
+      if (this.eng.inMap(p.x, p.y) && this.fits(sprite, blocking, p, selfId)) return p;
+    }
+    return deny("denied", `there's no free spot for ${what} (${size} footprint) anywhere in ${pos.area}`);
+  }
+  private offsetCache: [number, number][] | null = null;
+  /** Every (dx, dy) that can stay inside the map, nearest first: the spiral the nearest-fit search walks. */
+  private offsets(): [number, number][] {
+    if (this.offsetCache) return this.offsetCache;
+    const out: [number, number][] = []; const w = this.eng.width, h = this.eng.height;
+    for (let dy = -(h - 1); dy < h; dy++) for (let dx = -(w - 1); dx < w; dx++) out.push([dx, dy]);
+    out.sort((a, b) => a[0] * a[0] + a[1] * a[1] - (b[0] * b[0] + b[1] * b[1]) || a[1] - b[1] || a[0] - b[0]);
+    return (this.offsetCache = out);
+  }
+  /** Top-left of the closest w x h block (from (x, y)) where `free(tx, ty)` holds for every cell that counts, or null. */
+  private nearestBlock(x: number, y: number, w: number, h: number, cellFree: (tx: number, ty: number, cx: number, cy: number) => boolean, exact: boolean): { x: number; y: number } | null {
+    const eng = this.eng;
+    const ok = (ox: number, oy: number) => {
+      if (!eng.inMap(ox, oy) || !eng.inMap(ox + w - 1, oy + h - 1)) return false;
+      for (let cy = 0; cy < h; cy++) for (let cx = 0; cx < w; cx++) if (!cellFree(ox + cx, oy + cy, cx, cy)) return false;
+      return true;
+    };
+    if (exact) return ok(x, y) ? { x, y } : null;
+    for (const [dx, dy] of this.offsets()) if (ok(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+    return null;
+  }
   private walkableSprite(id: string) { const e = catalogGet(id); return !!e && e.tags.includes("walkable") && !e.tags.includes("water"); }
   private uiTexts(req: Request): string[] {
     switch (req.op) {
@@ -544,9 +590,17 @@ export class Host {
   private invariantProblem(recs: EntRec[]): string | null {
     const eng = this.eng;
     if (!eng.player()) return "the player must exist";
+    const player = eng.player()!;
+    const playerTiles = player.pos ? new Set(eng.footprintOfRec(player).map((t) => `${t.x},${t.y}`)) : new Set<string>();
+    const onPlayer = (rec: EntRec) => !!rec.pos && rec.pos.area === player.pos?.area && eng.footprintOfRec(rec).some((t) => playerTiles.has(`${t.x},${t.y}`));
     for (const r of recs) {
       if (!eng.entities.has(r.id)) continue;
       const p = eng.entityProblem(r); if (p) return p;
+      // The player can never be trapped: nothing that blocks may cover a tile the player stands on.
+      if (r !== player && this.blocks(r) && onPlayer(r)) return `${r.type}#${r.id} would stand on the player's tile`;
+      if (r === player && player.pos) for (const t of eng.footprintOfRec(player)) for (const id of eng.at(player.pos.area, t.x, t.y)) {
+        const o = eng.rec(id)!; if (o !== player && this.blocks(o)) return `the player would stand on ${o.type}#${o.id}`;
+      }
       if (r.pos) for (const t of eng.footprintOfRec(r)) if (eng.inMap(t.x, t.y) && !eng.at(r.pos.area, t.x, t.y).includes(r.id)) return "occupancy would not match positions";
     }
     return null;
@@ -583,6 +637,12 @@ export class Host {
       case "rand": return eng.rand(system);
       case "state.get": { const v = eng.systemState.get(system); return v === undefined ? null : cloneJson(v); }
       case "state.getReplaced": { const v = eng.systemState.get(req.id as string); return v === undefined ? null : cloneJson(v); }
+      case "space.find": {
+        const w = req.w as number, h = req.h as number;
+        if (w < 1 || h < 1 || w > eng.width || h > eng.height) deny("bad_request", `w and h must be 1 to ${eng.width} and 1 to ${eng.height}`);
+        const b = this.nearestBlock(x, y, w, h, (tx, ty) => eng.isFreeFor(area, tx, ty), false);
+        return b ? { ...b, area } : null;
+      }
       case "area.list": return [...eng.areas.keys()];
       case "area.current": return eng.currentArea();
 
@@ -594,8 +654,10 @@ export class Host {
         if (n > LIMITS.spawnsPerTick) deny("limit", `over ${LIMITS.spawnsPerTick} spawns this tick`);
         const live = (eng.ownedCount.get(system) ?? 0) + 1;
         if (live > LIMITS.liveEntitiesPerSystem) deny("limit", `over ${LIMITS.liveEntitiesPerSystem} live entities spawned by "${system}"`);
+        const t = eng.types.get(type)!;
+        const at = this.placement(`a ${type}`, t.sprite, t.tags.some((g) => BLOCKERS.includes(g)), pos(), req.exact === true);
         let id = 0;
-        this.write(() => { const r = eng.spawn(type, pos(), system); id = r.id; return [r]; });
+        this.write(() => { const r = eng.spawn(type, at, system); id = r.id; return [r]; });
         this.noteWrite(system, id);
         this.spawnsTick.set(system, n);
         this.near(system, "spawnsPerTick", n, LIMITS.spawnsPerTick);
@@ -605,7 +667,11 @@ export class Host {
       case "destroy": this.write(() => { eng.destroy(rec!.id); return []; }); this.noteWrite(system, rec!.id); return null;
       case "move": this.write(() => { eng.setPos(rec!.id, pos(), req.instant !== true); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
       case "lift": this.write(() => { eng.setPos(rec!.id, null); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
-      case "place": this.write(() => { eng.setPos(rec!.id, pos()); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
+      case "place": {
+        const at = this.placement(`${rec!.type}#${rec!.id}`, eng.spriteIdOf(rec!), this.blocks(rec!), pos(), req.exact === true, rec!.id);
+        this.write(() => { eng.setPos(rec!.id, at); return [rec!]; }); this.noteWrite(system, rec!.id);
+        return { ...at };
+      }
       case "set": {
         const comp = req.comp as string; const value = cloneJson(req.value);
         if (comp === "sprite") this.checkSpriteComp(value);
@@ -634,6 +700,30 @@ export class Host {
         if (!catalogGet(sprite)?.tags.includes("terrain")) deny("bad_request", `"${sprite}" isn't a terrain sprite`);
         this.write(() => { eng.setTile(area, x, y, sprite); return eng.at(area, x, y).map((id) => eng.rec(id)!); });
         return null;
+      }
+      case "tile.stamp": {
+        const rows = this.checkRows(req.rows);
+        const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
+        if (w > eng.width || h > eng.height) deny("bad_request", `rows is at most ${eng.height} rows of ${eng.width}`);
+        // A cell is free for its new terrain when no player, solid, pushable or item stands on it,
+        // and, when the new terrain isn't walkable, nothing stands on it at all. null cells don't count.
+        const cellFree = (tx: number, ty: number, cx: number, cy: number) => {
+          const s = rows[cy][cx] ?? null; if (s === null) return true;
+          const ids = eng.at(area, tx, ty);
+          return this.walkableSprite(s) ? ids.every((id) => !this.blocks(eng.rec(id)!)) : ids.length === 0;
+        };
+        const o = this.nearestBlock(x, y, w, h, cellFree, req.exact === true);
+        if (!o) deny("denied", req.exact === true ? `the ${w}x${h} block at (${x}, ${y}) isn't free (something stands where the terrain changes); leave out exact to let the host move it to the nearest free block` : `there's no free ${w}x${h} block anywhere in ${area}`);
+        this.write(() => {
+          const touched = new Set<number>();
+          rows.forEach((row, cy) => row.forEach((s, cx) => {
+            if (s === null) return;
+            eng.setTile(area, o!.x + cx, o!.y + cy, s);
+            for (const id of eng.at(area, o!.x + cx, o!.y + cy)) touched.add(id);
+          }));
+          return [...touched].map((id) => eng.rec(id)!);
+        });
+        return { ...o!, area };
       }
       case "state.set": {
         const value = cloneJson(req.value); const size = utf8Len(JSON.stringify(value));
@@ -833,6 +923,19 @@ export class Host {
     this.fxTick.set(system, used + kept);
     this.near(system, "fxPerTick", used + kept, LIMITS.fxPerTick, kept);
     return kept;
+  }
+  /** tile.stamp rows: a list of rows, each a list of terrain sprite ids or null. */
+  private checkRows(v: unknown): (string | null)[][] {
+    const bad = () => deny("bad_request", "rows is a list of rows, each a list of terrain sprite ids or null (leave as is)");
+    if (!Array.isArray(v) || !v.length || !v.every((r) => Array.isArray(r))) bad();
+    const rows = v as unknown[][];
+    if (!rows.some((r) => r.length)) bad();
+    for (const r of rows) for (const s of r) {
+      if (s === null) continue;
+      if (typeof s !== "string") bad();
+      if (!catalogGet(s as string)?.tags.includes("terrain")) deny("bad_request", `"${String(s)}" isn't a terrain sprite`);
+    }
+    return rows as (string | null)[][];
   }
   private checkSpriteComp(v: unknown) {
     const s = v as SpriteComp;

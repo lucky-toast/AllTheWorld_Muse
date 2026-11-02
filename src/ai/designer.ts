@@ -15,6 +15,8 @@ import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltProm
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
 export const PILLARS = normalizeEol(pillarsRaw).trim();
 export const ART_BOARD_NOTE = "(See the attached art board image.)";
+/** The maps go as images (src/ai/mapimage.ts; the AI tab's Download maps). */
+export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
 /** The slots that only change when a system loads, or never. */
 function fixedSlots(host: Host): Record<string, string> {
@@ -23,6 +25,7 @@ function fixedSlots(host: Host): Record<string, string> {
     API: normalizeEol(apiRaw).trim(),
     CATALOG: catalogText(),
     ART_BOARD: ART_BOARD_NOTE,
+    MAP_IMAGE: MAP_IMAGE_NOTE,
     SYSTEM_EXAMPLES: examplesText(),
     ...systemSlots(host),
   };

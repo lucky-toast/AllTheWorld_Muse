@@ -84,9 +84,10 @@ export function onEvent(name: string, payload: string): void {
   }
   if (bestScore < 0) return;
 
+  // The branches go first: the pit takes their tiles (a spawn onto them would be moved aside).
+  for (let k = 0; k < 3; k++) destroy(branches[k]);
   const fire = spawn("campfire", bestX, bestY, d.area);
   if (!fire) return;
-  for (let k = 0; k < 3; k++) destroy(branches[k]);
   light(fire, new Pos(bestX, bestY, d.area));
 }
 

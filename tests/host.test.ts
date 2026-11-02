@@ -109,7 +109,7 @@ describe("invariants", () => {
   test("a write that would put a footprint on water is denied and undone", () => {
     const { call, eng } = setup();
     const before = eng.serialize();
-    denied(call({ op: "spawn", type: "crate", x: 5, y: 16 }));
+    denied(call({ op: "spawn", type: "crate", x: 5, y: 16, exact: true }));
     const crate = eng.query("crate")[0];
     denied(call({ op: "move", id: crate, x: 5, y: 16, instant: true }));
     denied(call({ op: "tile.set", x: 17, y: 9, sprite: "stream_h" })); // under the crate

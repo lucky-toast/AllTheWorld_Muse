@@ -56,13 +56,14 @@ describe("companion files", () => {
   test("the designer prompt is designer.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPrompt(host, "Let the player skip stones on the pond.");
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "ART_BOARD", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "ART_BOARD", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
     const tpl = docSection("docs/designer.md", "System message");
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.PILLARS).toBe(read("docs/pillars.md").trim());
     expect(p.slots.API).toBe(read("src/sdk/index.ts").trim());
     expect(p.slots.ART_BOARD).toBe("(See the attached art board image.)");
+    expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
   });
 
   test("the repair message is designer.md's repair section exactly, apart from its slots", () => {

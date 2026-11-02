@@ -15,14 +15,9 @@ export function migrate(): void {
   for (let s = 0; s < stumps.length; s++) {
     if (typeOf(stumps[s]) != "stump_big") continue;
     const p = posOf(stumps[s]); if (!p) continue;
-    // Beside the stump: right of it, left of it, then below and above.
-    const xs: i32[] = [p.x + 2, p.x - 1, p.x, p.x + 1, p.x, p.x + 1];
-    const ys: i32[] = [p.y, p.y, p.y + 1, p.y + 1, p.y - 1, p.y - 1];
-    for (let i = 0; i < xs.length; i++) {
-      if (!isFree(xs[i], ys[i], 0, p.area)) continue;
-      const axe = spawn("axe", xs[i], ys[i], p.area);
-      if (axe) { setNum(axe, "chopTicks", CHOP_TICKS); return; }
-    }
+    // Just right of the stump; if that tile is taken, the host puts it on the nearest free one.
+    const axe = spawn("axe", p.x + 2, p.y, p.area);
+    if (axe) { setNum(axe, "chopTicks", CHOP_TICKS); return; }
   }
 }
 
