@@ -112,9 +112,26 @@ export class Game {
     this.timers = this.timers.filter((t) => t.systemId !== id);
     this.tweens = this.tweens.filter((t) => t.systemId !== id);
     this.factories = this.factories.filter((f) => { try { return f().manifest.id !== id; } catch { return true; } });
+    for (const [key, slot] of [...this.eng.hudSlots]) if (slot.owner === id) this.eng.hudSlots.delete(key);
+    this.eng.overlay = null;
     this.registry.remove(id);
     this.emit("(engine)", "system.unloaded", { id, reason });
     this.interactions.refresh();
+  }
+  /** Unload a system and every system that builds on it, transitively (spec 10.4). */
+  unloadWithDependents(id: string, reason = "faulted"): string[] {
+    const doomed = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const s of this.registry.systems) {
+        if (!doomed.has(s.manifest.id) && s.manifest.buildsOn.some((b) => doomed.has(b))) { doomed.add(s.manifest.id); grew = true; }
+      }
+    }
+    const ordered = [...this.registry.systems].map((s) => s.manifest.id).filter((x) => doomed.has(x)).reverse();
+    for (const x of ordered) this.unloadSystem(x, reason);
+    this.eng.banner = { text: `${id} stopped working and was removed`, t: TUNING.bannerTicks };
+    return ordered;
   }
 
   /** One transaction per system call (spec 4.4). Nested calls (via emit) join the outer transaction. */
@@ -128,6 +145,7 @@ export class Game {
       this.timers.length = timersBefore; this.tweens.length = tweensBefore;
       this.faults.push({ tick: this.eng.tickCount, system: system.manifest.id, handler, message: e instanceof Error ? e.message : String(e) });
       if (this.focus.isHolder(system.manifest.id)) this.focus.end("fault");
+      try { system.faulted?.(); } catch { /* unloading must not mask the fault */ }
       return false;
     }
   }

@@ -14,6 +14,8 @@ export interface LoadedSystem extends SystemHandlers {
   manifest: Manifest;
   isBase?: boolean;
   tests?: { name: string; run: () => void }[];
+  /** Called by the runtime after a fault has been rolled back (sandbox strikes). */
+  faulted?: () => void;
 }
 export interface InteractionEntry extends InteractionDef { owner: string; loadIndex: number }
 

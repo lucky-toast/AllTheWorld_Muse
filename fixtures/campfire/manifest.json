@@ -1,0 +1,25 @@
+{
+  "id": "campfire",
+  "why": "Three dropped branches become a fire that burns for part of a night.",
+  "buildsOn": ["carry"],
+  "replaces": [],
+  "entities": {
+    "firepit": { "sprite": "firepit", "tags": ["solid", "firepit"] },
+    "firepit_ash": { "sprite": "firepit_ash", "tags": ["ash"] },
+    "flame": { "sprite": "fx_fire", "tags": ["flame"] }
+  },
+  "components": {
+    "burnTicksLeft": "number: ticks of burn left, on the firepit",
+    "flameId": "number: id of the flame entity, on the firepit"
+  },
+  "interactions": [],
+  "reactions": ["item.dropped"],
+  "emits": {
+    "campfire.lit": { "pit": "entity", "pos": "pos" },
+    "campfire.out": { "pit": "entity", "pos": "pos" }
+  },
+  "shots": [
+    { "name": "just_lit", "ticks": 30, "focus": { "x": 15, "y": 11 }, "time": "night" },
+    { "name": "ash", "ticks": 30, "focus": { "x": 15, "y": 11 }, "time": "night" }
+  ]
+}
