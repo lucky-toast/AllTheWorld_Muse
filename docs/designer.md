@@ -91,6 +91,10 @@ You can build on any of these. They are listed oldest first.
 
 {{NEWEST_AI_SYSTEM}}
 
+## Maps
+
+Maps of the current area and the newest areas, in daylight with a tile grid and coordinates (attached separately): {{MAP_IMAGE}}
+
 ## Entity counts by type
 
 {{ENTITY_COUNTS}}
