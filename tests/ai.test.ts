@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { buildWorld } from "../src/world/map";
 import { Host } from "../src/engine/host";
-import { loadBaseSystems } from "../src/systems/base";
+import { loadBaseSystems, BASE_SYSTEMS } from "../src/systems/base";
 import { Pipeline } from "../src/pipeline/client";
 import { inProcessWorker } from "../src/pipeline/inprocess";
 import { LiveLoader } from "../src/pipeline/live";
@@ -64,6 +64,24 @@ describe("companion files", () => {
     expect(p.slots.API).toBe(read("src/sdk/index.ts").trim());
     expect(p.slots.ART_BOARD).toBe("(See the attached art board image.)");
     expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
+  });
+
+  test("the SDK's doc comments keep the API rules the designer relies on", () => {
+    const sdk = read("src/sdk/index.ts");
+    // The doc comment directly above an exported function.
+    const docOf = (name: string) => {
+      const m = sdk.match(new RegExp(`(/\\*\\*(?:(?!\\*/)[\\s\\S])*\\*/)\\s*export function ${name}\\(`));
+      return m ? m[1] : "";
+    };
+    expect(docOf("spawn")).toContain("registered");
+    expect(docOf("rand")).toContain("Math.random");
+    // Base systems give a one-line shape for every component they own; it's what the designer sees.
+    const comps = Object.assign({}, ...BASE_SYSTEMS.map((s) => (s.manifest as { components?: Record<string, string> }).components ?? {})) as Record<string, string>;
+    for (const c of ["facing", "held", "light", "moveDelay"]) {
+      expect(typeof comps[c], c).toBe("string");
+      expect(comps[c].length, c).toBeGreaterThan(0);
+      expect(comps[c].includes("\n"), c).toBe(false);
+    }
   });
 
   test("the repair message is designer.md's repair section exactly, apart from its slots", () => {

@@ -1,11 +1,15 @@
 // The All the World SDK for AI systems (AssemblyScript). Import everything from "sdk".
 //
-// Every helper is one request to the host, which checks it and may say no. A refused
-// read returns an empty value (0, "", [], null JSON) and a refused write returns false;
-// lastError() then says why. Entities are numeric ids, 0 means "none". Tiles default to
-// the player's current area when `area` is "".
+// All game logic runs in ticks (60 per second), never wall-clock time.
 //
-// Module exports you may write (all optional, except as your manifest requires):
+// Every helper is one request to the host, which checks it and may say no. A denied call never
+// crashes your module: a refused read returns an empty value (0, "", [], null JSON) and a
+// refused write returns false; lastError() then says why. Entities are numeric ids, 0 means
+// "none". Tags and components share one namespace. Tiles default to the player's current area
+// when `area` is "".
+//
+// Module exports you may write (all optional, except as your manifest requires). migrate runs once
+// when the system loads into a world and must be safe to run more than once.
 //   export function perform(verb: string, target: i32, held: i32): void
 //   export function onEvent(name: string, payload: string): void   // payload is JSON
 //   export function onTick(): void
@@ -181,7 +185,8 @@ export class Pos {
 /** What `info` returns about an entity. */
 export class Info {
   type: string = "";
-  /** Bottom-left tile, or null while lifted (held). */
+  /** Tile of the sprite's bottom-left corner, or null while lifted or held. The footprint extends
+   *  upward and rightward from it as the catalog's footprint says; taller sprites draw upward. */
   pos: Pos | null = null;
   tags: string[] = [];
 }
@@ -194,6 +199,7 @@ export class Tile {
 
 /** The clock. */
 export class Time {
+  /** Starts at 1 and goes up at each dawn. */
   day: i32 = 1;
   /** 0 to 24, fractional. */
   hour: f64 = 0;
@@ -225,9 +231,9 @@ export function queryTruncated(): bool { return truncated(); }
 export function spaceFind(x: i32, y: i32, w: i32, h: i32, area: string = ""): Pos | null {
   return Pos.from(request(tileReq("space.find", x, y, area).int("w", w).int("h", h)));
 }
-/** Ids of entities whose footprint covers tile (x, y). */
+/** Ids of entities whose footprint covers tile (x, y). With isFree, the way to test collision. */
 export function at(x: i32, y: i32, area: string = ""): i32[] { return request(tileReq("at", x, y, area)).ints(); }
-/** Type, position and tags of an entity, or null when it no longer exists. */
+/** Type, position and tags of an entity, or null when it no longer exists. pos: see Info.pos. */
 export function info(id: i32): Info | null {
   const r = request(op("info").int("id", id));
   if (!r.isObject()) return null;
@@ -245,7 +251,7 @@ export function getNum(id: i32, comp: string, fallback: f64 = 0): f64 { return g
 export function getStr(id: i32, comp: string, fallback: string = ""): string { return get(id, comp).str(fallback); }
 /** A boolean component, or `fallback`. */
 export function getBool(id: i32, comp: string, fallback: bool = false): bool { return get(id, comp).bool(fallback); }
-/** The terrain at (x, y), or null outside the map. */
+/** The terrain at (x, y), or null outside the area. */
 export function tileGet(x: i32, y: i32, area: string = ""): Tile | null {
   const r = request(tileReq("tile.get", x, y, area));
   if (!r.isObject()) return null;
@@ -254,26 +260,28 @@ export function tileGet(x: i32, y: i32, area: string = ""): Tile | null {
   t.tags = r.get("tags").strs();
   return t;
 }
-/** Every tile whose terrain has this catalog tag. */
+/** Every tile whose terrain has this catalog tag, such as "water" or "walkable". */
 export function tileFind(tag: string, area: string = ""): Pos[] {
   const o = op("tile.find").str("tag", tag); if (area.length) o.str("area", area);
   const r = request(o); const out = new Array<Pos>();
   for (let i = 0; i < r.length; i++) { const p = Pos.from(r.at(i)); if (p) out.push(p); }
   return out;
 }
-/** A catalog entry as JSON (id, tags, footprint, anims, ...), or null. */
+/** A catalog entry as JSON (id, tags, materials, desc, footprint, anims, ...), or null. Anim names
+ *  for anim() come from its "anims". */
 export function catalogGet(sprite: string): Json { return request(op("catalog.get").str("id", sprite)); }
-/** Sprite ids with this catalog tag. */
+/** Sprite ids with this catalog tag. Pick art by meaning (tags, materials, desc), not by id. */
 export function catalogFind(tag: string): string[] { return request(op("catalog.find").str("tag", tag)).strs(); }
-/** The clock: day, hour and phase. */
+/** The clock: day (from 1, up at each dawn), hour (0 to 24, fractional) and phase. */
 export function time(): Time {
   const r = request(op("time")); const t = new Time();
   t.day = r.get("day").int(1); t.hour = r.get("hour").num(); t.phase = r.get("phase").str();
   return t;
 }
-/** A number in [0, 1) from this system's own random stream (never Math.random). */
+/** A number in [0, 1) from this system's own seeded stream. Always use it, never Math.random. */
 export function rand(): f64 { return request(op("rand")).num(); }
-/** This system's saved state (null when none). */
+/** This system's saved state (null when none). Saved with the world; the module itself is
+ *  re-created on every load. */
 export function stateGet(): Json { return request(op("state.get")); }
 /** The saved state of a system this one replaces. Only during migrate. */
 export function stateGetReplaced(id: string): Json { return request(op("state.getReplaced").str("id", id)); }
@@ -281,9 +289,11 @@ export function stateGetReplaced(id: string): Json { return request(op("state.ge
 // ---- writes ----
 
 /**
- * Spawn a registered entity type with its bottom-left at (x, y), or, when its footprint doesn't
- * fit there, at the closest spot in the area where it does (posOf(id) tells where). Returns its
- * id, or 0 when refused. With exact = true a spot that doesn't fit is refused instead.
+ * Spawn a registered entity type (a base map type, one in this system's manifest "entities", or
+ * one another loaded system registered), never a bare catalog sprite id: declare new types in
+ * "entities" first. Its bottom-left goes at (x, y), or, when its footprint doesn't fit there, at
+ * the closest spot in the area where it does (posOf(id) tells where). Returns its id, or 0 when
+ * refused. With exact = true a spot that doesn't fit is refused instead.
  */
 export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bool = false): i32 {
   const o = tileReq("spawn", x, y, area).str("type", type); if (exact) o.bool("exact", true);
@@ -291,9 +301,10 @@ export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bo
 }
 /** Remove an entity. */
 export function destroy(id: i32): bool { return done(op("destroy").int("id", id)); }
-/** Move an entity so its bottom-left is (x, y). It slides unless `instant`. Refused (never moved elsewhere) if it would block the player's tile. */
+/** Move an entity so its bottom-left is (x, y): slides one step by default, instant = true teleports.
+ *  The player can't be moved. Refused (never moved elsewhere) if it would block the player's tile. */
 export function move(id: i32, x: i32, y: i32, instant: bool = false, area: string = ""): bool { return done(tileReq("move", x, y, area).int("id", id).bool("instant", instant)); }
-/** Take an entity off the map (pos becomes null). */
+/** Take an entity off the map (pos becomes null); place puts it back. */
 export function lift(id: i32): bool { return done(op("lift").int("id", id)); }
 /**
  * Put a lifted entity back on the map at (x, y), or at the closest spot where its footprint fits.
@@ -303,7 +314,9 @@ export function place(id: i32, x: i32, y: i32, area: string = "", exact: bool = 
   const o = tileReq("place", x, y, area).int("id", id); if (exact) o.bool("exact", true);
   return Pos.from(request(o));
 }
-/** Set a component to a JSON value (text, e.g. an Obj's toString()). */
+/** Set a component to a JSON value (text, e.g. an Obj's toString()). Setting "sprite" ({ id, anim?,
+ *  frame?, z?, offset? }) changes what's drawn and the footprint, and updates occupancy. A "light"
+ *  component { radius, color, strength, flicker? } makes something glow; the renderer does the rest. */
 export function set(id: i32, comp: string, json: string): bool { return done(op("set").int("id", id).str("comp", comp).raw("value", json)); }
 /** Set a number component. */
 export function setNum(id: i32, comp: string, v: f64): bool { return set(id, comp, numText(v)); }
@@ -317,7 +330,8 @@ export function remove(id: i32, comp: string): bool { return done(op("remove").i
 export function tag(id: i32, name: string): bool { return done(op("tag").int("id", id).str("tag", name)); }
 /** Remove a tag. */
 export function untag(id: i32, name: string): bool { return done(op("untag").int("id", id).str("tag", name)); }
-/** Play a sprite anim; with a callback, onTimer(callback) fires when it ends (or after one loop). */
+/** Play a sprite anim (names from its catalog "anims"); with a callback, onTimer(callback) fires
+ *  when it ends (or after one loop). */
 export function anim(id: i32, name: string, callback: string = ""): bool {
   const o = op("anim").int("id", id).str("name", name); if (callback.length) o.str("callback", callback);
   return done(o);
@@ -348,7 +362,7 @@ export function tileStamp(x: i32, y: i32, rows: Array<Array<string | null>>, are
 }
 /** Change the terrain sprite of a tile. Refused if it would make the player's tile unwalkable. */
 export function tileSet(x: i32, y: i32, sprite: string, area: string = ""): bool { return done(tileReq("tile.set", x, y, area).str("sprite", sprite)); }
-/** Replace this system's whole saved state with a JSON value (text). */
+/** Replace this system's whole saved state with a JSON value (text). Saved with the world. */
 export function stateSet(json: string): bool { return done(op("state.set").raw("value", json)); }
 
 // ---- events, timers, controls ----
@@ -375,23 +389,25 @@ export function travel(area: string, x: i32, y: i32): bool { return done(op("tra
 
 // ---- effects and UI ----
 
-/** Burst of particles from a sprite at tile (x, y). `count` 0 means the default. */
+/** Burst of particles from a sprite at tile (x, y), one random piece each when the sprite has
+ *  pieces. `count` 0 means the default. */
 export function particles(sprite: string, x: i32, y: i32, count: i32 = 0, area: string = ""): bool {
   const o = tileReq("fx.particles", x, y, area).str("sprite", sprite); if (count > 0) o.int("count", count);
   return done(o);
 }
-/** Floating text over tile (x, y). `color` is a hex colour like "#ffcc66" ("" for white). */
+/** Text that floats up from tile (x, y) and fades. `color` is a hex colour like "#ffcc66" ("" for white). */
 export function floatText(text: string, x: i32, y: i32, color: string = "", area: string = ""): bool {
   const o = tileReq("fx.float", x, y, area).str("text", text); if (color.length) o.str("color", color);
   return done(o);
 }
-/** Tint the screen (alpha at most 0.6, at most 3000 ms). */
+/** A brief full-screen colour that fades (alpha at most 0.6, at most 3000 ms). */
 export function tint(color: string, alpha: f64, ms: f64): bool { return done(op("fx.tint").str("color", color).num("alpha", alpha).num("ms", ms)); }
 /** Tween from `from` to `to` over `ticks`; onTween(id, value) each tick. Returns the tween id, or 0. */
 export function tween(from: f64, to: f64, ticks: i32): i32 { return request(op("fx.tween").num("from", from).num("to", to).int("ticks", ticks)).int(); }
-/** Show a banner (one per 2 s per system). */
+/** Show a short banner that fades on its own (one per 2 s per system). */
 export function banner(text: string): bool { return done(op("ui.banner").str("text", text)); }
-/** Add or update a HUD slot. `width` is the widest text in characters; `icon` a sprite id or "". */
+/** Add or replace the HUD slot with this key. `width` is the characters to reserve, so the HUD never
+ *  shifts; `icon` a sprite id or "". */
 export function hudAdd(key: string, text: string, width: i32, icon: string = ""): bool {
   const o = op("ui.hud.add").str("key", key).str("text", text).int("width", width); if (icon.length) o.str("icon", icon);
   return done(o);
@@ -404,6 +420,7 @@ export function overlay(panel: Obj): bool { return done(op("ui.overlay").raw("pa
 export function overlayClear(): bool { return done(op("ui.overlay").nul("panel")); }
 
 // ---- tests and shots only ----
+// sim.* plays through the same paths as real keys, and each call runs enough ticks to finish.
 
 /** Hold a direction key until the player tried `steps` steps (moved or blocked). */
 export function simWalk(dir: string, steps: i32 = 1): bool { return done(op("sim.walk").str("dir", dir).int("steps", steps)); }
@@ -413,28 +430,31 @@ export function simFace(dir: string): bool { return done(op("sim.face").str("dir
 export function simInteract(): bool { return done(op("sim.interact")); }
 /** Press Q. */
 export function simCycle(): bool { return done(op("sim.cycle")); }
-/** Spawn an entity type straight into the player's empty hands. Returns its id, or 0. */
+/** Spawn a registered entity type into the player's empty hands, exactly as Pick up does. Returns its id, or 0. */
 export function simGive(type: string): i32 { return request(op("sim.give").str("type", type)).int(); }
 /** Put the player on a free tile. */
 export function simTeleport(x: i32, y: i32, area: string = ""): bool { return done(tileReq("sim.teleport", x, y, area)); }
 /** Run the world for `ticks` ticks. */
 export function simWait(ticks: i32): bool { return done(op("sim.wait").int("ticks", ticks)); }
-/** Jump the clock to a phase ("dawn", "day", "dusk", "night"). Does not change the day. */
+/** Jump the clock to a phase ("dawn", "day", "dusk", "night"). Does not change the day. Emits
+ *  time.jumped, then time.phase if the phase changed. */
 export function simTime(phase: string): bool { return done(op("sim.time").str("phaseOrHour", phase)); }
-/** Jump the clock to an hour (0 to 24). Does not change the day. */
+/** Jump the clock to an hour (0 to 24). Does not change the day. Events as simTime. */
 export function simTimeHour(hour: f64): bool { return done(op("sim.time").num("phaseOrHour", hour)); }
 /** Send a key ("up", "down", "left", "right", "e", "q", "escape") "down" or "up", then run one tick. */
 export function simKey(key: string, kind: string): bool { return done(op("sim.key").str("key", key).str("kind", kind)); }
 /** Events fired since the test started (all, or only `name`): a JSON array of { tick, name, payload }. */
 export function simEvents(name: string = ""): Json { const o = op("sim.events"); if (name.length) o.str("name", name); return request(o); }
-/** Record a named check. A test passes when every check passed and at least one ran. */
+/** Record a named check. A test passes only if every check passed and at least one ran. Cover the
+ *  cases where your action should do nothing, too. */
 export function check(cond: bool, label: string): void { request(op("check").bool("cond", cond).str("label", label)); }
 
 // ============================== helpers ==============================
 
 /** The player's entity id. */
 export function player(): i32 { const ids = query("player"); return ids.length ? ids[0] : 0; }
-/** The direction the player faces: "up", "down", "left" or "right". */
+/** The direction the player faces ("up", "down", "left" or "right"), read from the player's
+ *  "facing" component, the one place facing is stored. */
 export function facing(): string { return getStr(player(), "facing", "down"); }
 /** The player's tile, or null while the player is off the map. */
 export function playerPos(): Pos | null { const i = info(player()); return i ? i.pos : null; }
@@ -448,9 +468,10 @@ export function facedTile(): Pos {
 export function dirX(dir: string): i32 { return dir == "left" ? -1 : dir == "right" ? 1 : 0; }
 /** -1, 0 or 1: the y step of a direction (down is +1). */
 export function dirY(dir: string): i32 { return dir == "up" ? -1 : dir == "down" ? 1 : 0; }
-/** The id of the item in the player's hands, or 0. */
+/** The id of the item in the player's hands, or 0. The player's "held" component ({ id }) is the
+ *  one place that says what's in hand. */
 export function held(): i32 { return get(player(), "held").get("id").int(); }
-/** An entity's position, or null when lifted or gone. */
+/** An entity's bottom-left tile, or null when lifted, held or gone. */
 export function posOf(id: i32): Pos | null { const i = info(id); return i ? i.pos : null; }
 /** An entity's type, or "" when it is gone. */
 export function typeOf(id: i32): string { const i = info(id); return i ? i.type : ""; }
@@ -470,7 +491,7 @@ export function isFree(x: i32, y: i32, selfId: i32 = 0, area: string = ""): bool
   }
   return true;
 }
-/** The tiles a sprite covers with its bottom-left at (x, y). Footprints extend upward. */
+/** The tiles a sprite covers with its bottom-left at (x, y). Footprints extend upward and rightward. */
 export function footprintTiles(sprite: string, x: i32, y: i32, area: string = ""): Pos[] {
   const fp = catalogGet(sprite).get("footprint");
   const w = fp.get("w").int(1), h = fp.get("h").int(1), ox = fp.get("x").int(0);
@@ -484,7 +505,8 @@ export function footprintFree(id: i32, x: i32, y: i32, area: string = ""): bool 
   for (let i = 0; i < tiles.length; i++) if (!isFree(tiles[i].x, tiles[i].y, id, area)) return false;
   return true;
 }
-/** Put an item in the player's empty hands (lift it, then set the player's held). */
+/** Put an item in the player's empty hands exactly as Pick up does (lift it, then set the
+ *  player's "held" to { id }). */
 export function giveToPlayer(id: i32): bool {
   const p = player();
   if (!get(p, "held").isNull()) return false;
