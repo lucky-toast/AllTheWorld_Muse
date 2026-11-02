@@ -164,6 +164,20 @@ export function tagIndexText(examples: number = LIMITS.TAG_INDEX_EXAMPLES): stri
   }).join("\n");
 }
 
+/** Tags that say how terrain behaves or is drawn, not what the ground is. */
+const TERRAIN_MECHANICS = new Set(["terrain", "walkable", "autotile", "region", "pattern", "overlay", "animated", "hazard", "solid"]);
+
+/**
+ * What ground the catalog has: every tag carried by at least two terrain entries, with how many,
+ * worked out from the catalog so it stays right as the catalog changes. It reminds the planner
+ * that a new place needs ground; which tags fit is left to it.
+ */
+export function groundTagsText(): string {
+  const n = new Map<string, number>();
+  for (const s of CATALOG.sprites) if (s.tags.includes("terrain")) for (const t of s.tags) if (!TERRAIN_MECHANICS.has(t)) n.set(t, (n.get(t) ?? 0) + 1);
+  return [...n].filter(([, c]) => c >= 2).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([t, c]) => `${t} (${c})`).join(", ");
+}
+
 /** Sprite ids already in use: the sprites of entity types present in the world, and terrain on the maps. */
 export function worldSprites(eng: Engine): string[] {
   const out = new Set<string>();

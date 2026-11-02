@@ -9,7 +9,7 @@ import { LiveLoader } from "../src/pipeline/live";
 import { LocalStore, type ModuleCache } from "../src/pipeline/store";
 import { buildPrompt, buildRepairMessage, parseDesignerReply, DESIGNER_TEMPLATE } from "../src/ai/designer";
 import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "../src/ai/planner";
-import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
+import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, stepCatalogText, tagIndexText, groundTagsText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
 import { AiApiError, ManualProvider, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
@@ -92,7 +92,7 @@ describe("companion files", () => {
   test("the planner prompt is planner.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPlannerPrompt(host, cleanWish("How can I eat this fish?"));
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "BASE_SYSTEMS", "CATALOG_TAGS", "ENTITY_COUNTS", "MAX_STEPS", "NEWEST_AI_SYSTEM", "PILLARS", "PLAYER", "TERRAIN_COUNTS", "WISH"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "BASE_SYSTEMS", "CATALOG_TAGS", "ENTITY_COUNTS", "GROUND_TAGS", "MAX_STEPS", "NEWEST_AI_SYSTEM", "PILLARS", "PLAYER", "TERRAIN_COUNTS", "WISH"]);
     const tpl = docSection("src/ai/prompts/planner.md", "System message");
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.MAX_STEPS).toBe("4");
@@ -620,6 +620,14 @@ describe("catalog in the prompts", () => {
     const tags = new Set(CATALOG.sprites.flatMap((s) => s.tags));
     expect(idx.split("\n")).toHaveLength(tags.size);
     expect(idx).toContain(`fishing (${catalogFind("fishing").length})`);
+  });
+
+  test("the planner sees which tags mark ground, worked out from the catalog", () => {
+    const g = groundTagsText();
+    expect(g).toContain(`floor (`); expect(g).toContain(`interior (`); expect(g).toContain(`grass (`);
+    for (const meta of ["terrain", "walkable", "autotile", "region"]) expect(g).not.toContain(`${meta} (`);
+    const p = buildPlannerPrompt(liveHost(), "build me a house");
+    expect(p.cached + p.rest).toContain(`Terrain tags in the catalog: ${g}.`);
   });
 
   test("every ground terrain is walkable; only water, pits, hazards and cliffs aren't", () => {

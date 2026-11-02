@@ -4,7 +4,7 @@ import templateRaw from "./prompts/planner.md?raw";
 import type { Host } from "../engine/host";
 import { LIMITS } from "../tuning";
 import { catalogGet } from "../engine/catalog";
-import { entityCounts, isCatalogTag, playerText, systemSlots, tagIndexText, terrainCounts } from "./blocks";
+import { entityCounts, groundTagsText, isCatalogTag, playerText, systemSlots, tagIndexText, terrainCounts } from "./blocks";
 import { PILLARS } from "./designer";
 import type { AiProvider, ChatMessage } from "./provider";
 import { buildSplit, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
@@ -24,6 +24,7 @@ export function buildPlannerPrompt(host: Host, wish: string): BuiltPrompt {
   return buildSplit(section(PLANNER_TEMPLATE, "System message"), {
     PILLARS,
     CATALOG_TAGS: tagIndexText(),
+    GROUND_TAGS: groundTagsText(),
     MAX_STEPS: String(LIMITS.PLAN_MAX_STEPS),
     ...systemSlots(host),
     ENTITY_COUNTS: entityCounts(host.eng),
