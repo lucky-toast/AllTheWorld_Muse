@@ -216,15 +216,18 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
     ctx.globalAlpha = 1;
   }
 
-  // Phase 2 supplies the E prompt and interaction state; the hook is drawn here.
+  // E prompt drawn above the target (spec 6).
   if (eng.interactionPrompt) {
     ctx.font = "8px monospace";
     const w = Math.min(NATIVE_W - 16, eng.interactionPrompt.length * 5 + 12);
+    const at = eng.interactionPromptAt;
+    const cx = at ? Math.max(w / 2 + 2, Math.min(NATIVE_W - w / 2 - 2, at.x * 16 + 8)) : NATIVE_W / 2;
+    const py = at ? Math.max(0, at.y * 16 - 20) : 292;
     ctx.fillStyle = "rgba(20,24,14,0.82)";
-    ctx.fillRect(Math.round((NATIVE_W - w) / 2), 292, w, 16);
+    ctx.fillRect(Math.round(cx - w / 2), py, w, 16);
     ctx.fillStyle = "#f2ecd0";
     ctx.textAlign = "center";
-    drawFixedText(ctx, eng.interactionPrompt, NATIVE_W / 2 - (eng.interactionPrompt.length * 5) / 2, 303, 5);
+    drawFixedText(ctx, eng.interactionPrompt, cx - (eng.interactionPrompt.length * 5) / 2, py + 11, 5);
     ctx.textAlign = "left";
   }
 

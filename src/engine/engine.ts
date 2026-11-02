@@ -86,6 +86,8 @@ export class Engine {
   hudSlots = new Map<string, HudSlot>();
   overlay: OverlayState | null = null;
   interactionPrompt: string | null = null;
+  interactionPromptAt: Pos | null = null;
+  overlapLog: { tick: number; event: string; entity: number; systems: string[] }[] = [];
   deniedLog: { tick: number; system: string; op: string; code: string; msg: string }[] = [];
   nearLimitLog: { tick: number; system: string; op: string; used: number; limit: number }[] = [];
   private rngStreams = new Map<string, RngStream>();

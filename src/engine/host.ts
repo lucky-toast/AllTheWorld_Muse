@@ -7,7 +7,20 @@ export type HostRequest = { op: string; [key: string]: unknown };
 export type HostResponse = { ok: true; r: unknown } | { ok: false; code: HostCode; msg: string };
 
 const PLAYER_MOVERS = new Set(["movement", "travel", "(engine)"]);
-const PHASE_STUBS = new Set(["focus", "release", "timer", "emit", "fx.tween", "state.getReplaced", "check"]);
+const PHASE_STUBS = new Set(["state.getReplaced"]);
+
+export interface HostHooks {
+  emit: (systemId: string, name: string, payload: unknown) => HostResponse;
+  timer: (systemId: string, ticks: number, name: string) => HostResponse;
+  focus: (systemId: string, mode: string) => HostResponse;
+  release: (systemId: string) => HostResponse;
+  tween: (systemId: string, from: number, to: number, ticks: number) => HostResponse;
+  sim: (systemId: string, op: string, request: HostRequest) => HostResponse;
+  check: (systemId: string, request: HostRequest) => HostResponse;
+  animCallback: (systemId: string, id: number, name: string, callback: string) => void;
+  traveled: (systemId: string, from: string, to: Pos) => void;
+  testMode: () => boolean;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -34,6 +47,7 @@ function printable(text: string): boolean {
 }
 
 export class Host {
+  hooks: HostHooks | null = null;
   private transactionDepth = 0;
   private undoLog: (() => void)[] = [];
   private callsThisInvocation = new Map<string, number>();
@@ -43,6 +57,8 @@ export class Host {
   private bannerLastTick = new Map<string, number>();
 
   constructor(private eng: Engine) {}
+
+  get inTransaction(): boolean { return this.transactionDepth > 0; }
 
   resetTick(): void {
     this.spawnsThisTick.clear();
@@ -171,8 +187,11 @@ export class Host {
     if (calls > TUNING.limits.hostCallsPerInvocation) return this.fail("limit", "host calls per invocation exceeded");
     this.noteNearLimit(systemId, op, calls, TUNING.limits.hostCallsPerInvocation);
 
-    if (op.startsWith("sim.") || PHASE_STUBS.has(op)) {
-      return this.fail("phase", `${op} arrives in a later phase`);
+    if (PHASE_STUBS.has(op)) return this.fail("phase", `${op} arrives in a later phase`);
+    if (op.startsWith("sim.") || op === "check") {
+      if (!this.hooks) return this.fail("phase", `${op} is only available while running tests`);
+      if (!this.hooks.testMode()) return this.fail("phase", `${op} is only available while running tests or shots`);
+      return op === "check" ? this.hooks.check(systemId, request) : this.hooks.sim(systemId, op, request);
     }
 
     switch (op) {
@@ -196,13 +215,18 @@ export class Host {
       case "remove": return this.remove(request);
       case "tag": return this.tag(request, true);
       case "untag": return this.tag(request, false);
-      case "anim": return this.anim(request);
+      case "anim": return this.anim(systemId, request);
       case "tile.set": return this.tileSet(request);
       case "state.set": return this.stateSet(systemId, request);
       case "area.create": return this.areaCreate(systemId, request);
       case "area.list": return this.ok([...this.eng.areaOrder]);
       case "area.current": return this.ok(this.eng.currentAreaId);
       case "travel": return this.travel(request);
+      case "emit": return this.hooks ? this.hooks.emit(systemId, String(request.name ?? ""), request.payload) : this.fail("phase", "emit arrives in a later phase");
+      case "timer": return this.hooks ? this.hooks.timer(systemId, request.ticks as number, String(request.name ?? "")) : this.fail("phase", "timer arrives in a later phase");
+      case "focus": return this.hooks ? this.hooks.focus(systemId, String(request.mode ?? "")) : this.fail("phase", "focus arrives in a later phase");
+      case "release": return this.hooks ? this.hooks.release(systemId) : this.fail("phase", "release arrives in a later phase");
+      case "fx.tween": return this.hooks ? this.hooks.tween(systemId, request.from as number, request.to as number, request.ticks as number) : this.fail("phase", "fx.tween arrives in a later phase");
       case "fx.particles": return this.particles(request);
       case "fx.float": return this.floatText(request);
       case "fx.tint": return this.tint(request);
@@ -453,14 +477,18 @@ export class Host {
     return this.ok(true);
   }
 
-  private anim(request: HostRequest): HostResponse {
+  private anim(systemId: string, request: HostRequest): HostResponse {
     const rec = this.entity(request.id);
     if (!("id" in rec)) return rec;
     if (typeof request.name !== "string" || !request.name) return this.fail("bad_request", "anim needs a name");
-    if (request.callback !== undefined) return this.fail("phase", "anim callbacks arrive in a later phase");
+    if (request.callback !== undefined && typeof request.callback !== "string") return this.fail("bad_request", "anim callback must be a string");
     const sprite = rec.comps.get("sprite");
     const next = isRecord(sprite) ? { ...sprite, anim: request.name } : { id: this.eng.spriteIdOf(rec), anim: request.name };
-    return this.set("(engine)", { op: "set", id: rec.id, comp: "sprite", value: next });
+    const r = this.set("(engine)", { op: "set", id: rec.id, comp: "sprite", value: next });
+    if (r.ok && typeof request.callback === "string" && this.hooks) {
+      this.hooks.animCallback(systemId, rec.id, request.name, request.callback);
+    }
+    return r;
   }
 
   private tileSet(request: HostRequest): HostResponse {
@@ -548,6 +576,7 @@ export class Host {
       this.eng.currentAreaId = beforeArea;
       this.eng.rebuildOccupancyFor(player);
     });
+    if (this.hooks) this.hooks.traveled("(engine)", beforeArea, target);
     return this.ok(true);
   }
 

@@ -85,9 +85,9 @@ describe("host dispatcher", () => {
     expect(eng.validateOccupancy()).toBe(true);
   });
 
-  it("later-phase requests return a phase denial for now", () => {
+  it("later-phase and test-only requests return a phase denial without a runtime", () => {
     const { eng } = setup();
-    for (const op of ["emit", "focus", "timer", "sim.walk", "check"]) {
+    for (const op of ["state.getReplaced", "sim.walk", "check"]) {
       const r = eng.host.call("testsys", { op });
       expect(r.ok, op).toBe(false);
       if (!r.ok) expect(r.code).toBe("phase");

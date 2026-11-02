@@ -1,10 +1,15 @@
 import { buildWorld } from "./world/map";
+import { createGame } from "./systems/base/index";
+import { Input } from "./engine/input";
 import { loadSheets, render, renderSpritesTab, NATIVE_W, NATIVE_H } from "./engine/render";
 import { TUNING } from "./tuning";
 
 const eng = buildWorld();
+const game = createGame(eng);
+const input = new Input(game);
 const params = new URLSearchParams(location.search);
 if (params.get("time")) eng.jumpTime(params.get("time")!);
+game.interactions.refresh();
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -13,6 +18,7 @@ const devCanvas = document.getElementById("devcanvas") as HTMLCanvasElement;
 const devCtx = devCanvas.getContext("2d")!;
 let panelOpen = params.get("dev") === "1";
 devPanel.hidden = !panelOpen;
+input.swallowed = panelOpen;
 
 function fit() {
   const ww = window.innerWidth, wh = window.innerHeight;
@@ -30,21 +36,25 @@ function fit() {
 window.addEventListener("resize", fit);
 fit();
 
-const SPEED_CYCLE = [1, 2, 3, 0.5];
-window.addEventListener("keydown", (e) => {
-  if (e.key === "`") {
+const SPEED_CYCLE = [1, 4, 16];
+input.onDevKey = (code, shift) => {
+  if (code === "Backquote") {
     panelOpen = !panelOpen;
     devPanel.hidden = !panelOpen;
+    input.swallowed = panelOpen;
     fit();
-    e.preventDefault();
     return;
   }
-  if (e.key.toLowerCase() === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+  if (code === "KeyR" && shift) { game.reloadAll(); return; }
+  if (code === "KeyT") {
     const next = SPEED_CYCLE[(SPEED_CYCLE.indexOf(eng.timeSpeed) + 1) % SPEED_CYCLE.length];
     eng.timeSpeed = next;
     void eng.host.call("(engine)", { op: "ui.banner", text: `Speed ${next}x` });
-    e.preventDefault();
   }
+};
+input.attach();
+window.addEventListener("keydown", (e) => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
 });
 
 let last = performance.now();
@@ -54,7 +64,7 @@ function frame(now: number) {
   last = now;
   const stepMs = 1000 / TUNING.ticksPerSecond;
   while (acc >= stepMs) {
-    eng.tick();
+    game.tick();
     acc -= stepMs;
   }
   render(ctx, eng);
