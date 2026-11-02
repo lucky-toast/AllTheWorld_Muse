@@ -616,6 +616,14 @@ describe("catalog in the prompts", () => {
     expect(idx).toContain(`fishing (${catalogFind("fishing").length})`);
   });
 
+  test("every ground terrain is walkable; only water, pits, hazards and cliffs aren't", () => {
+    // An area filled with a floor missing the tag has no room for anything (see area.create).
+    const blocked = new Set(["water", "pit", "hole", "hazard", "cliff", "solid"]);
+    const missing = CATALOG.sprites.filter((s) => s.tags.includes("terrain") && !s.tags.includes("walkable") && !s.tags.some((t) => blocked.has(t))).map((s) => s.id);
+    expect(missing).toEqual([]);
+    expect(catalogGet("interior_floor_brown_plain")!.tags).toContain("walkable");
+  });
+
   test("the chain hands each step its planner tags", async () => {
     const g = chainGame(["```json\n" + JSON.stringify({ steps: [{ task: "cook a fish", tags: ["fishing"] }] }) + "\n```"], ["not a reply", "no", "no", "no"]);
     await g.chain.run("cook fish");

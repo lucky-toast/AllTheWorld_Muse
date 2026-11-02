@@ -378,7 +378,8 @@ export function release(): bool { return done(op("release")); }
 
 // ---- areas ----
 
-/** Create an area filled with one terrain sprite. Returns its id ("<system>.<name>"), or "". */
+/** Create an area filled with one walkable terrain sprite (catalog tag "walkable"; water, pits and
+ *  cliffs are refused). Returns its id ("<system>.<name>"), or "". */
 export function areaCreate(name: string, fill: string): string { return request(op("area.create").str("name", name).str("fill", fill)).str(); }
 /** Ids of every area. */
 export function areaList(): string[] { return request(op("area.list")).strs(); }

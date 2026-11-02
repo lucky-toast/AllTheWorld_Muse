@@ -162,6 +162,12 @@ describe("areas and travel", () => {
     expect(r).toEqual({ ok: true, r: "tester.cave" });
     denied(call({ op: "area.create", name: "cave", fill: "grass_dark" }));
     denied(call({ op: "area.create", name: "pool", fill: "crate" }), "bad_request");
+    // Terrain nobody can stand on is refused as a fill: the area would have no room for anything.
+    denied(call({ op: "area.create", name: "pit", fill: "pit_fill" }), "bad_request");
+    denied(call({ op: "area.create", name: "lake", fill: "stream_h" }), "bad_request");
+    // Interior floors are walkable, so a room can be made of one.
+    expect(call({ op: "area.create", name: "room", fill: "interior_floor_brown_plain" })).toMatchObject({ ok: true });
+    expect(call({ op: "spawn", type: "crate", x: 5, y: 5, area: "tester.room" })).toMatchObject({ ok: true });
     expect(call({ op: "spawn", type: "crate", x: 15, y: 11, area: "tester.cave" })).toMatchObject({ ok: true });
     expect(call({ op: "at", x: 15, y: 11 })).toEqual({ ok: true, r: [player.id] });
     denied(call({ op: "travel", area: "tester.cave", x: 15, y: 11 }));
@@ -170,7 +176,7 @@ describe("areas and travel", () => {
     expect(player.pos).toEqual({ x: 4, y: 4, area: "tester.cave" });
     expect(call({ op: "area.current" })).toEqual({ ok: true, r: "tester.cave" });
     expect(eng.validateOccupancy()).toBe(true);
-    expect(call({ op: "area.list" })).toEqual({ ok: true, r: [BASE_AREA, "tester.cave"] });
+    expect(call({ op: "area.list" })).toEqual({ ok: true, r: [BASE_AREA, "tester.cave", "tester.room"] });
   });
   test("travel to a blocked tile is denied", () => {
     const { call, player } = setup();

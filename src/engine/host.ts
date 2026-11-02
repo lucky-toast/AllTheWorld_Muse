@@ -806,6 +806,8 @@ export class Host {
         const name = req.name as string; const fill = req.fill as string;
         if (!/^[a-z0-9_]{1,40}$/.test(name)) deny("bad_request", "area names are lowercase letters, digits and _");
         if (!catalogGet(fill)?.tags.includes("terrain")) deny("bad_request", `"${fill}" isn't a terrain sprite`);
+        // A fill nobody can stand on makes an area where nothing can be spawned and the player can't travel to.
+        if (!this.walkableSprite(fill)) deny("bad_request", `"${fill}" isn't walkable terrain, so nothing could stand in the area; fill it with a walkable floor and tileStamp the rest`);
         const id = `${system}.${name}`;
         if (eng.areas.has(id)) deny("denied", `area "${id}" already exists`);
         const tiles = Array.from({ length: eng.height }, () => Array.from({ length: eng.width }, () => fill));

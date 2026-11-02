@@ -56767,6 +56767,7 @@
    "h": 112,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "sand",
     "desert",
@@ -56786,6 +56787,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56803,6 +56805,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56820,6 +56823,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56837,6 +56841,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56854,6 +56859,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56871,6 +56877,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56888,6 +56895,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56905,6 +56913,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56922,6 +56931,7 @@
    "h": 112,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "sand",
     "desert",
@@ -56941,6 +56951,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56958,6 +56969,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56975,6 +56987,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -56992,6 +57005,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -57009,6 +57023,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -57026,6 +57041,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -57043,6 +57059,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -57060,6 +57077,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand",
     "desert"
    ],
@@ -57634,6 +57652,7 @@
    "h": 81,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "snow",
     "ice",
@@ -57654,6 +57673,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "snow",
     "ice"
    ],
@@ -57672,6 +57692,7 @@
    "h": 81,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "floor",
     "pattern",
@@ -57691,6 +57712,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "floor",
     "pattern"
    ],
@@ -57749,6 +57771,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand"
    ],
    "desc": "plain sand bank ground matching the water sand block",
@@ -57822,6 +57845,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "snow"
    ],
    "desc": "plain snow bank ground matching the water snow block",
@@ -57873,6 +57897,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "grass"
    ],
    "desc": "plain grass bank ground matching the water grass block",
@@ -57930,6 +57955,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "mud"
    ],
    "desc": "plain mud bank ground matching the water poison block",
@@ -64328,6 +64354,7 @@
    "h": 48,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "sand",
     "region"
@@ -64346,6 +64373,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand"
    ],
    "desc": "raised sand field, plain centre tile",
@@ -64362,6 +64390,7 @@
    "h": 48,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "grass",
     "region"
@@ -64381,6 +64410,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "grass"
    ],
    "desc": "raised grass field, plain centre tile",
@@ -64398,6 +64428,7 @@
    "h": 48,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "grass",
     "region"
@@ -64417,6 +64448,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "grass"
    ],
    "desc": "raised grass dark field, plain centre tile",
@@ -64434,6 +64466,7 @@
    "h": 48,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "sand",
     "region"
@@ -64452,6 +64485,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "sand"
    ],
    "desc": "raised sand pink field, plain centre tile",
@@ -64468,6 +64502,7 @@
    "h": 48,
    "tags": [
     "terrain",
+    "walkable",
     "autotile",
     "snow",
     "region"
@@ -64486,6 +64521,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "snow"
    ],
    "desc": "raised snow field, plain centre tile",
@@ -64502,6 +64538,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "snow",
     "autotile",
     "overlay",
@@ -64522,6 +64559,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "snow"
    ],
    "desc": "plain snow patch centre tile",
@@ -64538,6 +64576,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "ice"
    ],
    "desc": "blue ice tile with diagonal shine",
@@ -69915,6 +69954,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -69934,6 +69974,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -69951,6 +69992,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -69970,6 +70012,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -69987,6 +70030,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -70006,6 +70050,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70023,6 +70068,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -70042,6 +70088,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70059,6 +70106,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -70078,6 +70126,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70095,6 +70144,7 @@
    "h": 80,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor",
     "autotile",
@@ -70114,6 +70164,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70131,6 +70182,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70148,6 +70200,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70165,6 +70218,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70182,6 +70236,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70199,6 +70254,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70216,6 +70272,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70233,6 +70290,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70250,6 +70308,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70267,6 +70326,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
@@ -70284,6 +70344,7 @@
    "h": 16,
    "tags": [
     "terrain",
+    "walkable",
     "interior",
     "floor"
    ],
