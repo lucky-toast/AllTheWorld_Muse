@@ -5,7 +5,7 @@
 // Each image is labelled with its area id. At most MAP_IMAGE_MAX_AREAS areas: the player's
 // current area first, then the most recently created ones.
 import type { Engine } from "../engine/engine";
-import { drawArea } from "../engine/render";
+import { drawArea, loadSheets, sheetsInUse } from "../engine/render";
 import { LIMITS } from "../tuning";
 
 /** Pixels per tile, plus the grid line between tiles. */
@@ -83,6 +83,7 @@ export function renderMaps(eng: Engine, make: CanvasMaker = domCanvas): { area: 
 
 /** The maps as PNGs, each named after its area (browser only). */
 export async function renderMapImages(eng: Engine): Promise<{ area: string; fileName: string; png: Blob }[]> {
+  await loadSheets(sheetsInUse(eng)); // sheets load on demand: a sprite a system added since the first frame may not be in yet
   const maps = renderMaps(eng);
   return Promise.all(maps.map(({ area, canvas }) => new Promise<{ area: string; fileName: string; png: Blob }>((resolve, reject) =>
     (canvas as HTMLCanvasElement).toBlob((b) => (b ? resolve({ area, fileName: mapFileName(area), png: b }) : reject(new Error(`the map of ${area} couldn't be rendered`))), "image/png"))));

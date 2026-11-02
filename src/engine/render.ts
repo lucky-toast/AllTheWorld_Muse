@@ -12,27 +12,54 @@ export const NATIVE_W = 480, NATIVE_H = MAP_PX_H + HUD_H;
 
 type AnyImage = { width: number; height: number };
 const images = new Map<string, AnyImage>();
-let imageProvider: (file: string) => AnyImage | undefined = (f) => images.get(f);
+/** A sheet the renderer hasn't seen yet starts loading the first time it's drawn; it draws nothing until it arrives. */
+let imageProvider: (file: string) => AnyImage | undefined = (f) => images.get(f) ?? startSheet(f);
 let canvasFactory: (w: number, h: number) => { width: number; height: number; getContext: (t: string) => unknown } =
   (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c as never; };
 /** Worker rendering: supply ImageBitmaps and an OffscreenCanvas factory. */
 export function setRenderBackend(provider: (file: string) => AnyImage | undefined, factory: typeof canvasFactory) { imageProvider = provider; canvasFactory = factory; }
-export async function loadSheetBitmaps(baseUrl: string): Promise<Map<string, AnyImage>> {
-  const map = new Map<string, AnyImage>();
-  const files = [...new Set(CATALOG.sprites.map((s) => s.file))];
-  await Promise.all(files.map(async (f) => {
-    try { const r = await fetch(baseUrl + "/assets/" + encodeURI(CATALOG.root + f)); const b = await r.blob(); map.set(f, await createImageBitmap(b)); } catch { /* missing sheet draws nothing */ }
-  }));
-  return map;
+
+/** Sprites drawn outside any area (the top bar's book and leaves, the load transition, the Sprites tab's grass). */
+const UI_SPRITES = ["book", "fx_leaf", "grass"];
+/**
+ * The sheet files the world draws right now: every area's terrain, every entity's sprite,
+ * particles, HUD icons and the UI sprites. The catalog holds about 2,000 sheets (about 100 MB);
+ * a world uses a few dozen, so only these load before the first frame.
+ */
+export function sheetsInUse(eng: Engine): Set<string> {
+  const ids = new Set<string>(UI_SPRITES);
+  for (const a of eng.areas.values()) for (const row of a.tiles) for (const t of row) ids.add(t);
+  for (const r of eng.entities.values()) { const s = r.comps.get("sprite") as SpriteComp | undefined; if (s) ids.add(s.id); }
+  for (const p of eng.particles) ids.add(p.sprite);
+  for (const h of eng.hudSlots.values()) if (h.icon) ids.add(h.icon);
+  const files = new Set<string>();
+  for (const id of ids) { const e = catalogGet(id); if (e) files.add(e.file); }
+  return files;
 }
-export function loadSheets(): Promise<void[]> {
-  const files = [...new Set(CATALOG.sprites.map((s) => s.file))];
-  return Promise.all(files.map((f) => new Promise<void>((res) => {
-    const img = new Image();
-    img.onload = () => res(); img.onerror = () => res();
-    img.src = "/assets/" + encodeURI(CATALOG.root + f);
-    images.set(f, img);
-  })));
+const pending = new Map<string, Promise<void>>();
+function sheetUrl(f: string) { return "/assets/" + encodeURI(CATALOG.root + f); }
+function startSheet(f: string): AnyImage | undefined {
+  if (typeof Image === "undefined") return undefined; // no DOM (tests in Node): nothing to load, sprites draw nothing
+  const img = new Image();
+  pending.set(f, new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res(); }));
+  img.src = sheetUrl(f);
+  images.set(f, img);
+  return img;
+}
+/** Loads the sheets `files` names (the ones the world uses, by default) and resolves when they are in. A missing sheet draws nothing. */
+export function loadSheets(files: Iterable<string>): Promise<void> {
+  const waits: Promise<void>[] = [];
+  for (const f of files) { if (!images.has(f)) startSheet(f); const p = pending.get(f); if (p) waits.push(p); }
+  return Promise.all(waits).then(() => {});
+}
+/**
+ * Worker rendering: ImageBitmaps for `files`, added to `map`. Fetches only the sheets the map
+ * doesn't hold yet, so each shot loads just what its world draws that the last shot didn't.
+ */
+export async function loadSheetBitmaps(baseUrl: string, files: Iterable<string>, map: Map<string, AnyImage>): Promise<void> {
+  await Promise.all([...files].filter((f) => !map.has(f)).map(async (f) => {
+    try { const r = await fetch(baseUrl + sheetUrl(f)); const b = await r.blob(); map.set(f, await createImageBitmap(b)); } catch { /* missing sheet draws nothing */ }
+  }));
 }
 function sheet(file: string) { return imageProvider(file); }
 function imgW(img: AnyImage): number { return (img as HTMLImageElement).naturalWidth || img.width; }
