@@ -150,6 +150,7 @@ export function onTick(): void {
   setNum(p, "marker", getNum(p, "marker") + 1); // a write the rollback must undo
   if (mode == 1) { let n: i64 = 0; while (true) { n++; } }
   if (mode == 2) { while (true) hoard.push(new ArrayBuffer(1 << 20)); }
+  if (mode == 3) { const a = new StaticArray<i32>(1); a[<i32>getNum(p, "trap") + 2] = 1; } // out of bounds: a plain trap
 }
 `;
 const trapperManifest = { id: "trapper", why: "Traps when asked (test only)." };
@@ -181,6 +182,19 @@ describe("traps roll the world back", () => {
     eng.setComp(player.id, "trap", 0);
     host.tick(); host.tick();
     expect(host.faults.length).toBe(1);
+    expect(host.strikes.map((s) => s.system)).toEqual(["trapper"]);
+  });
+
+  test("a plain trap (out-of-bounds index) is rolled back and counts as a strike", () => {
+    const { host, eng, player } = trapWorld();
+    eng.setComp(player.id, "trap", 3);
+    const before = eng.serialize();
+    host.tick();
+    expect(host.faults.at(-1)).toMatchObject({ system: "trapper", kind: "onTick" });
+    expect(player.comps.get("marker")).toBeUndefined();
+    expect(JSON.parse(eng.serialize()).entities).toEqual(JSON.parse(before).entities);
+    expect(host.strikes.map((s) => s.system)).toEqual(["trapper"]);
+    expect(host.systems.has("trapper")).toBe(true);
   });
 
   test("an unbounded allocation traps on memory and is rolled back", () => {
@@ -192,6 +206,7 @@ describe("traps roll the world back", () => {
     eng.setComp(player.id, "trap", 0);
     host.tick();
     expect(host.faults.length).toBe(1);
+    expect(host.strikes.map((s) => s.system)).toEqual(["trapper"]);
     expect(host.systems.has("trapper")).toBe(true);
   });
 

@@ -388,6 +388,10 @@ describe("wish chain", () => {
     const r = await g.chain.run("I want to make a fire");
     expect(r).toMatchObject({ status: "done", loaded: ["chop", "campfire"] });
     expect([...g.host.systems.keys()].slice(-2)).toEqual(["chop", "campfire"]);
+    // The player sees only the load banner: no plan, step or title on screen.
+    expect(g.host.eng.banner?.text).toBe("The world feels different");
+    expect(g.host.eng.floats.map((f) => f.text)).toEqual([]);
+    expect(g.host.eng.overlay).toBeNull();
     expect(g.designer.sent).toHaveLength(2);
     const first = outgoingText(g.designer.sent[0]); const second = outgoingText(g.designer.sent[1]);
     expect(first).not.toContain("## System: chop");

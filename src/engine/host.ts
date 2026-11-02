@@ -859,7 +859,7 @@ export class Host {
       // ---- test only (spec 4.2): played through the same paths as real keys ----
       case "sim.walk": {
         const dir = this.dir(req.dir); const steps = (req.steps as number | undefined) ?? 1;
-        if (steps < 1 || steps > 100) deny("bad_request", "steps must be 1 to 100");
+        if (steps < 1 || steps > LIMITS.simWalkMaxSteps) deny("bad_request", `steps must be 1 to ${LIMITS.simWalkMaxSteps}`);
         const start = this.stepAttempts; const cap = TUNING.tapTurnTicks + steps * TUNING.simWalkTicksPerStep;
         this.controls.press(dir);
         for (let i = 0; i < cap && this.stepAttempts - start < steps; i++) this.tick();

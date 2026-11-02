@@ -144,6 +144,12 @@ export const LIMITS = {
   hudMaxWidth: 30,
   // Entries kept in each dev log (denials, near-limit). Oldest dropped.
   logMax: 500,
+  // Per-call fuel stats kept for each module (the dev panel's near-limit view). Oldest dropped.
+  callStatsKept: 1000,
+  // Longest abort or trace message read out of a module, in characters. The rest is cut.
+  moduleMessageChars: 4096,
+  // Most steps one sim.walk request may ask for. bad_request.
+  simWalkMaxSteps: 100,
 } as const;
 
 export type Phase = "dawn" | "day" | "dusk" | "night";

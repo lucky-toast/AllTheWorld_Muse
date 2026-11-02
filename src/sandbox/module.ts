@@ -176,7 +176,7 @@ export interface FuelStats {
   /** The most recent calls (export name and fuel used), oldest first. */
   calls: { name: string; used: bigint }[];
 }
-const STATS_KEPT = 1000;
+const STATS_KEPT = LIMITS.callStatsKept;
 
 // ======================= one live instance =======================
 
@@ -258,7 +258,7 @@ class Runner {
     if (ptr < 4 || ptr > buf.byteLength) return null;
     const bytes = new DataView(buf).getUint32(ptr - 4, true);
     if (ptr + bytes > buf.byteLength || bytes % 2) return null;
-    return String.fromCharCode(...new Uint16Array(buf, ptr, Math.min(bytes / 2, 4096)));
+    return String.fromCharCode(...new Uint16Array(buf, ptr, Math.min(bytes / 2, LIMITS.moduleMessageChars)));
   }
 
   /** Put a handler's string argument into the module (a pinned AssemblyScript String). */
