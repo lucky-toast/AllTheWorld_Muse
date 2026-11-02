@@ -391,6 +391,33 @@ export function test_room(): void {
   expect(r.ok).toBe(true);
 });
 
+test("the SDK's JSON reads and writes numbers, escapes and words the same as before it got cheaper", async () => {
+  const g = game();
+  const manifest = JSON.stringify({ id: "jsonx", why: "Exercises the SDK's JSON." });
+  const source = `import { parse, quote, Obj, Arr, check } from "sdk";
+export function migrate(): void {}
+export function test_json(): void {
+  const j = parse('{ "a": -12, "b": 3.5, "c": 1e3, "d": -0.25, "e": 123456789012, "f": true, "g": false, "h": null, "s": "x\\\\"y\\\\\\\\z\\\\n\\\\u0041", "t": "", "l": [1, "two", [], {}] }');
+  check(j.isObject(), "parsed");
+  check(j.get("a").int() == -12 && j.get("b").num() == 3.5 && j.get("c").num() == 1000 && j.get("d").num() == -0.25, "numbers");
+  check(j.get("e").num() == 123456789012, "a long integer");
+  check(j.get("f").bool() && !j.get("g").bool(true) && j.get("h").isNull() && j.has("h"), "words");
+  check(j.get("s").str() == "x\\"y\\\\z\\nA", "escapes");
+  check(j.get("t").str("fallback") == "" && j.get("missing").isNull(), "empty and missing");
+  const l = j.get("l");
+  check(l.length == 4 && l.at(1).str() == "two" && l.at(2).isArray() && l.at(3).isObject() && l.at(3).length == 0, "lists");
+  check(parse("-").isNull() && parse("tru").isNull() && parse("[1,]").isNull() && parse("12 x").isNull(), "bad text is null");
+  check(quote("plain") == "\\"plain\\"", "a plain string");
+  check(quote("a\\"b\\\\c\\nd\\te") == "\\"a\\\\\\"b\\\\\\\\c\\\\nd\\\\te\\"", "escapes on the way out");
+  check(quote(String.fromCharCode(1)) == "\\"\\\\u0001\\"", "control characters");
+  check(parse(quote("q\\"\\\\\\n" + String.fromCharCode(31))).str() == "q\\"\\\\\\n" + String.fromCharCode(31), "round trip");
+  check(new Obj().str("k", "v").int("n", -3).raw("l", new Arr().int(1).str("x").toString()).toString() == '{"k":"v","n":-3,"l":[1,"x"]}', "builders");
+}`;
+  const r = await g.pipeline.checkSystem(manifest, source);
+  expect(reportText(r)).not.toContain("failed");
+  expect(r.ok).toBe(true);
+});
+
 test("a handler that runs out of fuel during a test is named, with where its fuel went, and its events show as undone", async () => {
   const g = game();
   const manifest = JSON.stringify({ id: "greedy", why: "A dawn handler that asks too much.", reactions: ["time.dawn"], emits: { "greedy.woke": {} } });

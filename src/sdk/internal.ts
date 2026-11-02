@@ -55,16 +55,27 @@ export class JsonParser {
     return this.number();
   }
   word(w: string): bool {
-    if (this.t.substr(this.i, w.length) == w) { this.i += w.length; return true; }
-    return false;
+    // Compared in place: no substring is made.
+    const n = w.length;
+    if (this.i + n > this.t.length) return false;
+    for (let k = 0; k < n; k++) if (this.t.charCodeAt(this.i + k) != w.charCodeAt(k)) return false;
+    this.i += n;
+    return true;
   }
   number(): Json {
     const start = this.i;
+    // Plain integers (ids, coordinates, counts) are read directly; anything else goes through parseFloat.
+    let neg = false; let v: f64 = 0; let plain = true;
+    if (this.i < this.t.length && this.t.charCodeAt(this.i) == 45) { neg = true; this.i++; }
+    const digits = this.i;
     while (this.i < this.t.length) {
       const c = this.t.charCodeAt(this.i);
-      if ((c >= 48 && c <= 57) || c == 45 || c == 43 || c == 46 || c == 101 || c == 69) this.i++; else break;
+      if (c >= 48 && c <= 57) { v = v * 10 + <f64>(c - 48); this.i++; }
+      else if (c == 45 || c == 43 || c == 46 || c == 101 || c == 69) { plain = false; this.i++; }
+      else break;
     }
     if (this.i == start) return this.fail();
+    if (plain && this.i > digits && this.i - digits <= 15) return Json.fromNum(neg ? -v : v);
     const n = parseFloat(this.t.substring(start, this.i));
     return isNaN(n) ? this.fail() : Json.fromNum(n);
   }
@@ -74,7 +85,7 @@ export class JsonParser {
     let run = this.i;
     while (this.i < this.t.length) {
       const c = this.t.charCodeAt(this.i);
-      if (c == 34) { out += this.t.substring(run, this.i); this.i++; return out; }
+      if (c == 34) { const s = this.t.substring(run, this.i); this.i++; return out.length ? out + s : s; }
       if (c == 92) {
         out += this.t.substring(run, this.i);
         const e = this.t.charCodeAt(this.i + 1);
