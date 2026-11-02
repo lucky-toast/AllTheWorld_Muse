@@ -31,7 +31,7 @@ export interface PipelineOptions {
   baseUrl?: string;
   onStage?(e: StageEvent): void;
   /** Stage time limits in ms (tests shorten them). */
-  limits?: { compileMs: number; stageMs: number };
+  limits?: { compileMs: number; stageMs: number; testMs?: number; testsStageMs?: number };
 }
 
 /** The real Web Worker. */
@@ -69,7 +69,9 @@ export class Pipeline {
     if (clean && !this.spare) { w.setHandler(() => {}); this.spare = w; }
     else { try { w.terminate(); } catch { /* already gone */ } }
   }
-  private get limits() { return this.opts.limits ?? { compileMs: LIMITS.compileMs, stageMs: LIMITS.stageMs }; }
+  private get limits() {
+    return { compileMs: LIMITS.compileMs, stageMs: LIMITS.stageMs, testMs: LIMITS.testMs, testsStageMs: LIMITS.testsStageMs, ...this.opts.limits };
+  }
 
   /** Stages 1 to 6 in a worker. Never touches the live game. */
   checkSystem(manifestJson: string, source: string): Promise<Report> {
@@ -80,23 +82,32 @@ export class Pipeline {
       let stage: Stage = "Manifest";
       let stageT = Date.now();
       let timer: ReturnType<typeof setTimeout> | undefined;
+      // The Tests stage: one budget for the whole stage, and one per test (the `timer`).
+      let stageTimer: ReturnType<typeof setTimeout> | undefined;
       let settled = false;
       const stageMs: Report["stageMs"] = {};
       const finish = (r: Report, clean = false) => {
-        if (settled) return; settled = true; clearTimeout(timer);
+        if (settled) return; settled = true; clearTimeout(timer); clearTimeout(stageTimer);
         this.giveBack(worker, clean);
         if (r.ok) this.issued.add(r);
         resolve(r);
       };
-      const failHere = (message: string) => {
+      const failHere = (message: string, test?: string) => {
         const ms = Date.now() - stageT; stageMs[stage] = ms;
         this.opts.onStage?.({ stage, status: "fail", ms });
-        finish({ ok: false, stage, systemId: idFrom(manifestJson), errors: [{ message }], shots: [], durationMs: Date.now() - t0, log: [], stageMs });
+        finish({ ok: false, stage, systemId: idFrom(manifestJson), errors: [{ message, ...(test ? { test } : {}) }], shots: [], durationMs: Date.now() - t0, log: [], stageMs });
       };
+      const lim = this.limits;
       const arm = () => {
+        clearTimeout(timer); clearTimeout(stageTimer);
+        const limit = stage === "Compile" ? lim.compileMs : stage === "Tests" ? lim.testsStageMs : lim.stageMs;
+        const t = setTimeout(() => failHere(`the ${stage} stage took longer than ${limit / 1000} s, so the pipeline stopped it; the game kept running`), limit);
+        if (stage === "Tests") stageTimer = t; else timer = t;
+      };
+      /** Each test gets its own budget, so a timeout names the test that ran over. */
+      const armTest = (test: string) => {
         clearTimeout(timer);
-        const limit = stage === "Compile" ? this.limits.compileMs : this.limits.stageMs;
-        timer = setTimeout(() => failHere(`the ${stage} stage took longer than ${limit / 1000} s, so the pipeline stopped it; the game kept running`), limit);
+        timer = setTimeout(() => failHere(`${test} took longer than ${lim.testMs / 1000} s (its fresh world included), so the pipeline stopped it; the game kept running. Look for onTick work that grows, a loop that doesn't end, or a test that waits too long`, test), lim.testMs);
       };
       worker.setHandler((m) => {
         if (settled) return;
@@ -104,7 +115,8 @@ export class Pipeline {
           if (m.event.status === "start") { stage = m.event.stage; stageT = Date.now(); arm(); }
           else if (m.event.ms !== undefined) stageMs[m.event.stage] = m.event.ms;
           this.opts.onStage?.(m.event);
-        } else if (m.type === "done") finish(m.report, true);
+        } else if (m.type === "test") armTest(m.name);
+        else if (m.type === "done") finish(m.report, true);
         else if (m.type === "error") failHere(`the pipeline worker failed: ${m.message}`);
       });
       arm(); // also covers the worker starting up

@@ -330,10 +330,34 @@ test("the watchdog kills a worker whose stage runs over its time limit", async (
     };
   };
   const g = game(dataDir(), hanging);
-  const p = new Pipeline({ createWorker: hanging, live: g.live, limits: { compileMs: 1000, stageMs: 50 }, onStage: (e) => g.stages.push(e) });
+  const p = new Pipeline({ createWorker: hanging, live: g.live, limits: { compileMs: 1000, stageMs: 5000, testsStageMs: 50 }, onStage: (e) => g.stages.push(e) });
   const r = await p.checkSystem(fixture("campfire").manifest, "");
   expect(terminated).toBe(true);
   expect(r).toMatchObject({ ok: false, stage: "Tests", systemId: "campfire" });
   expect(r.errors[0].message).toBe("the Tests stage took longer than 0.05 s, so the pipeline stopped it; the game kept running");
   expect(g.stages.at(-1)).toMatchObject({ stage: "Tests", status: "fail" });
+});
+
+test("each test has its own time limit, and a timeout names the test that ran over", async () => {
+  const slow = (): WorkerLike => {
+    let handler: ((m: FromWorker) => void) | null = null;
+    const send = (m: FromWorker, ms: number) => setTimeout(() => handler?.(m), ms);
+    return {
+      postMessage() {
+        send({ type: "stage", event: { stage: "Tests", status: "start" } }, 0);
+        // Three tests of 40 ms each: 120 ms in all, over a 60 ms test budget only if one test is.
+        send({ type: "test", name: "campfire.test_a" }, 1); send({ type: "test", name: "campfire.test_b" }, 41); send({ type: "test", name: "campfire.test_c" }, 81);
+        // test_c never finishes.
+      },
+      terminate() {},
+      setHandler(fn) { handler = fn; },
+    };
+  };
+  const g = game(dataDir(), slow);
+  const p = new Pipeline({ createWorker: slow, live: g.live, limits: { compileMs: 1000, stageMs: 1000, testMs: 60, testsStageMs: 5000 } });
+  const t0 = Date.now();
+  const r = await p.checkSystem(fixture("campfire").manifest, "");
+  expect(Date.now() - t0).toBeGreaterThanOrEqual(130); // test_a and test_b each stayed inside their own 60 ms
+  expect(r).toMatchObject({ ok: false, stage: "Tests", errors: [{ test: "campfire.test_c" }] });
+  expect(r.errors[0].message).toMatch(/^campfire\.test_c took longer than 0\.06 s/);
 });

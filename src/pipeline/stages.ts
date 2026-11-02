@@ -27,6 +27,8 @@ import type { CheckRequest, PipelineError, Report, Stage, StageEvent } from "./t
 
 export interface CheckHooks {
   onStage?(e: StageEvent): void;
+  /** A test ("<system>.test_<name>") is about to run, world build included. */
+  onTest?(name: string): void;
   /** Render a shot's world to a PNG data URL, or null when this environment can't render. */
   renderShot?(host: Host, shot: Shot): Promise<string | null>;
 }
@@ -114,7 +116,7 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   if (!own.length) return fail([{ message: `${id} exports no test_* functions; every system needs at least one test` }]);
   const failures: PipelineError[] = [];
   for (const name of own) {
-    const r = runOne(buildWorld, real(), id, name, true, after);
+    const r = runOne(buildWorld, real(), id, name, true, after, hooks);
     if (r) failures.push(r);
   }
   if (!failures.length) {
@@ -122,13 +124,13 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
     const arenaEntries: Entry[] = [...BASE_SYSTEMS.map((def) => ({ def, migrate: true })), ...[...kept, candidate].map((def) => ({ def, migrate: false }))];
     for (const base of BASE_SYSTEMS) {
       const names = namesOf(() => buildArena(), arenaEntries, idOf(base), after);
-      for (const name of names) { const r = runOne(() => buildArena(), arenaEntries, idOf(base), name, false, after); if (r) failures.push(r); }
+      for (const name of names) { const r = runOne(() => buildArena(), arenaEntries, idOf(base), name, false, after, hooks); if (r) failures.push(r); }
     }
     // Every remaining AI system's tests on fresh real maps, with it loaded (a replaced system's own tests are dropped).
     for (const def of kept) {
       const sid = idOf(def);
       for (const name of def.prepared.exports.filter((n) => n.startsWith("test_")).map((n) => n.slice(5))) {
-        const r = runOne(buildWorld, real(), sid, name, true, after); if (r) failures.push(r);
+        const r = runOne(buildWorld, real(), sid, name, true, after, hooks); if (r) failures.push(r);
       }
     }
   }
@@ -171,8 +173,9 @@ function namesOf(build: () => Engine, entries: Entry[], system: string, successo
 }
 
 /** Run one test on a fresh host. Returns its error, or null when it passed. `ownFaults`: the system's own faults fail it. */
-function runOne(build: () => Engine, entries: Entry[], system: string, name: string, ownFaults: boolean, successors: Map<string, string>): PipelineError | null {
+function runOne(build: () => Engine, entries: Entry[], system: string, name: string, ownFaults: boolean, successors: Map<string, string>, hooks: CheckHooks = {}): PipelineError | null {
   const test = `${system}.test_${name}`;
+  hooks.onTest?.(test);
   let host: Host;
   try { host = hostWith(build(), entries, successors); }
   catch (e) { return { message: `${test}: the world for the test couldn't be set up: ${msgOf(e)}`, test }; }

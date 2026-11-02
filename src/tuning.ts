@@ -96,8 +96,13 @@ export const LIMITS = {
   stateBytes: 1024 * 1024,
   // Compile time in ms. Check fails.
   compileMs: 30_000,
-  // Time any other pipeline stage may take in ms. Worker killed, stage fails.
+  // Time any other pipeline stage may take in ms. Worker killed, stage fails. The Tests stage
+  // uses testMs per test and testsStageMs for the whole stage instead.
   stageMs: 20_000,
+  // Time one test may take in ms, building its fresh world included. Worker killed, the report names the test.
+  testMs: 5_000,
+  // Time the whole Tests stage may take in ms, however many tests it runs. Worker killed, stage fails.
+  testsStageMs: 120_000,
   // Ticks the World check runs the system on a copy of the live world.
   worldCheckTicks: 300,
   // Ticks the World check keeps running after re-creating every module from the saved world.

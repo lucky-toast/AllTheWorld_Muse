@@ -7,7 +7,7 @@ import type { FromWorker, ToWorker } from "./types";
 export async function handleMessage(msg: ToWorker, post: (m: FromWorker) => void, renderShot?: CheckHooks["renderShot"]): Promise<void> {
   try {
     if (msg.type === "check") {
-      const report = await runCheck(msg.req, { onStage: (event) => post({ type: "stage", event }), renderShot });
+      const report = await runCheck(msg.req, { onStage: (event) => post({ type: "stage", event }), onTest: (name) => post({ type: "test", name }), renderShot });
       post({ type: "done", report });
     } else if (msg.type === "compile") {
       const r = await compileSystem(msg.manifest, msg.source);

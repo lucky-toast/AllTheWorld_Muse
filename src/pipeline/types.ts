@@ -78,6 +78,8 @@ export type ToWorker =
 export type FromWorker =
   | { type: "ready" }
   | { type: "stage"; event: StageEvent }
+  /** The Tests stage is starting this test ("<system>.test_<name>"); the client times each one. */
+  | { type: "test"; name: string }
   | { type: "done"; report: Report }
   | { type: "compiled"; ok: true; wasm: Uint8Array<ArrayBuffer> }
   | { type: "compiled"; ok: false; message: string }
