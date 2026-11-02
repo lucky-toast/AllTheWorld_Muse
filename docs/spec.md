@@ -286,7 +286,7 @@ E is the only action key and the engine owns Q.
 4. **Cycle.** Q moves to the next match and wraps. Turning or stepping resets to the default.
 5. **Run.** E calls `perform(verb, target, held)` on the owner of the highlighted entry, as one transaction. Afterwards the engine emits `interaction.performed`.
 
-**Targets.** `target` is an entity type (`"log_fallen"`), an entity tag (`"#choppable"`), a terrain tag (`"tile:water"`) or `"held"`. A tile target matches when no `solid`, `pushable` or `item` entity is on the faced tile. A `"held"` target matches the item in hand whatever is faced. The faced entity is the one on the faced tile, preferring an `item`, then `pushable`, then anything else (never the player).
+**Targets.** `target` is an entity type (`"log_fallen"`), an entity tag (`"#choppable"`), a terrain tag (`"tile:water"`) or `"held"`. A tile target matches when no `solid`, `pushable` or `item` entity is on the faced tile. A `"held"` target matches the item in hand whatever is faced. An entity target matches any entity on the faced tile (never the player), so decoration on the same tile never hides it; when several fit, an `item` comes first, then `pushable`, then the rest in the order they are on the tile. The faced entity (for `{{PLAYER}}` and the prompt) is the first of them in that order.
 
 **Held.** An item type, an item tag (`"#tool"`), `"none"` for empty hands, or left out for anything.
 

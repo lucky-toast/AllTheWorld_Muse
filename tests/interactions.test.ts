@@ -61,14 +61,23 @@ describe("ranking (spec 6), one rule at a time", () => {
     faceDaisy(a);
     expect(a.labels()).toEqual(["two:Smell", "one:Smell"]);
   });
-  test("the faced entity prefers an item, then a pushable, then anything else", () => {
+  test("an entity target matches anything on the faced tile; an item comes first, then a pushable, then the rest", () => {
     const a = arena({ after: [act("poke", "Poke", "#plant"), act("kick", "Kick", "test_pushable")] });
     faceDaisy(a);
     expect(a.labels()).toEqual(["poke:Poke"]);
     a.eng.spawn("test_pushable", { x: 5, y: 6, area: BASE_AREA }, "@world"); a.host.interactions.refresh();
-    expect(a.labels()).toEqual(["kick:Kick"]);
+    expect(a.labels()).toEqual(["kick:Kick", "poke:Poke"]);
     a.eng.spawn("test_item", { x: 5, y: 6, area: BASE_AREA }, "@world"); a.host.interactions.refresh();
-    expect(a.labels()).toEqual(["carry:Pick up"]);
+    expect(a.labels()[0]).toBe("carry:Pick up");
+    expect(a.host.interactions.current?.target).toBe(a.eng.at(BASE_AREA, 5, 6).find((id) => a.eng.rec(id)!.type === "test_item"));
+  });
+  test("decoration spawned first on the faced tile doesn't hide the entity a system targets", () => {
+    const a = arena({ after: [act("door", "Step inside", "test_pushable")] });
+    faceDaisy(a);
+    const target = a.eng.spawn("test_pushable", { x: 5, y: 6, area: BASE_AREA }, "@world").id;
+    a.host.interactions.refresh();
+    expect(a.labels()).toEqual(["door:Step inside"]);
+    expect(a.host.interactions.current?.target).toBe(target);
   });
 });
 

@@ -24,6 +24,8 @@ export interface Facing {
   player: EntRec; area: string; tile: { x: number; y: number };
   /** The faced entity: an item first, then pushable, then anything else (never the player). */
   entity: EntRec | null;
+  /** Every entity on the faced tile, in that same order (never the player). */
+  entities: EntRec[];
   /** True when a solid, pushable or item entity stands on the faced tile. */
   tileBlocked: boolean;
   terrainTags: string[];
@@ -36,12 +38,14 @@ export function readFacing(eng: Engine): Facing | null {
   const d = DELTA[dir] ?? DELTA.down;
   const tile = { x: player.pos.x + d[0], y: player.pos.y + d[1] }; const area = player.pos.area;
   const recs = eng.at(area, tile.x, tile.y).filter((id) => id !== player.id).map((id) => eng.rec(id)!);
-  const entity = recs.find((r) => eng.has(r, "item")) ?? recs.find((r) => eng.has(r, "pushable")) ?? recs[0] ?? null;
+  const pref = (r: EntRec) => (eng.has(r, "item") ? 0 : eng.has(r, "pushable") ? 1 : 2);
+  const entities = recs.map((r, i) => ({ r, i })).sort((a, b) => pref(a.r) - pref(b.r) || a.i - b.i).map((x) => x.r);
+  const entity = entities[0] ?? null;
   const heldId = (player.comps.get("held") as { id?: number } | undefined)?.id;
   const held = typeof heldId === "number" ? eng.rec(heldId) ?? null : null;
   const terrain = eng.tileAt(area, tile.x, tile.y);
   return {
-    player, area, tile, entity, held,
+    player, area, tile, entity, entities, held,
     tileBlocked: recs.some((r) => BLOCKING.some((b) => eng.has(r, b))),
     terrainTags: terrain ? catalogGet(terrain)?.tags ?? [] : [],
   };
@@ -57,10 +61,12 @@ export function matchEntry(eng: Engine, f: Facing, entry: InteractionEntry): Mat
     if (f.tileBlocked || !f.terrainTags.includes(entry.target.slice(5))) return null;
     acts = 1; target = 0; naming = 1;
   } else {
-    const e = f.entity; if (!e) return null;
-    if (entry.target.startsWith("#")) { if (!eng.has(e, entry.target.slice(1))) return null; naming = 1; }
-    else { if (e.type !== entry.target) return null; naming = 0; }
-    acts = 0; target = e.id;
+    // Any entity on the faced tile can be the target, so a flower or a floor laid on the same
+    // tile doesn't hide a building or a doormat. The first one in facing order that fits wins.
+    const tagged = entry.target.startsWith("#");
+    const e = f.entities.find((r) => (tagged ? eng.has(r, entry.target.slice(1)) : r.type === entry.target));
+    if (!e) return null;
+    naming = tagged ? 1 : 0; acts = 0; target = e.id;
   }
   let heldRank: number;
   if (entry.held === undefined) heldRank = 3;
