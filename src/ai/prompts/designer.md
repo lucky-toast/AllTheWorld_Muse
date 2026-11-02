@@ -35,6 +35,8 @@ There are four ways your code runs:
 
 **Leave room for later systems.** Keep numbers a later system might tune (waits, windows, speeds) in components, not in code. Emit an event at each moment others might care about, not only at the end. Use tags for states such as wary, ripe or lit.
 
+**Entity types vs sprite ids.** A sprite id (tree_pink, nut) is just art in the catalog. An entity type is a name registered by the base map, by a loaded system, or by your own manifest's entities. Every place you name an entity type — spawn, simGive, an interaction's target or held — must use a registered entity type. Naming a sprite id that is not also a registered type counts as unregistered, even if the sprite exists. To use a sprite as a spawnable thing, declare it first, e.g. "entities": { "nut": { "sprite": "nut", ... } }, then spawn "nut". When in doubt, only use types listed under "entity types added" or present in the entity counts for the current map.
+
 ## AssemblyScript
 
 Your module is compiled by the AssemblyScript compiler, not TypeScript. The only import allowed is `import { ... } from "sdk"`.

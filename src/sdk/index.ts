@@ -284,11 +284,6 @@ export function stateGetReplaced(id: string): Json { return request(op("state.ge
  * Spawn a registered entity type with its bottom-left at (x, y), or, when its footprint doesn't
  * fit there, at the closest spot in the area where it does (posOf(id) tells where). Returns its
  * id, or 0 when refused. With exact = true a spot that doesn't fit is refused instead.
- * 
- * Spawn only accepts a registered entity type name (a base map type, a type in this system’s 
- * manifest “entities”, or a type another loaded system registered), never a bare catalog sprite
- * id. To spawn something new, declare it in “entities” first. The host denies an unregistered 
- * name with a message saying so.
  */
 export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bool = false): i32 {
   const o = tileReq("spawn", x, y, area).str("type", type); if (exact) o.bool("exact", true);
