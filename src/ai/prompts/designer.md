@@ -39,7 +39,79 @@ There are four ways your code runs:
 
 Your module is compiled by the AssemblyScript compiler, not TypeScript. The only import allowed is `import { ... } from "sdk"`.
 
-SDK reference (`src/sdk/index.ts`):
+### Language and Compiler Rules
+
+- Treat AssemblyScript as a distinct language with its own compiler, type system, standard library, and runtime.
+- Do not assume that TypeScript code is automatically valid AssemblyScript.
+- Do not use JavaScript or TypeScript APIs unless they are explicitly supported by AssemblyScript or provided by the SDK.
+- Do not assume browser APIs, Node.js APIs, DOM APIs, or JavaScript runtime globals are available.
+- Use only SDK-provided imports and functionality. Never introduce additional package imports.
+- Prefer explicit type annotations when they improve type safety or avoid ambiguous inference.
+- Ensure all types are compatible with the AssemblyScript compiler, not merely valid TypeScript syntax.
+
+### Nullability and Type Narrowing
+
+- Treat nullable types (`T | null`) explicitly.
+- Do not assume TypeScript-style control-flow narrowing works for nullable object properties.
+- When accessing a nullable property, copy it into a local variable before checking it.
+
+  Preferred:
+  ```ts
+  const rawPos = inf.pos;
+  if (!rawPos) return;
+
+  const pos: Pos = rawPos;
+  ```
+
+  Avoid:
+  ```ts
+  if (!inf.pos) return;
+
+  const pos = inf.pos;
+  ```
+
+- Apply the same approach to nullable values returned by SDK functions or helper methods.
+- Never use a nullable value as a non-nullable type without an explicit, compiler-valid null check or conversion.
+- Do not use non-null assertions (`!`) as a substitute for proper null handling.
+
+### Type Safety
+
+- Preserve the exact types defined by the SDK.
+- Do not assume implicit conversions between numeric types, object types, or nullable and non-nullable types.
+- Use explicit casts only when the conversion is valid and intentional.
+- Do not invent SDK properties, methods, constructors, or interfaces.
+- When the SDK defines a specific type, use that type rather than approximating it with a structurally similar object.
+- Avoid relying on TypeScript-only type utilities or advanced type-system features.
+
+### SDK Usage
+
+- Treat SDK declarations and provided documentation as the authoritative source for available functionality.
+- Follow the exact method signatures, argument types, return types, and nullability definitions.
+- Do not substitute familiar JavaScript or TypeScript APIs for SDK functionality.
+- Do not assume SDK objects behave like ordinary JavaScript objects.
+- Preserve SDK-specific lifecycle and state-management requirements.
+
+### Code Generation Requirements
+
+Before returning code:
+
+1. Review all nullable values and property accesses.
+2. Verify that every value passed to a function matches its declared parameter type.
+3. Verify that all return statements satisfy the function's declared return type.
+4. Check that every referenced property and method exists in the SDK.
+5. Check that no unsupported imports or runtime APIs have been introduced.
+6. Prefer simple, explicit code over clever language features that may not be supported by AssemblyScript.
+
+### Compiler Error Prevention
+
+- Do not repeat previously identified compiler-incompatible patterns.
+- Treat documented compiler pitfalls as binding constraints.
+- When an unfamiliar language feature is required, prefer a conservative AssemblyScript-compatible implementation.
+- Do not claim that code compiles successfully unless it has actually been compiled.
+
+The target is valid, executable AssemblyScript compatible with the supplied SDK, not TypeScript-like pseudocode.
+
+### SDK reference (`src/sdk/index.ts`):
 
 {{API}}
 

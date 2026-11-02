@@ -284,6 +284,11 @@ export function stateGetReplaced(id: string): Json { return request(op("state.ge
  * Spawn a registered entity type with its bottom-left at (x, y), or, when its footprint doesn't
  * fit there, at the closest spot in the area where it does (posOf(id) tells where). Returns its
  * id, or 0 when refused. With exact = true a spot that doesn't fit is refused instead.
+ * 
+ * Spawn only accepts a registered entity type name (a base map type, a type in this system’s 
+ * manifest “entities”, or a type another loaded system registered), never a bare catalog sprite
+ * id. To spawn something new, declare it in “entities” first. The host denies an unregistered 
+ * name with a message saying so.
  */
 export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bool = false): i32 {
   const o = tileReq("spawn", x, y, area).str("type", type); if (exact) o.bool("exact", true);
@@ -419,9 +424,9 @@ export function simGive(type: string): i32 { return request(op("sim.give").str("
 export function simTeleport(x: i32, y: i32, area: string = ""): bool { return done(tileReq("sim.teleport", x, y, area)); }
 /** Run the world for `ticks` ticks. */
 export function simWait(ticks: i32): bool { return done(op("sim.wait").int("ticks", ticks)); }
-/** Jump the clock to a phase ("dawn", "day", "dusk", "night"). */
+/** Jump the clock to a phase ("dawn", "day", "dusk", "night"). Does not change the day. */
 export function simTime(phase: string): bool { return done(op("sim.time").str("phaseOrHour", phase)); }
-/** Jump the clock to an hour (0 to 24). */
+/** Jump the clock to an hour (0 to 24). Does not change the day. */
 export function simTimeHour(hour: f64): bool { return done(op("sim.time").num("phaseOrHour", hour)); }
 /** Send a key ("up", "down", "left", "right", "e", "q", "escape") "down" or "up", then run one tick. */
 export function simKey(key: string, kind: string): bool { return done(op("sim.key").str("key", key).str("kind", kind)); }
