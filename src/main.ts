@@ -13,7 +13,8 @@ import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
 import { LIMITS, TUNING } from "./tuning";
 import { AiTab } from "./dev/aitab";
-import { renderMapImages } from "./ai/mapimage";
+import { mapImagesBase64, renderMapImages } from "./ai/mapimage";
+import { SwitchProvider } from "./ai/provider";
 import { WishChain } from "./ai/chain";
 import { AiLog, Journal } from "./ai/journal";
 import { ChangedPanel } from "./ai/changed";
@@ -51,11 +52,13 @@ configurePipeline(pipeline);
 pipeline.warm();
 tab = new PipelineTab(pipeline, live, () => void startFresh());
 devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
-// The wish chain and the AI tab (spec 13.5, 13.6).
+// The wish chain and the AI tab (spec 13.5, 13.6). The AI tab picks each role's provider (copy and
+// paste, or the Muse API) when a wish starts; in API mode the maps go with the designer's message.
 let chain: WishChain | null = null;
 const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); }, mapImages: () => renderMapImages(eng) });
 chain = new WishChain({
-  host, planner: aiTab.planner, designer: aiTab.designer, pipeline, journal, log: aiLog,
+  host, planner: new SwitchProvider(() => aiTab.pickPlanner()), designer: new SwitchProvider(() => aiTab.pickDesigner()), pipeline, journal, log: aiLog,
+  mapImages: () => (aiTab.sendsImages ? mapImagesBase64(eng) : Promise.resolve([])),
   hooks: { ...aiTab.hooks, onJournal: () => changed.setEntries(journal.entries) },
   routeStages: (fn) => { aiStages = fn; },
 });

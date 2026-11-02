@@ -4,3 +4,4 @@ dist/
 .tools-node.zip
 .tmp/
 data/
+.env*.local

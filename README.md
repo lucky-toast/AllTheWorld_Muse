@@ -68,14 +68,25 @@ A new system can retire a loaded AI system by listing it in `replaces`. It must 
 
 ## The AI tab
 
-There is no API provider yet. The AI tab runs the whole chain by hand through `ManualProvider`:
+"Send messages", under the "What changed" setting, picks how the chain talks to a model: **Dev panel (copy and paste)** or **API**. The choice is stored in the browser, read when a wish starts and kept for the whole wish, and can't be changed while a wish runs.
+
+In **Dev panel** mode the AI tab runs the whole chain by hand through `ManualProvider`:
 
 1. Type a wish in "Player wish" and press Start. The wish is cleaned (letters, digits and simple punctuation, at most 100 characters).
 2. The planner's message appears. Copy it to a model, paste the reply (one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`) and press Submit. At most 4 steps are kept. An unreadable reply gets one re-ask.
 3. For each step in order, the designer's message appears, with Copy, Download art board and Download maps. Paste the reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) and press Submit. The attempt row lights the stage boxes as the pipeline runs.
 4. A failed attempt gets the repair message to send back, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
 
-The plan and the messages show only in the AI tab. The player sees only the leaf transition and "The world feels different". Each prompt is sent as two system messages, the first marked `cache: true`; `ManualProvider` joins them into one text. Every message and reply is appended to the AI log with an estimated token count.
+In **API** mode the chain runs with no clicks: the planner and every designer step, repairs included, go to the Meta Muse API through the dev server, and systems load as their replies pass the pipeline. The boxes still show each outgoing message (with Copy and the downloads), the reply fills in by itself, and the size line adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 tokens`. The map images go with each designer message automatically. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.
+
+To use API mode:
+
+1. Put your Model API key (from the Model API dashboard, "API keys") in a file named `.env.local` at the repo root: `MUSE_API_KEY=...`. The file is git-ignored. `MUSE_BASE_URL` is optional and defaults to `https://api.meta.ai/v1`.
+2. Restart `npm run dev`. The key stays in the dev server (`devserver/ai.ts`, mounted at `/__ai`); the browser never sees it, and it has no `VITE_` prefix, so it can't end up in a build. Without a key, the API option is disabled and reads "API (set MUSE_API_KEY in .env.local)".
+
+The planner uses Muse Spark (`muse-spark-1.3`) and the designer uses Muse Wonder (`muse-wonder-1.0`). Change the models, their output caps (`maxTokens`, which reasoning tokens count toward) and their reasoning effort in `AI_MODELS` in `src/tuning.ts`. A reply cut off at its cap is an error, not a repair round.
+
+The plan and the messages show only in the AI tab. The player sees only the leaf transition and "The world feels different". Each prompt is sent as two system messages, the first marked `cache: true`; `ManualProvider` joins them into one text, and API mode sends them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; in API mode a `usage:` note with the real counts follows each reply.
 
 ## Storage
 

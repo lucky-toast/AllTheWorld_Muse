@@ -1,14 +1,15 @@
 // The wish chain (spec 13.5): a wish runs the planner, then the designer for each step in order.
 // Each step builds a fresh designer prompt, so it sees the systems earlier steps loaded. A step
 // dropped after its repairs stops the chain; earlier steps stay loaded and the rest are logged,
-// not retried. Zero steps logs "nothing to build". One wish at a time. The plan is never shown
-// to the player, who sees only the load transition and "The world feels different".
+// not retried. Zero steps logs "nothing to build". One wish at a time. A send that fails (an API
+// error) ends the chain with "error"; earlier steps stay loaded, as with "stopped". The plan is
+// never shown to the player, who sees only the load transition and "The world feels different".
 import type { Host } from "../engine/host";
 import type { StageEvent } from "../pipeline/types";
 import { runStep, type DesignerHooks, type DesignerPipeline } from "./designer";
 import type { AiLog, Journal } from "./journal";
 import { cleanWish, runPlanner } from "./planner";
-import type { AiProvider } from "./provider";
+import { AiApiError, usageText, type AiProvider, type ChatImage } from "./provider";
 
 export interface ChainHooks {
   onStatus?(text: string): void;
@@ -22,7 +23,7 @@ export interface ChainHooks {
 }
 
 export type ChainResult =
-  | { status: "busy" | "empty" | "nothing" | "planner_failed" | "done" | "stopped"; loaded: string[]; message: string };
+  | { status: "busy" | "empty" | "nothing" | "planner_failed" | "done" | "stopped" | "error"; loaded: string[]; message: string };
 
 export class WishChain {
   running = false;
@@ -35,7 +36,15 @@ export class WishChain {
     log: AiLog;
     hooks?: ChainHooks;
     routeStages?(fn: ((e: StageEvent) => void) | null): void;
+    /** The designer's map images, drawn once per step (sent only by providers that take images). */
+    mapImages?(): Promise<ChatImage[]>;
   }) {}
+
+  /** Log the real token counts of the reply that just came back, when the provider has them. */
+  private logUsage(provider: AiProvider, role: "planner" | "designer", extra: { wish: string; step?: number }) {
+    const u = provider.lastUsage;
+    if (u) this.opts.log.add("note", role, `usage: ${usageText(u)}`, extra);
+  }
 
   async run(rawWish: string): Promise<ChainResult> {
     const { hooks = {}, log } = this.opts;
@@ -44,13 +53,15 @@ export class WishChain {
     const wish = cleanWish(rawWish);
     if (!wish) return end({ status: "empty", loaded: [], message: "The wish is empty once cleaned, so nothing was sent." });
     this.running = true;
+    const loaded: string[] = [];
+    let current: number | undefined; // the 1-based step being built, if any
     try {
       hooks.onStatus?.("Waiting for the planner's reply.");
       const plan = await runPlanner({
         host: this.opts.host, provider: this.opts.planner, wish,
         hooks: {
           onSend: (a, text) => { log.add("sent", "planner", text, { wish }); hooks.onPlannerSend?.(a, text); },
-          onReply: (_a, text) => { log.add("reply", "planner", text, { wish }); },
+          onReply: (_a, text) => { log.add("reply", "planner", text, { wish }); this.logUsage(this.opts.planner, "planner", { wish }); },
           onProblem: (_a, p) => { log.add("note", "planner", `unreadable reply: ${p}`, { wish }); hooks.onStatus?.(`The planner's reply couldn't be read (${p}). Re-asking once.`); },
         },
       });
@@ -58,18 +69,18 @@ export class WishChain {
       for (const w of plan.warnings) log.add("note", "planner", `warning: ${w}`, { wish });
       hooks.onPlan?.(plan.steps, plan.warnings);
       if (!plan.steps.length) { log.add("note", "chain", "nothing to build", { wish }); return end({ status: "nothing", loaded: [], message: "The planner returned no steps: nothing to build." }); }
-      const loaded: string[] = [];
       for (let i = 0; i < plan.steps.length; i++) {
         const step = plan.steps[i];
+        current = i + 1;
         hooks.onStepStart?.(i, step);
         hooks.onStatus?.(`Step ${i + 1} of ${plan.steps.length}: waiting for the designer's reply.`);
         const dh = hooks.designer?.(i) ?? {};
         const r = await runStep({
-          host: this.opts.host, provider: this.opts.designer, pipeline: this.opts.pipeline, task: step, tags: plan.tags[i], routeStages: this.opts.routeStages,
+          host: this.opts.host, provider: this.opts.designer, pipeline: this.opts.pipeline, task: step, tags: plan.tags[i], routeStages: this.opts.routeStages, mapImages: this.opts.mapImages,
           hooks: {
             ...dh,
             onAttempt: (a, text) => { log.add("sent", "designer", text, { wish, step: i + 1 }); dh.onAttempt?.(a, text); },
-            onReply: (a, text) => { log.add("reply", "designer", text, { wish, step: i + 1 }); dh.onReply?.(a, text); },
+            onReply: (a, text) => { log.add("reply", "designer", text, { wish, step: i + 1 }); this.logUsage(this.opts.designer, "designer", { wish, step: i + 1 }); dh.onReply?.(a, text); },
             onReport: (a, rep) => { if (!rep.ok) log.add("note", "designer", `attempt ${a + 1} failed at ${rep.stage}: ${rep.errors[0]?.message ?? ""}`, { wish, step: i + 1 }); dh.onReport?.(a, rep); },
             onParseFailed: (a, ps) => { log.add("note", "designer", `attempt ${a + 1}: reply unreadable: ${ps.join("; ")}`, { wish, step: i + 1 }); dh.onParseFailed?.(a, ps); },
           },
@@ -87,6 +98,11 @@ export class WishChain {
         hooks.onStepDone?.(i, true, `${r.systemId} loaded`);
       }
       return end({ status: "done", loaded, message: `Done: loaded ${loaded.join(", ")}.` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log.add("note", "chain", `${e instanceof AiApiError ? "API error" : "error"}: ${msg}`, { wish, ...(current ? { step: current } : {}) });
+      const where = current ? `Step ${current}` : "The planner";
+      return end({ status: "error", loaded, message: `${where} stopped on an error: ${msg}. The chain stopped${loaded.length ? `; ${loaded.join(", ")} stay loaded` : ""}.` });
     } finally { this.running = false; }
   }
 }

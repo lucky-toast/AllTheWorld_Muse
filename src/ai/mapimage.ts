@@ -83,3 +83,16 @@ export async function renderMapImages(eng: Engine): Promise<{ area: string; file
 
 /** A file name for an area's map: map-<area id>.png, with anything unusual in the id replaced by _. */
 export function mapFileName(area: string): string { return `map-${area.replace(/[^A-Za-z0-9._-]/g, "_")}.png`; }
+
+/** Bytes as base64, in chunks so a large image doesn't overflow the call stack. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/** The maps as base64 PNGs, ready to go with the designer's message (browser only). */
+export async function mapImagesBase64(eng: Engine): Promise<{ mediaType: "image/png"; data: string }[]> {
+  const maps = await renderMapImages(eng);
+  return Promise.all(maps.map(async (m) => ({ mediaType: "image/png" as const, data: bytesToBase64(new Uint8Array(await m.png.arrayBuffer())) })));
+}

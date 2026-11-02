@@ -35,6 +35,7 @@ canvas#game { image-rendering: pixelated; display: block; }
 .ai-message { color: #cdbf8a; }
 .ai-len { font-size: 10px; opacity: 0.8; align-self: center; }
 .ai-setting { display: block; font-size: 10px; margin: 4px 0; }
+.ai-radio { margin-left: 8px; }
 .ai-plan { font-size: 10px; margin: 4px 0 4px 18px; padding: 0; }
 .ai-step { border-top: 1px solid #5a6b42; margin-top: 8px; }
 .ai-attempt { font-size: 10px; margin-top: 6px; opacity: 0.85; }

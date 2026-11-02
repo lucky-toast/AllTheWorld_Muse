@@ -1,16 +1,20 @@
 // The dev panel's AI tab (spec 13.6): a "Player wish" box and Start; then the planner's message
 // (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy,
 // Download art board, Download maps), reply box and Submit, with an attempt row of stage boxes and a token
-// estimate. A "What changed" on/off setting. The plan shows here only, never in the game.
+// estimate. A "What changed" on/off setting, and "Send messages: Dev panel / API": in API mode the
+// same boxes show what was sent, the reply fills in by itself with the real token usage, and there
+// is no Submit. The mode is read when a wish starts and kept for the whole chain. The plan shows
+// here only, never in the game.
 import { renderArtBoard } from "../engine/render";
 import { STAGES, type Report, type Stage, type StageEvent } from "../pipeline/types";
 import type { ChainHooks, ChainResult } from "../ai/chain";
 import type { DesignerHooks } from "../ai/designer";
 import type { AiLog, AiLogEntry } from "../ai/journal";
-import { ManualProvider } from "../ai/provider";
+import { ManualProvider, MuseProvider, usageText, type AiProvider, type AiUsage } from "../ai/provider";
+import { aiMode, setAiMode, type AiMode } from "../ai/mode";
 import { estTokens } from "../ai/template";
 import { changedEnabled, setChangedEnabled } from "../ai/changed";
-import { LIMITS } from "../tuning";
+import { AI_MODELS, LIMITS } from "../tuning";
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
   const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e;
@@ -18,7 +22,10 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 const button = (text: string, cls = "") => { const b = el("button", cls, text); b.type = "button"; return b; };
 const sizeText = (text: string) => `${text.length} chars · ~${estTokens(text.length)} tokens`;
 
-/** One message box with Copy, and a reply box with Submit, wired to a ManualProvider. */
+/**
+ * One message box with Copy, and a reply box with Submit, wired to a ManualProvider. In API mode
+ * (show(text, true)) the reply box is read-only, Submit is hidden, and fill() puts the reply in.
+ */
 function exchange(provider: ManualProvider, opts: { cls: string; status: (t: string) => void; art?: () => void; maps?: () => void }) {
   const root = el("div", `aix ${opts.cls}`);
   const msg = el("textarea", "ai-text ai-message"); msg.readOnly = true; msg.rows = 6;
@@ -41,16 +48,32 @@ function exchange(provider: ManualProvider, opts: { cls: string; status: (t: str
   root.append(msg, row, reply, submit, result);
   return {
     root, result,
-    show(text: string) { msg.value = text; msg.scrollTop = 0; size.textContent = sizeText(text); reply.value = ""; reply.readOnly = false; submit.disabled = false; },
+    show(text: string, api = false) {
+      msg.value = text; msg.scrollTop = 0; size.textContent = sizeText(text); reply.value = "";
+      reply.readOnly = api; submit.hidden = api; submit.disabled = api;
+      reply.placeholder = api ? "The reply appears here when the API answers" : "Paste the AI's reply here";
+    },
+    /** API mode: the reply and its real token usage. */
+    fill(text: string, usage: AiUsage | null) {
+      reply.value = text; reply.readOnly = true;
+      if (usage) size.textContent = `${sizeText(msg.value)} · ${usageText(usage)}`;
+    },
     done() { submit.disabled = true; reply.readOnly = true; },
   };
 }
 
 export class AiTab {
   readonly body = el("div", "aitab");
-  /** Planner and designer each have their own provider instance (spec 13.5). */
-  readonly planner = new ManualProvider();
-  readonly designer = new ManualProvider();
+  /** Planner and designer each have their own providers (spec 13.5): copy and paste, or the Muse API. */
+  readonly manualPlanner = new ManualProvider();
+  readonly manualDesigner = new ManualProvider();
+  readonly musePlanner = new MuseProvider({ role: "planner", ...AI_MODELS.planner });
+  readonly museDesigner = new MuseProvider({ role: "designer", ...AI_MODELS.designer });
+  /** Whether the dev server has a MUSE_API_KEY (GET /__ai/status). */
+  private apiReady = false;
+  /** The mode of the wish being built, fixed when it starts. */
+  private runMode: AiMode = "manual";
+  private modeRadios: { manual: HTMLInputElement; api: HTMLInputElement; apiLabel: Text } | null = null;
   private statusEl = el("div", "pipestatus ai-status");
   private planEl = el("ol", "ai-plan");
   private stepsEl = el("div", "ai-steps");
@@ -78,14 +101,18 @@ export class AiTab {
     const cb = el("input"); cb.type = "checkbox"; cb.checked = changedEnabled();
     cb.addEventListener("change", () => { setChangedEnabled(cb.checked); opts.onChangedSetting(cb.checked); });
     setting.append(cb, document.createTextNode(' "What changed" panel (C or click the game)'));
-    b.append(row, this.statusEl, setting);
+    b.append(row, this.statusEl, setting, this.modeSetting());
 
     b.append(el("div", "devsec", "Planner"));
-    this.plannerBox = exchange(this.planner, { cls: "ai-planner", status: (t) => this.say(t) });
+    this.plannerBox = exchange(this.manualPlanner, { cls: "ai-planner", status: (t) => this.say(t) });
     b.append(this.plannerBox.root);
-    this.planner.onShow = (text) => this.plannerBox.show(text);
+    this.manualPlanner.onShow = (text) => this.plannerBox.show(text);
+    this.musePlanner.onShow = (text) => { this.plannerBox.show(text, true); this.say("Waiting for the planner (API)…"); };
+    this.musePlanner.onReply = (text, usage) => this.plannerBox.fill(text, usage);
     b.append(el("div", "devsec", "Plan (shown here only)"), this.planEl, this.stepsEl);
-    this.designer.onShow = (text) => this.nextDesignerBox?.show(text);
+    this.manualDesigner.onShow = (text) => this.nextDesignerBox?.show(text);
+    this.museDesigner.onShow = (text) => { this.nextDesignerBox?.show(text, true); this.say("Waiting for the designer (API)…"); };
+    this.museDesigner.onReply = (text, usage) => this.nextDesignerBox?.fill(text, usage);
     b.append(el("div", "devsec", "AI log"), this.logEl);
     opts.log.onAppend = () => this.drawLog();
     this.drawLog();
@@ -93,10 +120,56 @@ export class AiTab {
 
   say(text: string) { this.statusEl.textContent = text; }
 
+  /** The providers the wish chain's SwitchProviders use: the mode fixed when the wish started. */
+  pickPlanner(): AiProvider { return this.runMode === "api" ? this.musePlanner : this.manualPlanner; }
+  pickDesigner(): AiProvider { return this.runMode === "api" ? this.museDesigner : this.manualDesigner; }
+  /** Whether the wish being built sends map images with the designer's message. */
+  get sendsImages(): boolean { return this.runMode === "api"; }
+
+  /** "Send messages: Dev panel (copy and paste) / API", stored as atw.aiMode. */
+  private modeSetting(): HTMLElement {
+    const row = el("div", "ai-setting");
+    const radio = (value: AiMode, text: string) => {
+      const label = el("label", "ai-radio"); const r = el("input"); r.type = "radio"; r.name = "atw-ai-mode"; r.value = value;
+      const t = document.createTextNode(` ${text}`);
+      r.addEventListener("change", () => { if (r.checked) setAiMode(value); });
+      label.append(r, t); row.append(label);
+      return { r, t };
+    };
+    row.append(document.createTextNode("Send messages:"));
+    const manual = radio("manual", "Dev panel (copy and paste)");
+    const api = radio("api", "API (checking…)");
+    this.modeRadios = { manual: manual.r, api: api.r, apiLabel: api.t };
+    this.drawMode();
+    void this.checkApi();
+    return row;
+  }
+
+  /** GET /__ai/status. Anything but the dev server's answer counts as not configured. */
+  private async checkApi() {
+    try {
+      const res = await fetch("/__ai/status", { cache: "no-store" });
+      const v = res.ok ? (await res.json()) as { configured?: unknown } : null;
+      this.apiReady = v?.configured === true;
+    } catch { this.apiReady = false; }
+    // The variable's name is split so a build never holds the string "MUSE_API_KEY" (an easy leak check).
+    if (this.modeRadios) this.modeRadios.apiLabel.textContent = this.apiReady ? " API" : ` API (set ${["MUSE", "API", "KEY"].join("_")} in .env.local)`;
+    this.drawMode();
+  }
+
+  private drawMode(running = false) {
+    const m = this.modeRadios; if (!m) return;
+    const api = this.apiReady && aiMode() === "api";
+    m.manual.checked = !api; m.api.checked = api;
+    m.manual.disabled = running; m.api.disabled = running || !this.apiReady;
+  }
+
   private async start() {
     const wish = this.wishEl.value;
     this.startBtn.disabled = true;
-    try { await this.opts.start(wish); } finally { this.startBtn.disabled = false; }
+    this.runMode = this.apiReady && aiMode() === "api" ? "api" : "manual";
+    this.drawMode(true);
+    try { await this.opts.start(wish); } finally { this.startBtn.disabled = false; this.drawMode(); }
   }
 
   /** The hooks the wish chain calls. */
@@ -117,7 +190,10 @@ export class AiTab {
     },
     designer: (i) => this.designerHooks(i),
     onStepDone: (i, ok, text) => { this.stepEls[i]?.append(el("div", ok ? "ai-ok" : "ai-dropped", ok ? text : `Dropped: ${text}`)); },
-    onDone: (r) => { if (r.status === "planner_failed") this.plannerBox.done(); },
+    onDone: (r) => {
+      if (r.status === "planner_failed" || r.status === "error") this.plannerBox.done();
+      if (r.status === "error") this.nextDesignerBox?.done();
+    },
   };
 
   private designerHooks(i: number): DesignerHooks {
@@ -127,7 +203,7 @@ export class AiTab {
       onAttempt: (attempt) => {
         const step = this.stepEls[i]; if (!step) return;
         step.append(el("div", "ai-attempt", attempt === 0 ? "Designer message" : `Repair ${attempt} of ${LIMITS.repairsPerStep}`));
-        const x = exchange(this.designer, { cls: "ai-designer", status: (t) => this.say(t), art: () => downloadArtBoard(), maps: () => void this.downloadMaps() });
+        const x = exchange(this.manualDesigner, { cls: "ai-designer", status: (t) => this.say(t), art: () => downloadArtBoard(), maps: () => void this.downloadMaps() });
         const stages = el("div", "stagerow"); const row = new Map<Stage, HTMLDivElement>();
         for (const s of STAGES) { const bx = el("div", "stagebox grey"); bx.append(el("span", "name", s), el("span", "ms", "")); row.set(s, bx); stages.append(bx); }
         x.root.insertBefore(stages, x.result);

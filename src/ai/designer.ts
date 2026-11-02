@@ -9,12 +9,12 @@ import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
 import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
 import { examplesText } from "./examples";
-import { outgoingText, type AiProvider, type ChatMessage } from "./provider";
+import { outgoingText, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
 export const PILLARS = normalizeEol(pillarsRaw).trim();
-/** The maps go as images (src/ai/mapimage.ts; the AI tab's Download maps). */
+/** The maps go as images (src/ai/mapimage.ts): attached by hand with Download maps, or sent with the message in API mode. */
 export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
 /** The slots that only change when a system loads, or never. */
@@ -114,9 +114,16 @@ export async function runStep(opts: {
   tags?: readonly string[];
   /** Lets the caller route the pipeline's stage events to this attempt while it runs. */
   routeStages?(fn: ((e: StageEvent) => void) | null): void;
+  /**
+   * The map images, drawn once per step before the first attempt (the world changes between
+   * steps). They go with the second system message, so every repair sends the same images.
+   */
+  mapImages?(): Promise<ChatImage[]>;
 }): Promise<StepResult> {
   const { host, provider, pipeline, task, hooks = {} } = opts;
   const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags));
+  const images = opts.mapImages ? await opts.mapImages() : [];
+  if (images.length) messages[1].images = images;
   let lastReason = "";
   for (let attempt = 0; attempt <= LIMITS.repairsPerStep; attempt++) {
     hooks.onAttempt?.(attempt, outgoingText(messages));

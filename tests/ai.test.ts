@@ -12,7 +12,7 @@ import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "..
 import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, stepCatalogText, tagIndexText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
-import { ManualProvider, outgoingText, type AiProvider, type ChatMessage } from "../src/ai/provider";
+import { AiApiError, ManualProvider, outgoingText, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
 import { WishChain } from "../src/ai/chain";
 import { AiLog, Journal } from "../src/ai/journal";
 import { promptMessages } from "../src/ai/template";
@@ -380,7 +380,7 @@ function memStore() {
   const lines: string[] = []; let journal: unknown[] = [];
   return { lines, loadJournal: async () => journal, saveJournal: async (e: unknown[]) => { journal = JSON.parse(JSON.stringify(e)); }, appendAiLog: async (l: string) => { lines.push(l); } };
 }
-function chainGame(plannerReplies: string[], designerReplies: string[]) {
+function chainGame(plannerReplies: string[], designerReplies: string[], designerOverride?: AiProvider) {
   const host = liveHost();
   const ls = new Map<string, string>();
   const mem: ModuleCache = { get: async () => null, put: async () => {}, clear: async () => {} };
@@ -389,8 +389,9 @@ function chainGame(plannerReplies: string[], designerReplies: string[]) {
   const pipeline = new Pipeline({ createWorker: inProcessWorker, live });
   const planner = new Scripted(plannerReplies); const designer = new Scripted(designerReplies);
   const journal = new Journal(store); const log = new AiLog(store);
-  const chain = new WishChain({ host, planner, designer, pipeline, journal, log });
-  return { host, store, ls, planner, designer, journal, log, chain };
+  const done: unknown[] = [];
+  const chain = new WishChain({ host, planner, designer: designerOverride ?? designer, pipeline, journal, log, hooks: { onDone: (r) => done.push(r) } });
+  return { host, store, ls, planner, designer, journal, log, chain, done };
 }
 const plan = (...steps: string[]) => "```json\n" + JSON.stringify({ steps }) + "\n```";
 
@@ -444,6 +445,37 @@ describe("wish chain", () => {
     expect(notes).toContain("step 3 not built because the chain stopped: Never built.");
     expect(g.journal.entries.map((e) => e.systemId)).toEqual(["chop"]);
   }, 120_000);
+
+  test("a send that rejects ends the chain with error, fires onDone and keeps the earlier step's system", async () => {
+    let n = 0;
+    const usage: AiUsage = { input: 12345, cachedInput: 11000, output: 2100 };
+    const flaky: AiProvider & { lastUsage: AiUsage | null } = {
+      lastUsage: null,
+      async send() { if (n++ === 0) { this.lastUsage = usage; return replyFor("chop"); } this.lastUsage = null; throw new AiApiError("the designer request failed (500): boom"); },
+    };
+    const g = chainGame([plan("An axe.", "A campfire.")], [], flaky);
+    const r = await g.chain.run("make a fire");
+    expect(r.status).toBe("error");
+    expect(r.loaded).toEqual(["chop"]);
+    expect(r.message).toContain("boom");
+    expect(g.done).toHaveLength(1);
+    expect(g.chain.running).toBe(false);
+    expect(g.host.systems.has("chop")).toBe(true);
+    const notes = g.log.entries.filter((e) => e.kind === "note");
+    expect(notes.find((e) => e.text.startsWith("API error:"))).toMatchObject({ role: "chain", step: 2, text: "API error: the designer request failed (500): boom" });
+    expect(notes.find((e) => e.text.startsWith("usage:"))).toMatchObject({ role: "designer", step: 1, text: "usage: in 12,345 (cached 11,000) · out 2,100 tokens" });
+  }, 120_000);
+
+  test("a planner send that rejects ends the chain with error and loads nothing", async () => {
+    const host = liveHost(); const done: unknown[] = []; const log = new AiLog(memStore());
+    const planner: AiProvider = { send: async () => { throw new AiApiError("no key"); } };
+    const chain = new WishChain({ host, planner, designer: new Scripted([]), pipeline: { checkSystem: () => { throw new Error("x"); }, loadChecked: () => { throw new Error("x"); } }, journal: new Journal(memStore()), log, hooks: { onDone: (r) => done.push(r) } });
+    const r = await chain.run("a pond");
+    expect(r).toMatchObject({ status: "error", loaded: [] });
+    expect(done).toHaveLength(1);
+    expect(log.entries.at(-1)).toMatchObject({ kind: "note", role: "chain", text: "API error: no key" });
+    expect((await chain.run("again")).status).toBe("error"); // not "busy": the chain is free again
+  });
 
   test("zero steps loads nothing and logs nothing to build", async () => {
     const g = chainGame([plan()], []);

@@ -499,7 +499,7 @@ wish.replace(/[^\p{L}\p{N} .,'!?-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 
 
 A wish runs the planner, then the designer for each step in order. Each step builds a fresh designer prompt, so it sees the systems earlier steps loaded. If a step is dropped after its repairs, the chain stops; earlier steps stay loaded and the remaining steps are logged, not retried. Zero steps logs "nothing to build" and shows the player nothing. One wish at a time; a second is refused with a status message. The player never sees the plan, only "The world feels different".
 
-Planner and designer each have their own provider instance, so they can later use different models. Every sent message and reply is appended to `data/ai-log.jsonl` with role, chars and an estimated token count (chars ÷ 4).
+Planner and designer each have their own provider, so they use different models: Muse Spark (`muse-spark-1.3`) for the planner and Muse Wonder (`muse-wonder-1.0`) for the designer, set in `AI_MODELS` (section 15). The chain gets a `SwitchProvider` per role, which sends each message through whichever provider the AI tab picked when the wish started: `ManualProvider` (copy and paste) or `MuseProvider`. `MuseProvider` posts Chat Completions messages to the dev server's `/__ai/chat` (`devserver/ai.ts`), which adds `MUSE_API_KEY` from `.env.local` and forwards them to the Meta Muse API; the key never reaches the browser. The two system messages go first and unchanged, so the API's automatic prompt cache reuses them, followed by a fixed user turn that carries the map images. A reply cut off at its output cap, or any API error, rejects the send; the chain then ends with status "error", logs the error, and earlier steps stay loaded. Every sent message and reply is appended to `data/ai-log.jsonl` with role, chars and an estimated token count (chars ÷ 4); in API mode a note with the real token usage follows each reply.
 
 ### 13.6 Dev panel
 
@@ -507,7 +507,7 @@ Backtick toggles it. It swallows game input while open and sits to the right of 
 
 - **Sprites tab:** every catalog sprite at 4x on a grass tile with its outline, playing its first anim (the old `renderSpritesTab`).
 - **Pipeline tab:** one button per fixture, a row of 7 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report with shots, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
-- **AI tab:** a "Player wish" box and Start. Then the planner's message (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy, Download art board), reply box and Submit, with an attempt row of stage boxes and a token estimate. A "What changed" on/off setting. The plan shows here only.
+- **AI tab:** a "Player wish" box and Start. Then the planner's message (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy, Download art board, Download maps), reply box and Submit, with an attempt row of stage boxes and a token estimate. A "What changed" on/off setting, and "Send messages: Dev panel (copy and paste) / API", stored in the browser and fixed for each wish when it starts. In API mode the boxes still show what was sent, the reply box fills in by itself and is read-only, Submit is hidden, the real token usage shows next to the estimate, and the map images go with each designer message. The API option is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. The plan shows here only.
 
 ---
 
@@ -564,6 +564,8 @@ Keep every old feel value. Add:
 | `PLAN_MAX_STEPS` | 4 | Extra steps dropped with a warning |
 | `WISH_MAX_CHARS` | 100 | Wish cut |
 | Near-limit log threshold | 50% | Logged |
+| `AI_MODELS` planner | `muse-spark-1.3`, 8,000 output tokens, reasoning effort `medium` | Reply cut off: API error, chain stops |
+| `AI_MODELS` designer | `muse-wonder-1.0`, 32,000 output tokens, reasoning effort `high` | Reply cut off: API error, chain stops |
 
 All limits start generous and are tightened only if needed.
 
@@ -571,4 +573,4 @@ All limits start generous and are tightened only if needed.
 
 ## 16. Out of scope
 
-The in-game chat box (wishes are typed in the dev panel for now), a real API provider, model choice, manifest size caps, the final overlay layout, Toast's three final example systems, sharing systems between players, and a camera. QuickJS is the fallback only if AssemblyScript repair rounds become a problem; don't build it.
+The in-game chat box (wishes are typed in the dev panel for now), manifest size caps, the final overlay layout, Toast's three final example systems, sharing systems between players, and a camera. QuickJS is the fallback only if AssemblyScript repair rounds become a problem; don't build it.
