@@ -2,6 +2,7 @@
 // file) and the replacements for the runtime's abort, trace and seed imports, so the
 // only imports left are host.call and env.memory. See README.md.
 import { rand } from "./index";
+import { forgetReads } from "./internal";
 
 /** Host -> module: a pinned ArrayBuffer of `len` bytes for a UTF-8 response. The module unpins it. */
 export function __atw_alloc(len: i32): usize {
@@ -11,6 +12,17 @@ export function __atw_alloc(len: i32): usize {
 /** Host -> module: a pinned String of `units` UTF-16 code units for a handler argument. */
 export function __atw_string(units: i32): usize {
   return __pin(__new(<usize>units << 1, idof<String>()));
+}
+
+/** Host -> module: free the garbage. The module is built with the minimal runtime, which never
+ *  collects by itself; the host calls this after each call, when nothing of it is left on the stack. */
+export function __atw_collect(): void {
+  __collect();
+}
+
+/** Host -> module: a call into the module begins; reads remembered from earlier calls may be stale. */
+export function __atw_forget(): void {
+  forgetReads();
 }
 
 /** Host -> module: unpin a String made by __atw_string once the handler returned. */

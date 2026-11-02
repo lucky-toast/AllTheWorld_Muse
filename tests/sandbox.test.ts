@@ -322,3 +322,41 @@ test("src/ never builds code at runtime", () => {
     expect({ f, hit: /new Function|\beval\(|\bimport\(/.test(text) }).toEqual({ f, hit: false });
   }
 });
+
+describe("cheaper SDK calls", () => {
+  const manifest = { id: "reader", why: "Reads the same things twice.", reactions: ["time.dawn"], entities: { mark: { sprite: "rock_gray_small", tags: [] } } };
+  const source = `import { info, posOf, typeOf, tag, query, check, simTime } from "sdk";
+export function migrate(): void { typeOf(1); typeOf(1); }
+export function onEvent(name: string, payload: string): void { typeOf(1); posOf(1); }
+export function test_reads(): void {
+  const a = typeOf(1); const p = posOf(1); const b = typeOf(1);
+  check(a.length > 0 && a == b && p != null, "the same answers");
+  tag(1, "seen");
+  const i = info(1);
+  check(i != null && i.tags.includes("seen"), "a read after a write is asked again and sees the write");
+  simTime("dawn");
+  check(typeOf(1) == a, "after a sim step it's asked again");
+}`;
+  test("a read asked twice in one call goes to the host once; a write, a sim step or a new call asks again", async () => {
+    const def = loadAiSystem(await compiled(manifest, source), manifest);
+    const host = worldHost(def);
+    const seen: string[] = []; const orig = host.call.bind(host);
+    (host as unknown as { call: typeof host.call }).call = (s, r) => { if (s === "reader") seen.push((r as { op: string }).op); return orig(s, r); };
+    host.eng.jumpClock("night"); host.tick();
+    seen.length = 0;
+    const r = host.runTest("reader", "reads");
+    expect(r.error).toBeNull();
+    expect(r.checks.every((c) => c.passed)).toBe(true);
+    // typeOf, posOf and typeOf again: one info. Then tag, info, check, sim.time (whose dawn runs
+    // onEvent: a new call, so it asks for info again), the check, and typeOf after the step: info again.
+    expect(seen.filter((o) => o !== "check")).toEqual(["info", "tag", "info", "sim.time", "info", "info"]);
+  }, 60_000);
+
+  test("modules export the collect and forget glue; the host calls them only when present", async () => {
+    const bytes = await compiled(manifest, source);
+    const names = inspect(bytes).exports.map((e) => e.name);
+    expect(names).toEqual(expect.arrayContaining(["__atw_collect", "__atw_forget"]));
+    // A module built before them (the hand-built ones here have neither) still loads and runs.
+    expect(checkModule(bytes, manifest).ok).toBe(true);
+  }, 60_000);
+});

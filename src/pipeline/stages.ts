@@ -196,7 +196,9 @@ function runOne(build: () => Engine, entries: Entry[], system: string, name: str
     : failed.length ? `check${failed.length > 1 ? "s" : ""} ${failed.join(", ")} failed`
     : faults.length ? `${faults.map((f) => f.msg).join("; ")}`
     : "no check ran";
-  const extra = !r.error && failed.length && faults.length ? ` (and ${faults.map((f) => f.msg).join("; ")})` : "";
+  // The system's own handler faults (each rolled back) explain a lot of failures, so they always show.
+  const other = faults.filter((f) => f.msg !== r.error).map((f) => `${f.msg} (tick ${f.tick})`);
+  const extra = (r.error || failed.length) && other.length ? ` (and ${other.join("; ")})` : "";
   return {
     message: `${test} failed: ${why}${extra}`, test, checks: r.checks, events: r.events.slice(-LIMITS.eventLogMax),
     denied: host.denials.slice(d0).filter((x) => x.system === system).map((x) => ({ op: x.op, code: x.code, msg: x.msg })),

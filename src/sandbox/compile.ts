@@ -23,7 +23,7 @@ export const MODULE_FILE = "module.ts";
 const ENTRY_FILE = "__atw_entry.ts";
 const OUT_FILE = "module.wasm";
 
-import { GLUE_EXPORTS, START_EXPORT } from "./abi";
+import { COLLECT_EXPORT, FORGET_EXPORT, GLUE_EXPORTS, START_EXPORT } from "./abi";
 export { GLUE_EXPORTS, START_EXPORT };
 
 /** The fixed compiler settings (spec 10.1). */
@@ -38,13 +38,16 @@ export const ASC_FLAGS: readonly string[] = [
   "--use", "seed=~lib/sdk/glue/atwSeed",
   "--noUnsafe",
   "--noColors",
+  // The collector starts a cycle only after 1 MB of new allocations (the default is 1 KB, which
+  // makes it run constantly on a small heap). The host also collects after every call, outside fuel.
+  "--use", "ASC_GC_GRANULARITY=1048576",
 ];
 
 /** The in-memory files: the module, the entry that re-exports the glue, and the SDK as package "sdk". */
 function files(source: string): Record<string, string> {
   return {
     [MODULE_FILE]: source,
-    [ENTRY_FILE]: `export { ${GLUE_EXPORTS.join(", ")} } from "sdk/glue";\n`,
+    [ENTRY_FILE]: `export { ${[...GLUE_EXPORTS, COLLECT_EXPORT, FORGET_EXPORT].join(", ")} } from "sdk/glue";\n`,
     "node_modules/sdk/index.ts": sdkIndex,
     "node_modules/sdk/internal.ts": sdkInternal,
     "node_modules/sdk/host.ts": sdkHost,

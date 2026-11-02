@@ -19,7 +19,7 @@ function errorText(e: PipelineError): string[] {
   if (e.denied?.length) out.push("  denied requests:", ...e.denied.slice(-20).map((d) => `    ${d.op}: ${d.code}: ${d.msg}`));
   const at = (p: { x: number; y: number; area: string }) => `(${p.x}, ${p.y}, ${p.area})`;
   if (e.moved?.length) out.push("  moved to the nearest free spot (read positions back with posOf):", ...e.moved.slice(-20).map((m) => `    ${m.op} ${m.what}: asked ${at(m.asked)}, placed ${at(m.placed)}${m.inTheWay ? `; in the way: ${m.inTheWay}` : ""}`));
-  if (e.events?.length) out.push(`  last events (${e.events.length}):`, ...e.events.slice(-20).map((ev) => `    tick ${ev.tick} ${ev.name} ${short(ev.payload)}${ev.blockedBy ? ` (in the way: ${ev.blockedBy})` : ""}`));
+  if (e.events?.length) out.push(`  last events (${e.events.length}):`, ...e.events.slice(-20).map((ev) => `    tick ${ev.tick} ${ev.name} ${short(ev.payload)}${ev.blockedBy ? ` (in the way: ${ev.blockedBy})` : ""}${ev.undone ? ` (undone, ${ev.undone})` : ""}`));
   if (e.entities?.length) out.push("  entities at the end:", ...e.entities.map((x) => `    ${x.type}#${x.id} at ${x.pos ? `(${x.pos.x}, ${x.pos.y}, ${x.pos.area})` : "(lifted)"} ${short(x.components)}`));
   return out;
 }

@@ -68,8 +68,11 @@ export const TUNING = {
 
 // Limits from spec section 15. All start generous and are tightened only if needed.
 export const LIMITS = {
-  // Fuel per live call (perform, onEvent, onTick, onTimer, onInput, onTween, nested emits included). Trap, rollback, strike.
+  // Fuel per onTick call, which runs every frame (nested emits included). Trap, rollback, strike.
   fuelLive: 50_000_000,
+  // Fuel per other live call (perform, onEvent, onTimer, onInput, onTween, nested emits included):
+  // they run now and then, so they may take longer. About 15 ms. Trap, rollback, strike.
+  fuelEvent: 200_000_000,
   // Fuel per migrate, test or shot. Check fails.
   fuelCheck: 500_000_000,
   // Memory per module in bytes (16 MB). Allocation fails, trap, rollback, strike.
