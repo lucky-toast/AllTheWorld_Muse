@@ -91,6 +91,7 @@ const wishBox = new WishBox({
     if (chain!.running || aiTab.running) return "The world is still busy with the last wish.";
     // The variable's name is split so a build never holds the string (see AiTab.checkApi).
     if (!aiTab.canUseApi) return `Wishes need the Muse API: set ${["MUSE", "API", "KEY"].join("_")} in .env.local`;
+    thinking = "planner"; // keeps "listening" on as the box closes, until the planner's message goes out
     void aiTab.startApi(wish);
     return null;
   },
@@ -169,6 +170,14 @@ try {
   face.load().then((f) => { document.fonts.add(f); }).catch(() => {});
 } catch { /* fallback stays monospace */ }
 
+// The top bar's thinking state: what the wish is waiting on, or "listening" while the wish box is
+// open, so the world starts listening as soon as the player starts typing.
+function topThinking(): ThinkingPhase | null {
+  if (live.busy) return null;
+  if (chain?.running) return thinking;
+  return wishBox.isOpen ? "planner" : null;
+}
+
 let last = performance.now();
 function frame(now: number) {
   // Ticks and input pause while a system loads live.
@@ -182,7 +191,7 @@ function frame(now: number) {
   drawTransition(ctx, live.transitionStart, now);
   ctx.restore();
   const newest = journal.entries[journal.entries.length - 1];
-  drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: chain?.running && !live.busy ? thinking : null, notice }, now);
+  drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: topThinking(), notice }, now);
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }
