@@ -31,7 +31,12 @@ export interface DenialEntry { tick: number; system: string; op: string; code: C
 /** A spawn or place that didn't go where it was asked, because something was in the way there. */
 export interface RelocationEntry { tick: number; system: string; op: string; what: string; asked: Pos; placed: Pos; inTheWay: string }
 export interface NearLimitEntry { tick: number; system: string; limit: string; used: number; max: number }
-export interface EventEntry { tick: number; name: string; payload: Record<string, unknown>; during?: "migrate" | "test"; /** player.blocked: what was in the way. */ blockedBy?: string }
+export interface EventEntry {
+  tick: number; name: string; payload: Record<string, unknown>; during?: "migrate" | "test";
+  /** player.blocked: what was in the way. */ blockedBy?: string;
+  /** A handler faulted later in the same transaction, so everything it did, this event included, was rolled back. */
+  undone?: string;
+}
 /** Two systems wrote the same entity while handling one event (logged, never failed). */
 export interface OverlapEntry { tick: number; event: string; entity: number; systems: string[] }
 /** A handler call that threw and was rolled back. */
@@ -100,7 +105,7 @@ function isPlainJson(v: unknown, depth = 0): boolean {
 }
 function utf8Len(s: string): number { return s.length * 3 <= LIMITS.requestBytes ? s.length : new TextEncoder().encode(s).length; }
 
-interface Txn { id: number; system: string; kind: CallKind; effects: (() => void)[] }
+interface Txn { id: number; system: string; kind: CallKind; effects: (() => void)[]; events: EventEntry[] }
 interface EmitFrame { event: string; writes: Map<number, Set<string>> }
 
 export class Host {
@@ -311,7 +316,7 @@ export class Host {
     if (this.txn) { fn(); return { ok: true }; } // nested (an emit reaching another system): part of the outer transaction
     this.syncCounters();
     this.calls.clear();
-    const txn: Txn = { id: ++this.txnCounter, system, kind, effects: [] };
+    const txn: Txn = { id: ++this.txnCounter, system, kind, effects: [], events: [] };
     this.txn = txn; this.eng.journal = [];
     const depth = this.emitDepth; const frames = this.emitFrames.length;
     try { fn(); }
@@ -321,6 +326,8 @@ export class Host {
       this.emitDepth = depth; this.emitFrames.length = frames;
       const msg = e instanceof Error ? e.message : String(e);
       const who = (e as { [FAULT_SYSTEM]?: string } | null)?.[FAULT_SYSTEM] ?? system;
+      // The events fired in the transaction stay in the logs, marked: they didn't happen.
+      for (const ev of txn.events) ev.undone = `rolled back: ${who} faulted`;
       this.pushLog(this.faults, { tick: this.eng.tickCount, system: who, kind, msg });
       // The holder faulted: the engine takes the controls back.
       this.focus.endIfHolder(who, "fault");
@@ -416,7 +423,8 @@ export class Host {
       if (t && p) { const w = this.inTheWay(this.eng.spriteIdOf(p), true, t, p.id); if (w) entry.blockedBy = w; }
     }
     this.events.push(entry); if (this.events.length > LIMITS.eventLogMax) this.events.shift();
-    this.capture?.events.push({ ...entry, during: "test" });
+    this.txn?.events.push(entry);
+    if (this.capture) { const c: EventEntry = { ...entry, during: "test" }; this.capture.events.push(c); this.txn?.events.push(c); }
     if ((name === "player.moved" || name === "player.blocked") && this.lastAttemptTick !== this.eng.tickCount) { this.lastAttemptTick = this.eng.tickCount; this.stepAttempts++; }
     const reactors = this.registry.reactors(name); if (!reactors.length) return;
     const json = JSON.stringify(payload);

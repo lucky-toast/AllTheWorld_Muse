@@ -21,6 +21,15 @@
 //   export function shot_<name>(): void
 // Globals don't survive a reload: keep lasting state in components, tags or stateSet.
 //
+// Every call into your module has a fuel budget: 50,000,000 units for onTick (it runs every frame),
+// 200,000,000 for the other handlers (perform, onEvent, onTimer, onInput, onTween), 500,000,000 for
+// migrate, a test or a shot (a handler that runs during a test keeps its own budget). Running out
+// undoes everything the call did. Helpers are the expensive part: each one costs roughly 50,000 to
+// 200,000 units (info and query are among the dearest), so onTick has room for about three hundred.
+// A read asked again in the same call (typeOf then posOf of one entity, say) is remembered and costs
+// almost nothing, until your next write, emit or sim step; a new call always asks afresh. Narrow a
+// query by a specific tag rather than filtering a broad one.
+//
 // Placing things: pick a spot and let the host find the nearest fit. The player keeps playing
 // while you are built, so the tile you chose may be taken by the time your code runs (the
 // player stands there, or dropped a branch on it). spawn, place and tileStamp use (x, y) when it
@@ -40,14 +49,18 @@ import { send, failure, truncated, op, tileReq, done, numText, JsonParser } from
 // ============================== JSON ==============================
 
 /** A parsed JSON value. Reading a missing field or index gives a null value, never a crash. */
+const NO_ITEMS = new Array<Json>(0);
+const NO_NAMES = new Array<string>(0);
+
 export class Json {
   /** 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object. */
   kind: i32 = 0;
   private b: bool = false;
   private n: f64 = 0;
   private s: string = "";
-  private items: Json[] = [];
-  private names: string[] = [];
+  // Shared empty lists until a value has its own (most values are never arrays or objects).
+  private items: Json[] = NO_ITEMS;
+  private names: string[] = NO_NAMES;
 
   /** True for JSON null (also for anything missing). */
   isNull(): bool { return this.kind == 0; }
@@ -120,23 +133,34 @@ export function parse(text: string): Json {
 
 /** A JSON string literal for `s`, with quotes and escapes. */
 export function quote(s: string): string {
-  let t = "\"";
-  for (let i = 0; i < s.length; i++) {
+  // Almost every string needs no escapes: copy it whole rather than character by character.
+  const n = s.length;
+  let i = 0;
+  for (; i < n; i++) { const c = s.charCodeAt(i); if (c == 34 || c == 92 || c < 32) break; }
+  if (i == n) return "\"" + s + "\"";
+  let t = "\"" + s.substring(0, i);
+  let run = i;
+  for (; i < n; i++) {
     const c = s.charCodeAt(i);
+    if (c != 34 && c != 92 && c >= 32) continue;
+    if (i > run) t += s.substring(run, i);
     if (c == 34) t += "\\\"";
     else if (c == 92) t += "\\\\";
     else if (c == 10) t += "\\n";
     else if (c == 13) t += "\\r";
     else if (c == 9) t += "\\t";
-    else if (c < 32) t += "\\u00" + (c < 16 ? "0" : "") + c.toString(16);
-    else t += String.fromCharCode(c);
+    else t += "\\u00" + (c < 16 ? "0" : "") + c.toString(16);
+    run = i + 1;
   }
+  if (run < n) t += s.substring(run);
   return t + "\"";
 }
 
 /** Builds a JSON object: new Obj().int("x", 3).str("name", "a").toString() is {"x":3,"name":"a"}. */
 export class Obj {
   private body: string = "";
+  /** Internal: the op name when made by the SDK's request helpers ("" otherwise). */
+  _op: string = "";
   /** Add a number field. */
   num(key: string, v: f64): Obj { return this.raw(key, numText(v)); }
   /** Add an integer field. */
