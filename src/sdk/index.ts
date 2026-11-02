@@ -21,6 +21,13 @@
 //   export function shot_<name>(): void
 // Globals don't survive a reload: keep lasting state in components, tags or stateSet.
 //
+// Every call into your module has a fuel budget: 50,000,000 units for a handler (perform, onEvent,
+// onTick, ...), 500,000,000 for migrate, a test or a shot (a handler that runs during a test still
+// gets 50,000,000). Running out undoes everything the call did. Helpers are the expensive part:
+// each one costs roughly 100,000 to 700,000 units (info and query are among the dearest), so a
+// handler has room for about a hundred. Call info once per entity and keep what it returned
+// (posOf and typeOf each call it again), and narrow a query by a specific tag first.
+//
 // Placing things: pick a spot and let the host find the nearest fit. The player keeps playing
 // while you are built, so the tile you chose may be taken by the time your code runs (the
 // player stands there, or dropped a branch on it). spawn, place and tileStamp use (x, y) when it

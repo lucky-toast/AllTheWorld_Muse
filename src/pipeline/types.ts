@@ -14,7 +14,7 @@ export interface PipelineError {
   /** Every named check the test ran. */
   checks?: { label: string; passed: boolean }[];
   /** The last events of the test. */
-  events?: { tick: number; name: string; payload: Record<string, unknown>; during?: string; blockedBy?: string }[];
+  events?: { tick: number; name: string; payload: Record<string, unknown>; during?: string; blockedBy?: string; undone?: string }[];
   /** Requests denied during the test. */
   denied?: { op: string; code: string; msg: string }[];
   /** Spawns and places (in migrate or the test) that the host moved off the asked spot, and what was in the way. */

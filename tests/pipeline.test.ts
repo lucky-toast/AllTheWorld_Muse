@@ -391,6 +391,31 @@ export function test_room(): void {
   expect(r.ok).toBe(true);
 });
 
+test("a handler that runs out of fuel during a test is named, with where its fuel went, and its events show as undone", async () => {
+  const g = game();
+  const manifest = JSON.stringify({ id: "greedy", why: "A dawn handler that asks too much.", reactions: ["time.dawn"], emits: { "greedy.woke": {} } });
+  const source = `import { emit, info, query, simTime, check, Obj } from "sdk";
+export function migrate(): void {}
+export function onEvent(name: string, payload: string): void {
+  if (name != "time.dawn") return;
+  emit("greedy.woke", new Obj());
+  for (let i = 0; i < 100000; i++) info(1 + (i % 40));
+}
+export function test_dawn(): void {
+  simTime("night"); simTime("dawn");
+  check(query("player").length == 1, "still here");
+}`;
+  const r = await g.pipeline.checkSystem(manifest, source);
+  const text = reportText(r);
+  expect(r.ok).toBe(false);
+  // The handler is named, not the test, and the message says what the fuel went on.
+  expect(text).toContain("greedy.test_dawn failed: it threw: greedy.onEvent ran out of fuel (50000000 units) after");
+  expect(text).toMatch(/SDK calls \(info \d+/);
+  expect(text).not.toContain("test_dawn ran out of fuel");
+  // What the rolled-back handler emitted is marked as undone.
+  expect(text).toMatch(/greedy\.woke \{\} \(undone, rolled back: greedy faulted\)/);
+});
+
 test("each test has its own time limit, and a timeout names the test that ran over", async () => {
   const slow = (): WorkerLike => {
     let handler: ((m: FromWorker) => void) | null = null;

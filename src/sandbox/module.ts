@@ -163,8 +163,8 @@ export class SandboxTrap extends Error {
 
 // ======================= fuel accounts =======================
 
-interface Account { remaining: bigint; limit: bigint; txn: number; host: Host }
-interface Frame { runner: Runner; acc: Account }
+interface Account { remaining: bigint; limit: bigint; txn: number; host: Host; /** SDK requests made under this account, by op. */ ops: Map<string, number> }
+interface Frame { runner: Runner; acc: Account; /** Set when this runner's instance trapped under the frame: the error it stops with. */ poison?: unknown }
 /** Module calls in progress, innermost last (shared by every host in this thread). */
 const frames: Frame[] = [];
 const CHECK_KINDS = new Set(["migrate", "test", "shot"]);
@@ -178,6 +178,13 @@ export interface FuelStats {
 }
 const STATS_KEPT = LIMITS.callStatsKept;
 
+/** " after 152 SDK calls (info 98, tile.get 20, ...)": where the fuel of a call that ran out went. */
+function opsNote(ops: Map<string, number>): string {
+  const total = [...ops.values()].reduce((a, b) => a + b, 0); if (!total) return "";
+  const top = [...ops].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([o, n]) => `${o} ${n}`).join(", ");
+  return ` after ${total} SDK calls (${top}${ops.size > 5 ? ", ..." : ""}); each SDK call costs far more than plain code, so reuse what a call returned instead of asking again`;
+}
+
 // ======================= one live instance =======================
 
 class Runner {
@@ -185,6 +192,8 @@ class Runner {
   private memory: WebAssembly.Memory | null = null;
   private ex: Record<string, (...a: number[]) => number> = {};
   private fuel: WebAssembly.Global | null = null;
+  /** The error of this runner's last trap. */
+  private lastError: unknown = null;
 
   constructor(private prep: PreparedModule, private call: HostCall, private host: Host, private stats: FuelStats) {}
 
@@ -208,18 +217,24 @@ class Runner {
     const txn = this.host.transactionId;
     const shared = !!outer && txn !== 0 && outer.acc.txn === txn && outer.acc.host === this.host && !CHECK_KINDS.has(kind);
     const limit = BigInt(CHECK_KINDS.has(kind) ? LIMITS.fuelCheck : LIMITS.fuelLive);
-    const acc: Account = shared ? outer.acc : { remaining: limit, limit, txn, host: this.host };
+    const acc: Account = shared ? outer.acc : { remaining: limit, limit, txn, host: this.host, ops: new Map() };
     frames.push({ runner: this, acc });
     fuel.value = acc.remaining;
     let threw = true;
     try { body(this.ex); threw = false; }
-    catch (e) { throw this.explain(e, name, acc); }
+    catch (e) { const x = this.explain(e, name, acc); this.lastError = x; throw x; }
     finally {
       const left = fuel.value as bigint;
       acc.remaining = left < 0n ? 0n : left;
       frames.pop();
       if (outer) outer.runner.fuel!.value = outer.acc.remaining;
-      if (threw) this.instance = null;
+      if (threw) {
+        this.instance = null;
+        // A call further out is still running in the instance that just trapped (a test whose
+        // simWait reached this system's own handler). It can't go on in a dead instance, so it
+        // stops with the inner call's error when the host call it is waiting on returns.
+        for (const f of frames) if (f.runner === this) f.poison ??= this.lastError;
+      }
       if (!shared) {
         const used = acc.limit - acc.remaining;
         this.stats.total += used;
@@ -233,7 +248,7 @@ class Runner {
   private explain(e: unknown, name: string, acc: Account): unknown {
     if (!(e instanceof WebAssembly.RuntimeError)) return e;
     const id = this.prep.systemId;
-    if ((this.fuel!.value as bigint) < 0n) return new SandboxTrap(id, "fuel", `${id}.${name} ran out of fuel (${acc.limit} units)`);
+    if ((this.fuel!.value as bigint) < 0n) return new SandboxTrap(id, "fuel", `${id}.${name} ran out of fuel (${acc.limit} units)${opsNote(acc.ops)}`);
     const abort = this.abortInfo();
     if (abort) return new SandboxTrap(id, "abort", `${id}.${name} aborted: ${abort}`);
     const bytes = this.memory!.buffer.byteLength;
@@ -278,7 +293,11 @@ class Runner {
     if (len > LIMITS.requestBytes) req = { op: "__too_big__" };
     else if (ptr + len > buf.byteLength) req = { op: "__out_of_bounds__" };
     else { try { req = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, ptr, len))); } catch { req = null; } }
+    const top = frames[frames.length - 1]; const acc = top?.acc;
+    const op = (req as { op?: unknown } | null)?.op;
+    if (acc && typeof op === "string") acc.ops.set(op, (acc.ops.get(op) ?? 0) + 1);
     const res = this.call(req as Request);
+    if (top?.poison !== undefined) throw top.poison;
     const out = new TextEncoder().encode(JSON.stringify(res));
     const at = this.ex.__atw_alloc(out.length) >>> 0;
     new Uint8Array(this.memory!.buffer, at, out.length).set(out); // the buffer may have grown: read it again
