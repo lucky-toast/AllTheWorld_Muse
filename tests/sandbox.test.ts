@@ -1,7 +1,7 @@
 // Phase 3: AI systems as metered WebAssembly modules (spec 10, 14).
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { compileSystem, formatCompileError, ASC_VERSION, read } from "../src/sandbox/compile";
+import { compileSystem, formatCompileError, ASC_VERSION, read, addSdkImports, missingSdkImports } from "../src/sandbox/compile";
 import { meter, inspect, WasmError, FUEL_EXPORT } from "../src/sandbox/meter";
 import { checkModule, loadAiSystem, prepareModule, ModuleError, type AiSystemDef } from "../src/sandbox/module";
 import { runAiTests, runShots, worldHost } from "../src/sandbox/runners";
@@ -83,6 +83,22 @@ describe("compile errors", () => {
     const e = r.errors[0];
     expect(e).toMatchObject({ file: "module.ts", line: 4, sourceLine: "  summonDragon(player());" });
     expect(formatCompileError(e)).toMatch(/^module\.ts:4:3 .*summonDragon/);
+  });
+  test("SDK functions used but not imported are imported for the module", async () => {
+    // Real designer slips: simEvents and move used without importing them.
+    const src = `import {\n  player, check,\n} from "sdk";\n\nexport function test_a(): void {\n  check(simEvents("x").length == 0, "none");\n  move(player(), 1, 1, true);\n}\n`;
+    const r = await compileSystem({ id: "forgot" }, src);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.importsAdded).toEqual(["simEvents", "move"]);
+    // No import from "sdk" at all: one is added on line 1, so later lines keep their numbers.
+    const bare = await compileSystem({ id: "bare" }, `export function onTick(): void {\n  summonDragon(player());\n}\n`);
+    expect(bare.ok).toBe(false);
+    if (!bare.ok) expect(bare.errors).toEqual([expect.objectContaining({ line: 2, message: expect.stringContaining("summonDragon") })]);
+  });
+  test("an added import keeps every line where it was", () => {
+    expect(addSdkImports(`import {\n  a,\n} from "sdk";\nx`, ["move"])).toBe(`import { move,\n  a,\n} from "sdk";\nx`);
+    expect(addSdkImports(`line1\nline2`, ["move", "at"])).toBe(`import { move, at } from "sdk"; line1\nline2`);
+    expect(missingSdkImports([{ message: "Cannot find name 'summonDragon'.", code: 2304, file: "module.ts" }])).toEqual([]);
   });
   test("an extra host import declared in source is refused by the loader", async () => {
     const bytes = await compiled({ id: "sneaky" }, `@external("env", "now") declare function now(): f64;\nexport function onTick(): void { now(); }\n`);

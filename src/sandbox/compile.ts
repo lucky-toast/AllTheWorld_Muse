@@ -64,7 +64,7 @@ export interface CompileError {
   sourceLine?: string;
 }
 export type CompileResult =
-  | { ok: true; wasm: Uint8Array<ArrayBuffer>; durationMs: number; warnings: CompileError[] }
+  | { ok: true; wasm: Uint8Array<ArrayBuffer>; durationMs: number; warnings: CompileError[]; importsAdded?: string[] }
   | { ok: false; errors: CompileError[]; durationMs: number };
 
 interface Diagnostic { code: number; category: number; message: string; range: { start: number; source: { normalizedPath: string } | null } | null }
@@ -99,11 +99,58 @@ export function read(fs: Record<string, string>, name: string): string | null {
   return Object.prototype.hasOwnProperty.call(fs, key) ? fs[key] : null;
 }
 
+/** Every name the SDK exports (functions, classes, constants), read from its source. */
+export const SDK_EXPORTS: ReadonlySet<string> = new Set(
+  [...sdkIndex.matchAll(/^export\s+(?:async\s+)?(?:function|class|const|let|var|enum|interface|type)\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]),
+);
+
+/** asc's code for "Cannot find name 'x'". */
+const UNKNOWN_NAME = 2304;
+
+/** The SDK names among `errors` that the module uses but forgot to import, in order of first use. */
+export function missingSdkImports(errors: readonly CompileError[]): string[] {
+  const names: string[] = [];
+  for (const e of errors) {
+    if (e.code !== UNKNOWN_NAME || (e.file ?? MODULE_FILE) !== MODULE_FILE) continue;
+    const name = /Cannot find name '([^']+)'/.exec(e.message)?.[1];
+    if (name && SDK_EXPORTS.has(name) && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+/**
+ * The source with `names` added to its import from "sdk". They go right after the first `{`
+ * of that import (or, with no such import, in a new import at the start of line 1), so no line
+ * moves and every later error still points at the line the model wrote.
+ */
+export function addSdkImports(source: string, names: readonly string[]): string {
+  if (!names.length) return source;
+  const m = /import\s*\{[^}]*\}\s*from\s*["']sdk["']/.exec(source);
+  if (m) {
+    const at = m.index + m[0].indexOf("{") + 1;
+    return `${source.slice(0, at)} ${names.join(", ")},${source.slice(at)}`;
+  }
+  return `import { ${names.join(", ")} } from "sdk"; ${source}`;
+}
+
 /**
  * Compile a system's AssemblyScript source with the fixed settings. `manifest` is only read for
  * its id (the result names it); the Manifest stage checks it properly. Errors carry line and source text.
+ * SDK functions the module uses but forgot to import are imported for it (one more compile;
+ * importsAdded names them), so a missing import never costs a whole designer retry.
  */
 export async function compileSystem(manifest: unknown, source: string): Promise<CompileResult & { systemId: string }> {
+  const first = await compileOnce(manifest, source);
+  if (first.ok) return first;
+  const missing = missingSdkImports(first.errors);
+  if (!missing.length) return first;
+  const second = await compileOnce(manifest, addSdkImports(source, missing));
+  second.durationMs += first.durationMs;
+  if (second.ok) second.importsAdded = missing;
+  return second;
+}
+
+async function compileOnce(manifest: unknown, source: string): Promise<CompileResult & { systemId: string }> {
   const systemId = typeof (manifest as { id?: unknown })?.id === "string" ? (manifest as { id: string }).id : "?";
   const t0 = Date.now();
   const fs = files(source);

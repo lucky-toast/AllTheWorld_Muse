@@ -93,6 +93,7 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
     }));
   }
   const wasm = comp.wasm;
+  if (comp.importsAdded) report.log.push(`compile: added missing imports from "sdk": ${comp.importsAdded.join(", ")}`);
   pass();
 
   // ======================= 3. Module =======================
