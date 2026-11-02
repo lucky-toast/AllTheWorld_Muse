@@ -49,8 +49,10 @@ const submit = (g: ReturnType<typeof game>, f: string) => g.pipeline.submitSyste
 // ---------------------------------------------------------------------------
 // The fixture table (spec 14): every fixture through the pipeline, on the base game.
 // ---------------------------------------------------------------------------
-const TABLE: { fixture: string; stage: string; ok: boolean; message?: RegExp }[] = [
+const TABLE: { fixture: string; stage: string; ok: boolean; message?: RegExp; after?: string[] }[] = [
   { fixture: "campfire", stage: "Load", ok: true },
+  { fixture: "campfire_v2", stage: "Load", ok: true, after: ["campfire"] },
+  { fixture: "fireside_cat", stage: "Load", ok: true, after: ["campfire"] },
   { fixture: "chop", stage: "Load", ok: true },
   { fixture: "bad_manifest", stage: "Manifest", ok: false, message: /entities\.dragon: sprite "dragon_huge" isn't in the catalog/ },
   { fixture: "bad_prefix", stage: "Manifest", ok: false, message: /emits: "fire\.lit" must start with "bad_prefix\."/ },
@@ -66,9 +68,11 @@ test("every fixture folder is in the table", () => {
   expect(readdirSync("fixtures").sort()).toEqual(TABLE.map((t) => t.fixture).sort());
 });
 
-describe.each(TABLE)("fixture $fixture", ({ fixture: f, stage, ok, message }) => {
-  test(`${ok ? "loads" : `fails at ${stage}`}`, async () => {
+describe.each(TABLE)("fixture $fixture", ({ fixture: f, stage, ok, message, after }) => {
+  test(`${ok ? "loads" : `fails at ${stage}`}${after ? ` after ${after.join(", ")}` : ""}`, async () => {
     const g = game();
+    for (const a of after ?? []) expect((await submit(g, a)).ok).toBe(true);
+    g.stages.length = 0;
     const before = g.eng.serialize();
     const report = await submit(g, f);
     expect({ ok: report.ok, stage: report.stage, errors: report.ok ? [] : undefined }).toMatchObject({ ok, stage });

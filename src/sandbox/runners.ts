@@ -19,8 +19,9 @@ export interface AiTestResult extends TestResult {
 }
 
 /** A fresh real world with the base systems, then `deps`, then `def` loaded (its migrate runs). */
-export function worldHost(def: SystemDef, deps: readonly SystemDef[] = []): Host {
+export function worldHost(def: SystemDef, deps: readonly SystemDef[] = [], successors?: Map<string, string>): Host {
   const host = new Host(buildWorld());
+  for (const [a, b] of successors ?? []) host.successors.set(a, b);
   for (const d of [...BASE_SYSTEMS, ...deps, def]) host.load(d);
   host.interactions.refresh(true);
   return host;
@@ -51,8 +52,8 @@ export function runAiTests(def: SystemDef, deps: readonly SystemDef[] = []): AiT
 export interface ShotRun { name: string; shot: Shot; host: Host; error: string | null; faults: FaultEntry[] }
 
 /** Set up shot `name` on a fresh world: jump the clock to its time, run shot_<name>, then its ticks. */
-export function runShot(def: SystemDef, name: string, deps: readonly SystemDef[] = []): ShotRun {
-  const host = worldHost(def, deps);
+export function runShot(def: SystemDef, name: string, deps: readonly SystemDef[] = [], successors?: Map<string, string>): ShotRun {
+  const host = worldHost(def, deps, successors);
   const system = idOf(def);
   const sys = host.systems.get(system)!;
   const shot = sys.manifest.shots.find((s) => s.name === name);

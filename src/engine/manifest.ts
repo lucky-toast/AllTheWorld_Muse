@@ -151,14 +151,35 @@ export interface ManifestContext {
   events: Set<string>;
   /** Registered entity types. */
   types: Set<string>;
+  /** Replaced id -> the id that replaced it (spec 11). A replaced id in `buildsOn` counts as its replacement. */
+  successors?: Map<string, string>;
+  /** Manifests of the loaded AI systems, for the `replaces` event checks. */
+  manifests?: Map<string, Manifest>;
+}
+
+/** `id`, or the newest system that replaced it. */
+export function resolveSuccessor(id: string, successors: Map<string, string> | undefined): string {
+  const seen = new Set<string>();
+  while (successors?.has(id) && !seen.has(id)) { seen.add(id); id = successors.get(id)!; }
+  return id;
 }
 
 /** The Manifest-stage checks that depend on the loaded systems (spec 12, stage 1). */
 export function checkManifestContext(m: Manifest, ctx: ManifestContext): string[] {
   const errors: string[] = [];
   if (ctx.loaded.has(m.id)) errors.push(`a system with id "${m.id}" is already loaded`);
-  for (const b of m.buildsOn) if (!ctx.loaded.has(b)) errors.push(`buildsOn: "${b}" isn't loaded`);
-  for (const r of m.replaces) if (!ctx.aiLoaded.has(r)) errors.push(`replaces: "${r}" isn't a loaded AI system`);
+  for (const b of m.buildsOn) if (!ctx.loaded.has(resolveSuccessor(b, ctx.successors))) errors.push(`buildsOn: "${b}" isn't loaded`);
+  // Succession (spec 11): only loaded AI systems can be replaced, and every event the replaced
+  // system emitted (its own and any it inherited) stays in emits under the same name.
+  for (const r of m.replaces) {
+    if (r === m.id) errors.push(`replaces: a system can't replace itself`);
+    else if (ctx.aiLoaded.has(r)) {
+      const old = ctx.manifests?.get(r);
+      for (const ev of Object.keys(old?.emits ?? {})) if (!(ev in m.emits)) errors.push(`replaces "${r}": it emits "${ev}", so "${ev}" must stay in emits under the same name (systems that react to it rely on it)`);
+    } else if (ctx.loaded.has(r)) errors.push(`replaces: "${r}" is a base system, and base systems can't be replaced`);
+    else if (ctx.successors?.has(r)) errors.push(`replaces: "${r}" was already replaced by "${resolveSuccessor(r, ctx.successors)}"; replace that instead`);
+    else errors.push(`replaces: "${r}" isn't a loaded AI system`);
+  }
   for (const r of m.reactions) if (!ctx.events.has(r) && !(r in m.emits)) errors.push(`reactions: no system emits "${r}"`);
   const types = new Set([...ctx.types, ...Object.keys(m.entities)]);
   for (const it of m.interactions) {

@@ -13,8 +13,10 @@ import type { PipelineError } from "./types";
 /** A system to load into a host, and whether its migrate runs there. */
 export interface Entry { def: SystemDef; migrate: boolean }
 
-export function hostWith(eng: Engine, entries: Entry[]): Host {
+/** A host on `eng` with these systems loaded. `successors` (replaced id -> replacement) lets a replacement emit the events it inherited when the replaced system isn't loaded here. */
+export function hostWith(eng: Engine, entries: Entry[], successors?: Map<string, string>): Host {
   const host = new Host(eng);
+  for (const [a, b] of successors ?? []) host.successors.set(a, b);
   for (const e of entries) host.load(e.def, { migrate: e.migrate, announce: e.migrate });
   host.interactions.refresh(true);
   return host;
@@ -38,8 +40,8 @@ export function entitiesOf(host: Host, system: string): NonNullable<PipelineErro
 }
 
 /** A host on a copy of a serialized world, with the base systems and these AI systems loaded (none migrate). */
-export function worldCopy(world: string, loadedDefs: SystemDef[]): Host {
-  const h = hostWith(buildWorld(), [...BASE_SYSTEMS, ...loadedDefs].map((def) => ({ def, migrate: false })));
+export function worldCopy(world: string, loadedDefs: SystemDef[], successors?: Map<string, string>): Host {
+  const h = hostWith(buildWorld(), [...BASE_SYSTEMS, ...loadedDefs].map((def) => ({ def, migrate: false })), successors);
   h.eng.restore(world);
   h.interactions.refresh(true);
   return h;
@@ -50,13 +52,17 @@ export function worldCopy(world: string, loadedDefs: SystemDef[]): Host {
  * so the World check runs once more on a copy of the live world as it is now. Returns its errors
  * (empty when it passed); overlaps and near-limit calls go to `log`.
  */
-export function rerunWorldCheck(world: string, loadedDefs: SystemDef[], candidate: AiSystemDef, log: string[] = []): PipelineError[] {
-  return worldCheck(() => worldCopy(world, loadedDefs), [...BASE_SYSTEMS, ...loadedDefs], candidate, log);
+export function rerunWorldCheck(world: string, loadedDefs: SystemDef[], candidate: AiSystemDef, log: string[] = [], successors?: Map<string, string>): PipelineError[] {
+  return worldCheck(() => worldCopy(world, loadedDefs, successors), [...BASE_SYSTEMS, ...loadedDefs], candidate, log, successors);
 }
 
 /** Stage 5. Returns its errors (empty when it passed); overlaps and near-limit calls go to `log`. */
-export function worldCheck(liveCopy: () => Host, others: SystemDef[], candidate: AiSystemDef, log: string[]): PipelineError[] {
+export function worldCheck(liveCopy: () => Host, others: SystemDef[], candidate: AiSystemDef, log: string[], successors?: Map<string, string>): PipelineError[] {
   const id = idOf(candidate);
+  // Succession (spec 11): loading the candidate into the copy retires what it replaces, and the
+  // modules re-created from the saved world are the ones left after the swap.
+  const replaces = new Set((candidate.manifest as { replaces?: string[] }).replaces ?? []);
+  others = others.filter((d) => !replaces.has(idOf(d)));
   let w: Host;
   try { w = liveCopy(); } catch (e) { return [{ message: `the live world couldn't be copied: ${msgOf(e)}` }]; }
   const eng = w.eng;
@@ -126,7 +132,7 @@ export function worldCheck(liveCopy: () => Host, others: SystemDef[], candidate:
 
   // The modules can be re-created mid-run from the saved world and keep ticking.
   try {
-    const again = hostWith(buildWorld(), [...others, candidate].map((def) => ({ def, migrate: false })));
+    const again = hostWith(buildWorld(), [...others, candidate].map((def) => ({ def, migrate: false })), new Map([...(successors ?? []), ...w.successors]));
     again.eng.restore(saved); again.interactions.refresh(true);
     const g0 = again.faults.length;
     for (let i = 0; i < LIMITS.worldCheckResumeTicks; i++) again.tick();

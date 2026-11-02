@@ -118,6 +118,7 @@ export class PipelineTab {
     const sys = [...host.systems.values()];
     const lines = [
       `Loaded: ${sys.map((s) => (s.base ? s.id : `${s.id} (AI)`)).join(", ")}`,
+      ...(host.successors.size ? [`Replaced: ${[...host.successors].map(([a, b]) => `${a} by ${b}`).join(", ")}`] : []),
       `Skipped at startup: ${this.live.skipped.length ? this.live.skipped.map((s) => `${s.id} (${s.reason})`).join("; ") : "none"}`,
       ...(this.live.notes.length ? [`Startup notes: ${this.live.notes.join("; ")}`] : []),
       `Undo: ${this.live.history.length ? `last load was ${this.live.history.at(-1)!.id}` : "nothing loaded this session"}`,

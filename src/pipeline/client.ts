@@ -19,7 +19,7 @@ export interface WorkerLike {
 /** What the pipeline needs from the live game. */
 export interface LiveSide {
   /** Loaded AI modules in load order, every loaded id in load order, and the serialized world. */
-  checkInputs(): { loaded: LoadedModule[]; loadedIds: string[]; world: string };
+  checkInputs(): { loaded: LoadedModule[]; loadedIds: string[]; world: string; successors?: Record<string, string> };
   /** Load (spec 13.1). Resolves with the report updated to the Load outcome. */
   load(report: Report): Promise<Report>;
 }
@@ -73,7 +73,7 @@ export class Pipeline {
 
   /** Stages 1 to 6 in a worker. Never touches the live game. */
   checkSystem(manifestJson: string, source: string): Promise<Report> {
-    const { loaded, loadedIds, world } = this.opts.live.checkInputs();
+    const { loaded, loadedIds, world, successors } = this.opts.live.checkInputs();
     const t0 = Date.now();
     return new Promise<Report>((resolve) => {
       const worker = this.take();
@@ -108,7 +108,7 @@ export class Pipeline {
         else if (m.type === "error") failHere(`the pipeline worker failed: ${m.message}`);
       });
       arm(); // also covers the worker starting up
-      worker.postMessage({ type: "check", req: { manifestJson, source, loaded, loadedIds, world }, baseUrl: this.opts.baseUrl ?? "" });
+      worker.postMessage({ type: "check", req: { manifestJson, source, loaded, loadedIds, world, successors }, baseUrl: this.opts.baseUrl ?? "" });
     });
   }
 

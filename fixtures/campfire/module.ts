@@ -1,9 +1,11 @@
 // campfire: three branches lying on adjacent tiles become a 2x2 fire pit with a flame.
 // It burns for part of a night (burnTicks, a component), dies down and leaves ash.
 // States are tags on the pit: lit, then dying, then ash. Each change emits an event.
+// Its saved state counts the fires lit so far: { "lit": n }.
 import {
   Obj, parse, Pos, at, typeOf, has, tileGet, spawn, destroy, set, setNum, getNum, remove,
   tag, untag, anim, emit, query, tween, get, posOf,
+  stateGet, stateSet,
   simTeleport, simGive, simFace, simInteract, simWait, simWalk, simEvents, check, playerPos,
 } from "sdk";
 
@@ -104,6 +106,7 @@ function light(fire: i32, p: Pos): void {
     setNum(fire, "flame", flame);
     anim(flame, "ignite", "burn:" + fire.toString());
   }
+  stateSet(new Obj().int("lit", stateGet().get("lit").int() + 1).toString());
   emit("campfire.lit", new Obj().int("fire", fire).raw("pos", p.toString()));
 }
 
@@ -193,6 +196,7 @@ export function test_three_branches_make_a_fire_two_dont(): void {
   check(query("campfire_flame").length == 1, "the fire has one flame");
   check(at(16, 10).every((id: i32): bool => typeOf(id) != "branch"), "the branches are used up");
   check(simEvents("campfire.lit").length == 1, "campfire.lit fired once");
+  check(stateGet().get("lit").int() == 1, "the saved count of fires lit went up");
 }
 
 export function test_the_fire_has_a_light(): void {

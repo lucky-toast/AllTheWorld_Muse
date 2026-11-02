@@ -42,8 +42,8 @@ export class LiveLoader implements LiveSide {
   skipped: { id: string; reason: string }[] = [];
   /** Startup notes (recompiles, a world that couldn't be restored). */
   notes: string[] = [];
-  /** Snapshots taken before each live load this session, newest last. */
-  history: { id: string; snapshot: string }[] = [];
+  /** Snapshots taken before each live load this session, newest last, with the records of the systems that load retired (succession). */
+  history: { id: string; snapshot: string; retired: AiRecord[] }[] = [];
   /** True while a load or undo runs: ticks, input and autosave pause. */
   busy = false;
   /** When the leaf transition started (ms), or 0. */
@@ -58,13 +58,13 @@ export class LiveLoader implements LiveSide {
     this.now = opts.now ?? (() => performance.now());
   }
 
-  checkInputs(): { loaded: LoadedModule[]; loadedIds: string[]; world: string } {
+  checkInputs(): { loaded: LoadedModule[]; loadedIds: string[]; world: string; successors: Record<string, string> } {
     const ids = [...this.host.systems.keys()];
     const loaded = ids.filter((id) => !this.host.systems.get(id)!.base).map((id) => {
       const r = this.records.get(id); if (!r) throw new Error(`"${id}" is loaded but its module isn't known`);
       return { manifest: r.manifest, wasm: r.wasm };
     });
-    return { loaded, loadedIds: ids, world: this.host.eng.serialize() };
+    return { loaded, loadedIds: ids, world: this.host.eng.serialize(), successors: Object.fromEntries(this.host.successors) };
   }
 
   async load(report: Report): Promise<Report> {
@@ -92,20 +92,30 @@ export class LiveLoader implements LiveSide {
         return { ...report, ok: false, stage: "World check", errors: recheck.errors, log: [...report.log, ...recheck.log] };
       }
       const entry: IndexEntry = { id, order: this.index.reduce((m, e) => Math.max(m, e.order + 1), 0), buildsOn: [...((manifest as { buildsOn?: string[] }).buildsOn ?? [])], replacedBy: null, timestamp: new Date().toISOString() };
+      const oldIndex = this.index;
+      let retired: AiRecord[] = [];
       try {
+        // One step (spec 11 and 13.1): the replaced systems retire (their entities, components and
+        // tags stay and pass to the new system), it is added, its migrate runs, and it is saved.
         host.load(def, { announce: false });
-        await this.store.save(entry, { manifestJson: c.manifestJson, source: c.source, wasm: c.wasm }, [...this.index, entry]);
-        this.index.push(entry);
+        retired = host.retiredBy(id).map((r) => this.records.get(r)!).filter(Boolean);
+        const gone = new Set(retired.map((r) => r.id));
+        const index = [...this.index.map((e) => (gone.has(e.id) ? { ...e, replacedBy: id } : e)), entry];
+        await this.store.save(entry, { manifestJson: c.manifestJson, source: c.source, wasm: c.wasm }, index);
+        this.index = index;
+        for (const r of retired) this.records.delete(r.id);
         this.records.set(id, { id, manifestJson: c.manifestJson, manifest, source: c.source, wasm: c.wasm });
+        for (const r of retired) host.emitEngine("system.unloaded", { id: r.id, reason: `replaced by ${id}` });
         host.emitEngine("system.loaded", { id });
         await this.store.saveWorld(eng.serialize());
       } catch (e) {
         host.forget(id); eng.restore(snapshot); host.interactions.refresh(true);
-        this.records.delete(id); this.index = this.index.filter((x) => x.id !== id);
+        this.records.delete(id); for (const r of retired) this.records.set(r.id, r);
+        this.index = oldIndex.filter((x) => x.id !== id);
         try { await this.store.remove(id, this.index); } catch { /* nothing more to undo */ }
         return fail(`loading failed, so the world was restored: ${msgOf(e)}`);
       }
-      this.history.push({ id, snapshot });
+      this.history.push({ id, snapshot, retired });
       host.interactions.refresh(true);
       this.opts.onChange?.();
       await this.wait(TUNING.transitionOutMs);
@@ -123,7 +133,7 @@ export class LiveLoader implements LiveSide {
     try {
       const loadedDefs: AiSystemDef[] = [];
       for (const m of this.checkInputs().loaded) loadedDefs.push(aiSystem(await prepareModuleAsync(m.wasm, m.manifest)));
-      const errors = rerunWorldCheck(world, loadedDefs, candidate, log);
+      const errors = rerunWorldCheck(world, loadedDefs, candidate, log, new Map(this.host.successors));
       return { errors: errors.length ? [{ message: lead }, ...errors] : [], log };
     } catch (e) { return { errors: [{ message: `the World check couldn't run again on the live world: ${msgOf(e)}` }], log }; }
   }
@@ -136,16 +146,18 @@ export class LiveLoader implements LiveSide {
     this.busy = true;
     try {
       this.history.pop();
-      this.host.forget(last.id);
+      this.host.forget(last.id); // a succession's retired systems come back in their old place
       this.host.eng.restore(last.snapshot);
       this.host.interactions.refresh(true);
       this.records.delete(last.id);
-      this.index = this.index.filter((e) => e.id !== last.id);
+      for (const r of last.retired) this.records.set(r.id, r);
+      this.index = this.index.filter((e) => e.id !== last.id).map((e) => (e.replacedBy === last.id ? { ...e, replacedBy: null } : e));
       await this.store.remove(last.id, this.index);
       await this.store.saveWorld(this.host.eng.serialize());
       this.opts.onUndone?.(last.id);
       this.opts.onChange?.();
-      return `undid ${last.id}: the world is back to just before it loaded`;
+      const back = last.retired.length ? ` and ${last.retired.map((r) => r.id).join(", ")} is back` : "";
+      return `undid ${last.id}: the world is back to just before it loaded${back}`;
     } finally { this.busy = false; }
   }
 
@@ -163,10 +175,21 @@ export class LiveLoader implements LiveSide {
     this.index = (await this.store.index()).sort((a, b) => a.order - b.order);
     const failed = new Set<string>();
     const skip = (id: string, reason: string) => { failed.add(id); this.skipped.push({ id, reason }); };
-    for (const e of this.index) {
+    // Replaced systems are never instantiated (spec 11); a replaced id in buildsOn resolves to its replacement.
+    for (const e of this.index) if (e.replacedBy) host.successors.set(e.id, e.replacedBy);
+    const position = new Map(this.index.map((e, i) => [e.id, i]));
+    /** Why `b` (from buildsOn of the entry at `i`) isn't met, or null when it is (or its replacement loads later). */
+    const unmet = (b: string, i: number): string | null => {
+      const r = host.resolve(b); const via = r === b ? b : `${b} (replaced by ${r})`;
+      if (failed.has(r)) return `it builds on ${via}, which was skipped`;
+      if (host.systems.has(r)) return null;
+      const later = position.get(r);
+      return r !== b && later !== undefined && later > i ? null : `it builds on ${via}, which isn't loaded`;
+    };
+    for (const [i, e] of this.index.entries()) {
       if (e.replacedBy) continue;
-      const dep = e.buildsOn.find((b) => failed.has(b) || !host.systems.has(b));
-      if (dep) { skip(e.id, failed.has(dep) ? `it builds on ${dep}, which was skipped` : `it builds on ${dep}, which isn't loaded`); continue; }
+      const why = e.buildsOn.map((b) => unmet(b, i)).find((x) => x !== null);
+      if (why) { skip(e.id, why); continue; }
       try {
         const files = await this.store.read(e.id);
         const manifest = JSON.parse(files.manifestJson) as unknown;
@@ -180,6 +203,14 @@ export class LiveLoader implements LiveSide {
         host.load(def, { migrate: world === null, announce: false });
         this.records.set(e.id, { id: e.id, manifestJson: files.manifestJson, manifest, source: files.source, wasm });
       } catch (err) { skip(e.id, msgOf(err)); }
+    }
+    // A system that built on a replaced id whose replacement didn't load goes too.
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const id of [...this.records.keys()]) {
+        const r = this.records.get(id)!; const dep = ((r.manifest as { buildsOn?: string[] }).buildsOn ?? []).find((b) => !host.systems.has(host.resolve(b)));
+        if (dep) { host.forget(id); this.records.delete(id); skip(id, `it builds on ${dep}, which isn't loaded`); changed = true; }
+      }
     }
     if (world !== null) {
       try { host.eng.restore(world); }

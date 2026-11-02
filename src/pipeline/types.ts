@@ -62,6 +62,8 @@ export interface CheckRequest {
   loadedIds: string[];
   /** The live world, serialized. */
   world: string;
+  /** Replaced id -> the id that replaced it (spec 11), so a replaced id in `buildsOn` resolves. */
+  successors?: Record<string, string>;
 }
 
 export type StageStatus = "start" | "pass" | "fail";

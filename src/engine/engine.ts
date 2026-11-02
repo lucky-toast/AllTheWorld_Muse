@@ -93,6 +93,18 @@ export class Engine {
     this.types.set(name, { sprite: t.sprite, tags: [...t.tags] }); this.typeOwner.set(name, owner);
   }
   declareComponent(name: string, owner: string) { if (!this.componentOwner.has(name)) this.componentOwner.set(name, owner); }
+  /**
+   * Succession (spec 11): every ownership record of `from` (entities, entity types, components,
+   * areas) moves to `to`. Not journaled: Load runs it under a snapshot, which undoes it.
+   */
+  transferOwnership(from: string, to: string) {
+    for (const [id, o] of this.entityOwner) if (o === from) this.entityOwner.set(id, to);
+    const n = this.ownedCount.get(from);
+    if (n !== undefined) { this.ownedCount.set(to, (this.ownedCount.get(to) ?? 0) + n); this.ownedCount.delete(from); }
+    for (const [name, o] of this.typeOwner) if (o === from) this.typeOwner.set(name, to);
+    for (const [name, o] of this.componentOwner) if (o === from) this.componentOwner.set(name, to);
+    for (const a of this.areas.values()) if (a.owner === from) a.owner = to;
+  }
 
   // ======================= areas & tiles =======================
   /** Create an area from a full tile grid. Journaled. */

@@ -113,6 +113,10 @@ export class Host {
   mode: HostMode = "live";
   /** System whose `migrate` is running, if any (state.getReplaced is allowed only then). */
   migrating: string | null = null;
+  /** Succession (spec 11): replaced id -> the id that replaced it. A replaced id in `buildsOn` resolves through this. */
+  successors = new Map<string, string>();
+  /** Successions made by `load` in this host: new id -> the systems it retired and the load order before. `forget` undoes them. */
+  private successions = new Map<string, { retired: LoadedSystem[]; order: string[] }>();
   denials: DenialEntry[] = [];
   nearLimits: NearLimitEntry[] = [];
   events: EventEntry[] = [];
@@ -155,46 +159,115 @@ export class Host {
    * test arena); `announce: false` leaves system.loaded for the caller to emit.
    */
   load(def: SystemDef, opts: { migrate?: boolean; announce?: boolean } = {}): LoadedSystem {
-    const raw = def.manifest as { id?: unknown; replaces?: unknown };
-    const inherited = Array.isArray(raw?.replaces) ? raw.replaces.flatMap((id) => Object.keys(this.systems.get(id as string)?.manifest.emits ?? {})) : [];
-    const res = validateManifest(def.manifest, { base: def.base, inherited });
+    const raw = def.manifest as { id?: unknown; replaces?: unknown; emits?: unknown };
+    const res = validateManifest(def.manifest, { base: def.base, inherited: this.inheritedEvents(raw) });
     if (!res.ok) throw new Error(`manifest of "${String(raw?.id)}" is invalid: ${res.errors.join("; ")}`);
     const manifest = res.manifest;
     if (this.systems.has(manifest.id)) throw new Error(`system "${manifest.id}" is already loaded`);
+    // Succession (spec 11): the loaded systems it replaces retire in the same step. A replaced id
+    // that isn't loaded (a startup from storage, or a check world without it) is left alone.
+    const retired: LoadedSystem[] = [];
+    for (const r of manifest.replaces) {
+      const old = this.systems.get(r); if (!old) continue;
+      if (old.base) throw new Error(`"${manifest.id}" can't replace "${r}": base systems can't be replaced`);
+      retired.push(old);
+    }
     const snap = this.eng.snapshot();
+    const order = [...this.systems.keys()];
+    for (const old of retired) {
+      this.clearRuntime(old.id);
+      this.systems.delete(old.id);
+      this.eng.transferOwnership(old.id, manifest.id);
+      this.successors.set(old.id, manifest.id);
+    }
     for (const [n, t] of Object.entries(manifest.entities)) this.eng.registerType(n, t, manifest.id);
     for (const c of Object.keys(manifest.components)) this.eng.declareComponent(c, manifest.id);
     const sys: LoadedSystem = { id: manifest.id, manifest, base: def.base, def, module: {} };
     this.systems.set(sys.id, sys);
     this.rebuildRegistry();
-    sys.module = def.create((req) => this.call(sys.id, req), this);
+    const undo = () => { this.systems.delete(sys.id); this.reinstate(retired, order); this.eng.restore(snap); };
+    try { sys.module = def.create((req) => this.call(sys.id, req), this); }
+    catch (e) { undo(); throw e; }
     if (sys.module.migrate && opts.migrate !== false) {
       const prev = this.migrating; this.migrating = sys.id;
       const r = this.invoke(sys.id, "migrate", () => sys.module.migrate!());
       this.migrating = prev;
-      if (!r.ok) {
-        this.systems.delete(sys.id); this.rebuildRegistry(); this.eng.restore(snap);
-        throw new Error(`migrate of "${sys.id}" failed: ${r.error}`);
-      }
+      if (!r.ok) { undo(); throw new Error(`migrate of "${sys.id}" failed: ${r.error}`); }
     }
-    if (opts.announce !== false) this.emitEngine("system.loaded", { id: sys.id });
+    // The replaced systems' saved state was readable during migrate only (state.getReplaced).
+    for (const old of retired) this.eng.systemState.delete(old.id);
+    if (retired.length) this.successions.set(sys.id, { retired, order });
+    if (opts.announce !== false) {
+      for (const old of retired) this.emitEngine("system.unloaded", { id: old.id, reason: `replaced by ${sys.id}` });
+      this.emitEngine("system.loaded", { id: sys.id });
+    }
     return sys;
+  }
+
+  /**
+   * Events a manifest may emit without its own prefix because it replaces their owner (spec 11):
+   * every event a loaded replaced system emits, and, when the replaced system isn't loaded here
+   * (startup from storage, a test world without it), its events by name: those whose prefix is
+   * the replaced id or an id that it replaced in turn. The Manifest stage already checked them.
+   */
+  inheritedEvents(raw: { replaces?: unknown; emits?: unknown }): string[] {
+    const replaces = Array.isArray(raw?.replaces) ? raw.replaces.filter((r): r is string => typeof r === "string") : [];
+    const out = replaces.flatMap((r) => Object.keys(this.systems.get(r)?.manifest.emits ?? {}));
+    const emits = raw?.emits && typeof raw.emits === "object" ? Object.keys(raw.emits) : [];
+    for (const ev of emits) {
+      const prefix = ev.slice(0, ev.indexOf("."));
+      if (replaces.some((r) => r === prefix || (!this.systems.has(r) && this.resolvesTo(prefix, r)))) out.push(ev);
+    }
+    return out;
+  }
+  /** True when following successions from `id` reaches `target`. */
+  private resolvesTo(id: string, target: string): boolean {
+    const seen = new Set<string>();
+    while (this.successors.has(id) && !seen.has(id)) { seen.add(id); id = this.successors.get(id)!; if (id === target) return true; }
+    return false;
+  }
+
+  /** Systems `id` retired when it loaded in this host (empty when it replaced nothing). */
+  retiredBy(id: string): string[] { return this.successions.get(id)?.retired.map((s) => s.id) ?? []; }
+
+  /** `id`, or the system that replaced it (following successions to the newest). */
+  resolve(id: string): string {
+    const seen = new Set<string>();
+    while (this.successors.has(id) && !seen.has(id)) { seen.add(id); id = this.successors.get(id)!; }
+    return id;
+  }
+
+  /** Put retired systems back (their modules as they were) and the load order as it was. */
+  private reinstate(retired: LoadedSystem[], order: string[]) {
+    for (const old of retired) { this.systems.set(old.id, old); this.successors.delete(old.id); }
+    if (retired.length) {
+      const ids = [...order.filter((id) => this.systems.has(id)), ...[...this.systems.keys()].filter((id) => !order.includes(id))];
+      this.systems = new Map(ids.map((id) => [id, this.systems.get(id)!]));
+    }
+    this.rebuildRegistry();
+  }
+
+  /** Clear a leaving system's focus, timers, tweens, HUD slots and overlay. */
+  private clearRuntime(id: string) {
+    if (this.focus.holder === id) this.focus.endIfHolder(id, "unload");
+    this.eng.timers = this.eng.timers.filter((t) => t.system !== id);
+    this.eng.tweens = this.eng.tweens.filter((t) => t.system !== id);
+    for (const [k, slot] of this.eng.hudSlots) if (slot.owner === id) this.eng.hudSlots.delete(k);
+    if (this.eng.overlay?.owner === id) this.eng.overlay = null;
   }
 
   /**
    * Take a system out without a trace (no system.unloaded): a live load that failed, or Undo,
    * which restores the snapshot taken before the load right after. Clears its focus, timers,
-   * tweens, HUD slots and overlay like unload.
+   * tweens, HUD slots and overlay like unload. If its load retired systems (succession), they
+   * come back in their old place in the load order.
    */
   forget(id: string) {
     if (!this.systems.has(id)) return;
-    if (this.focus.holder === id) this.focus.endIfHolder(id, "unload");
+    this.clearRuntime(id);
     this.systems.delete(id);
-    this.eng.timers = this.eng.timers.filter((t) => t.system !== id);
-    this.eng.tweens = this.eng.tweens.filter((t) => t.system !== id);
-    for (const [k, slot] of this.eng.hudSlots) if (slot.owner === id) this.eng.hudSlots.delete(k);
-    if (this.eng.overlay?.owner === id) this.eng.overlay = null;
-    this.rebuildRegistry();
+    const s = this.successions.get(id); this.successions.delete(id);
+    this.reinstate(s?.retired ?? [], s?.order ?? []);
   }
 
   /** Load a manifest with no handlers (tests and tools). Missing fields get defaults. */
@@ -208,12 +281,9 @@ export class Host {
    */
   unload(id: string, reason: string) {
     if (!this.systems.has(id)) return;
-    this.focus.endIfHolder(id, "unload");
+    this.clearRuntime(id);
     this.systems.delete(id);
-    this.eng.timers = this.eng.timers.filter((t) => t.system !== id);
-    this.eng.tweens = this.eng.tweens.filter((t) => t.system !== id);
-    for (const [k, slot] of this.eng.hudSlots) if (slot.owner === id) this.eng.hudSlots.delete(k);
-    if (this.eng.overlay?.owner === id) this.eng.overlay = null;
+    this.successions.delete(id);
     this.rebuildRegistry();
     this.emitEngine("system.unloaded", { id, reason });
   }
@@ -273,10 +343,10 @@ export class Host {
     if (ticks.length >= LIMITS.strikesToUnload) { this.strikeTicks.delete(system); this.unloadWithDependents(system, "strikes"); }
   }
 
-  /** Every loaded system that builds on `id`, directly or through others, in load order. */
+  /** Every loaded system that builds on `id`, directly or through others, in load order. A replaced id in `buildsOn` counts as its replacement. */
   dependentsOf(id: string): string[] {
     const out = new Set<string>([id]);
-    for (const s of this.systems.values()) if (s.manifest.buildsOn.some((b) => out.has(b))) out.add(s.id);
+    for (const s of this.systems.values()) if (s.manifest.buildsOn.some((b) => out.has(this.resolve(b)))) out.add(s.id);
     out.delete(id);
     return [...out];
   }

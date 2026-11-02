@@ -5,7 +5,8 @@
 //   2 Compile      asc with the fixed settings
 //   3 Module       the loader (validate, imports, exports, metering)
 //   4 Tests        its own test_* on fresh real maps; base tests in their arena; every
-//                  loaded AI system's tests on fresh real maps; all with it loaded
+//                  loaded AI system's tests on fresh real maps; all with it loaded (a system
+//                  it replaces is left out, own tests and all: spec 11)
 //   5 World check  load into a copy of the live world, migrate, worldCheckTicks ticks, then
 //                  walk / pick up / drop with sim, invariants, save round trip, and the
 //                  modules re-created from the saved world keep ticking
@@ -57,11 +58,11 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   let loadedDefs: AiSystemDef[];
   try { loadedDefs = req.loaded.map((l) => aiSystem(prepareModule(l.wasm, l.manifest))); }
   catch (e) { return fail([{ message: `a loaded system couldn't be rebuilt for the check: ${msgOf(e)}` }]); }
-  const liveCopy = () => worldCopy(req.world, loadedDefs);
+  const successors = new Map(Object.entries(req.successors ?? {}));
+  const liveCopy = () => worldCopy(req.world, loadedDefs, successors);
   let ctxHost: Host;
   try { ctxHost = liveCopy(); } catch (e) { return fail([{ message: `the live world couldn't be copied for the check: ${msgOf(e)}` }]); }
-  const replaces = Array.isArray((raw as { replaces?: unknown })?.replaces) ? ((raw as { replaces: unknown[] }).replaces.filter((r) => typeof r === "string") as string[]) : [];
-  const inherited = replaces.flatMap((r) => Object.keys(ctxHost.systems.get(r)?.manifest.emits ?? {}));
+  const inherited = ctxHost.inheritedEvents(raw as { replaces?: unknown; emits?: unknown });
   const v = validateManifest(raw, { inherited });
   if (!v.ok) return fail(v.errors.map((message) => ({ message })));
   const manifest: Manifest = v.manifest;
@@ -70,14 +71,15 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
     aiLoaded: new Set([...ctxHost.systems.values()].filter((s) => !s.base).map((s) => s.id)),
     events: new Set(ctxHost.registry.eventOwner.keys()),
     types: new Set(ctxHost.eng.types.keys()),
+    successors,
+    manifests: new Map([...ctxHost.systems.values()].map((s) => [s.id, s.manifest])),
   });
-  for (const r of manifest.replaces) {
-    const old = ctxHost.systems.get(r); if (!old || old.base) continue;
-    for (const ev of Object.keys(old.manifest.emits)) if (!(ev in manifest.emits)) errs.push(`replaces "${r}": its event "${ev}" must stay in emits under the same name`);
-  }
-  if (!errs.length && manifest.replaces.length) errs.push("replaces isn't supported yet: succession arrives in a later phase");
   if (errs.length) return fail(errs.map((message) => ({ message })));
   pass();
+  // Succession (spec 11): from here on the replaced systems are gone. Their own tests are dropped,
+  // everything else runs with the replacement instead, and the World check swaps them on a copy.
+  const kept = loadedDefs.filter((d) => !manifest.replaces.includes(idOf(d)));
+  const after = new Map(successors); for (const r of manifest.replaces) after.set(r, manifest.id);
 
   // ======================= 2. Compile =======================
   await breathe();
@@ -102,7 +104,7 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   pass();
 
   const id = manifest.id;
-  const real = (withCandidate: boolean): Entry[] => [...BASE_SYSTEMS, ...loadedDefs, ...(withCandidate ? [candidate] : [])].map((def) => ({ def, migrate: true }));
+  const real = (): Entry[] => [...BASE_SYSTEMS, ...kept, candidate].map((def) => ({ def, migrate: true }));
 
   // ======================= 4. Tests =======================
   await breathe();
@@ -111,21 +113,21 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   if (!own.length) return fail([{ message: `${id} exports no test_* functions; every system needs at least one test` }]);
   const failures: PipelineError[] = [];
   for (const name of own) {
-    const r = runOne(buildWorld, real(true), id, name, true);
+    const r = runOne(buildWorld, real(), id, name, true, after);
     if (r) failures.push(r);
   }
   if (!failures.length) {
     // Base systems' tests, in their arena, with it loaded (only base systems migrate there: the arena isn't a world).
-    const arenaEntries: Entry[] = [...BASE_SYSTEMS.map((def) => ({ def, migrate: true })), ...[...loadedDefs, candidate].map((def) => ({ def, migrate: false }))];
+    const arenaEntries: Entry[] = [...BASE_SYSTEMS.map((def) => ({ def, migrate: true })), ...[...kept, candidate].map((def) => ({ def, migrate: false }))];
     for (const base of BASE_SYSTEMS) {
-      const names = namesOf(() => buildArena(), arenaEntries, idOf(base));
-      for (const name of names) { const r = runOne(() => buildArena(), arenaEntries, idOf(base), name, false); if (r) failures.push(r); }
+      const names = namesOf(() => buildArena(), arenaEntries, idOf(base), after);
+      for (const name of names) { const r = runOne(() => buildArena(), arenaEntries, idOf(base), name, false, after); if (r) failures.push(r); }
     }
-    // Every loaded AI system's tests on fresh real maps, with it loaded.
-    for (const def of loadedDefs) {
+    // Every remaining AI system's tests on fresh real maps, with it loaded (a replaced system's own tests are dropped).
+    for (const def of kept) {
       const sid = idOf(def);
       for (const name of def.prepared.exports.filter((n) => n.startsWith("test_")).map((n) => n.slice(5))) {
-        const r = runOne(buildWorld, real(true), sid, name, true); if (r) failures.push(r);
+        const r = runOne(buildWorld, real(), sid, name, true, after); if (r) failures.push(r);
       }
     }
   }
@@ -135,7 +137,7 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   // ======================= 5. World check =======================
   await breathe();
   begin("World check");
-  const wc = worldCheck(liveCopy, [...BASE_SYSTEMS, ...loadedDefs], candidate, report.log);
+  const wc = worldCheck(liveCopy, [...BASE_SYSTEMS, ...loadedDefs], candidate, report.log, successors);
   if (wc.length) return fail(wc);
   pass();
 
@@ -144,7 +146,7 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   begin("Shots");
   const shotErrors: PipelineError[] = [];
   for (const shot of manifest.shots) {
-    const run = runShot(candidate, shot.name, loadedDefs);
+    const run = runShot(candidate, shot.name, kept, after);
     if (run.error) { shotErrors.push({ message: `shot "${shot.name}": its setup failed: ${run.error}` }); continue; }
     if (run.faults.length) { shotErrors.push({ message: `shot "${shot.name}": ${run.faults.map((f) => f.msg).join("; ")}` }); continue; }
     let png: string | null = null;
@@ -162,16 +164,16 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
 }
 
 /** The test names `system` exports, read from a host built the way its tests run. */
-function namesOf(build: () => Engine, entries: Entry[], system: string): string[] {
-  try { const h = hostWith(build(), entries); const s = h.systems.get(system); return s ? testNames(s.module) : []; }
+function namesOf(build: () => Engine, entries: Entry[], system: string, successors: Map<string, string>): string[] {
+  try { const h = hostWith(build(), entries, successors); const s = h.systems.get(system); return s ? testNames(s.module) : []; }
   catch { return []; }
 }
 
 /** Run one test on a fresh host. Returns its error, or null when it passed. `ownFaults`: the system's own faults fail it. */
-function runOne(build: () => Engine, entries: Entry[], system: string, name: string, ownFaults: boolean): PipelineError | null {
+function runOne(build: () => Engine, entries: Entry[], system: string, name: string, ownFaults: boolean, successors: Map<string, string>): PipelineError | null {
   const test = `${system}.test_${name}`;
   let host: Host;
-  try { host = hostWith(build(), entries); }
+  try { host = hostWith(build(), entries, successors); }
   catch (e) { return { message: `${test}: the world for the test couldn't be set up: ${msgOf(e)}`, test }; }
   const d0 = host.denials.length; const f0 = host.faults.length;
   const r = host.runTest(system, name);
