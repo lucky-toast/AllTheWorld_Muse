@@ -1,9 +1,19 @@
+// Renderer (spec section 3, "Rendering order"), ported from the old engine. Draws only
+// the player's current area. It reads the engine directly: it is engine code, not a system.
 import { CATALOG, catalogGet } from "./catalog";
-import type { Engine } from "./engine";
+import type { Engine, EntRec } from "./engine";
+import type { LightComp, SpriteComp } from "./types";
 import { TUNING, phaseAt } from "../tuning";
 
 const HUD_H = 28;
-export const NATIVE_W = 480, NATIVE_H = 320 + HUD_H;
+export const MAP_PX_H = 320;
+export const NATIVE_W = 480, NATIVE_H = MAP_PX_H + HUD_H;
+
+/** Hooks drawn in Phase 2: the one-line E prompt above the target, and the overlay panel. */
+export const renderHooks: {
+  prompt: (ctx: CanvasRenderingContext2D, eng: Engine) => void;
+  overlay: (ctx: CanvasRenderingContext2D, eng: Engine) => void;
+} = { prompt: () => {}, overlay: () => {} };
 
 type AnyImage = { width: number; height: number };
 const images = new Map<string, AnyImage>();
@@ -77,51 +87,65 @@ function lightingAt(hour: number): { color: string; alpha: number } {
   return { color: `rgb(${c[0]},${c[1]},${c[2]})`, alpha: la.alpha + (lb.alpha - la.alpha) * t };
 }
 
+/** Render-time tile position of an entity (slides between tiles over slideTicks). */
+export function renderPos(rec: EntRec): { x: number; y: number } | null {
+  if (!rec.pos) return null;
+  if (rec.slideFrom && rec.slideT > 0) { const k = 1 - rec.slideT / TUNING.slideTicks; return { x: rec.slideFrom.x + (rec.pos.x - rec.slideFrom.x) * k, y: rec.slideFrom.y + (rec.pos.y - rec.slideFrom.y) * k }; }
+  return rec.pos;
+}
+
 export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, NATIVE_W, NATIVE_H);
   const tick = eng.tickCount;
+  const area = eng.currentArea();
+  const tiles = eng.areas.get(area)?.tiles;
   // Terrain
-  for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, eng.tilesGrid[y][x], x * 16, (y + 1) * 16, tick);
-  // Entities by layer, then y, then z
-  const recs = [...eng.entities.values()].filter((r) => r.pos);
-  const layerOf = (r: (typeof recs)[0]) => catalogGet(eng.spriteIdOf(r))?.layer ?? "object";
+  if (tiles) for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
+  // Entities with a sprite, by layer, then y, then z
+  const recs = [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("sprite"));
+  const spr = (r: EntRec) => r.comps.get("sprite") as SpriteComp;
+  const order = (l: string) => (l === "ground" ? 0 : l === "object" ? 1 : l === "above" ? 2 : 3);
+  const layerOf = (r: EntRec) => order(catalogGet(spr(r).id)?.layer ?? "object");
   const sorted = recs.sort((a, b) => {
-    const order = (l: string) => (l === "ground" ? 0 : l === "object" ? 1 : l === "above" ? 2 : 3);
-    const d = order(layerOf(a)) - order(layerOf(b)); if (d) return d;
-    const rpA = eng.renderPos(a)!, rpB = eng.renderPos(b)!;
+    const d = layerOf(a) - layerOf(b); if (d) return d;
+    const rpA = renderPos(a)!, rpB = renderPos(b)!;
     if (rpA.y !== rpB.y) return rpA.y - rpB.y;
-    return (((a.comps.get("sprite") as { z?: number })?.z ?? 0) - ((b.comps.get("sprite") as { z?: number })?.z ?? 0));
+    return (spr(a).z ?? 0) - (spr(b).z ?? 0);
   });
-  let playerRec: (typeof recs)[0] | undefined;
+  let playerRec: EntRec | undefined;
   for (const r of sorted) {
     if (r.tags.has("player")) playerRec = r;
-    const rp = eng.renderPos(r)!; const spr = r.comps.get("sprite") as { id: string; anim?: string; frame?: number; offset?: { x: number; y: number } };
+    const rp = renderPos(r)!; const s = spr(r);
     const facing = r.comps.get("facing") as string | undefined;
-    drawSprite(ctx, spr.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), tick, { anim: spr.anim, frame: spr.frame, facing, moving: !!r.slideFrom && r.slideT > 0, offset: spr.offset });
+    const t = s.anim ? tick - (eng.animStart.get(r.id) ?? 0) : tick;
+    drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16), t, { anim: s.anim, frame: s.frame, facing, moving: !!r.slideFrom && r.slideT > 0, offset: s.offset });
   }
   // Held item above the player
   const held = playerRec?.comps.get("held") as { id: number } | undefined;
   if (playerRec && held) {
-    const item = eng.recById(held.id); const rp = eng.renderPos(playerRec)!;
-    if (item) { const spr = item.comps.get("sprite") as { id: string }; drawSprite(ctx, spr.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16) - 10, tick); }
+    const item = eng.rec(held.id); const rp = renderPos(playerRec)!;
+    const s = item?.comps.get("sprite") as SpriteComp | undefined;
+    if (s) drawSprite(ctx, s.id, Math.round(rp.x * 16), Math.round((rp.y + 1) * 16) - TUNING.heldLiftPx, tick);
   }
   // Particles / float text
-  for (const fx of eng.fxEffects) {
-    if (fx.kind === "particle" && fx.spriteId) drawSprite(ctx, fx.spriteId, Math.round(fx.x * 16), Math.round((fx.y + 1) * 16), tick, { frame: fx.frame });
-    if (fx.kind === "text") { ctx.font = "8px monospace"; ctx.fillStyle = fx.color ?? "#fff"; ctx.globalAlpha = 1 - fx.life / fx.maxLife; drawFixedText(ctx, fx.text ?? "", Math.round(fx.x * 16), Math.round(fx.y * 16), 5); ctx.globalAlpha = 1; }
+  for (const p of eng.particles) if (p.area === area) drawSprite(ctx, p.sprite, Math.round(p.x * 16), Math.round((p.y + 1) * 16), tick, { frame: p.frame });
+  for (const f of eng.floats) {
+    if (f.area !== area) continue;
+    ctx.font = "8px monospace"; ctx.fillStyle = f.color; ctx.globalAlpha = 1 - f.life / f.maxLife;
+    drawFixedText(ctx, f.text, Math.round(f.x * 16), Math.round(f.y * 16), 5); ctx.globalAlpha = 1;
   }
   // Lighting: darkness with soft holes for lights
   const light = lightingAt(eng.hour);
   if (light.alpha > 0.01) {
-    const dark = canvasFactory(NATIVE_W, 320) as HTMLCanvasElement;
+    const lit = [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("light"));
+    const dark = canvasFactory(NATIVE_W, MAP_PX_H) as HTMLCanvasElement;
     const dctx = dark.getContext("2d")!;
-    dctx.fillStyle = light.color; dctx.globalAlpha = light.alpha; dctx.fillRect(0, 0, NATIVE_W, 320);
+    dctx.fillStyle = light.color; dctx.globalAlpha = light.alpha; dctx.fillRect(0, 0, NATIVE_W, MAP_PX_H);
     dctx.globalCompositeOperation = "destination-out"; dctx.globalAlpha = 1;
-    for (const r of eng.entities.values()) {
-      const l = r.comps.get("light") as { radius: number; strength: number; flicker?: number } | undefined;
-      if (!l || !r.pos) continue;
-      const rp = eng.renderPos(r)!; const cx = rp.x * 16 + 8, cy = rp.y * 16 + 8;
+    for (const r of lit) {
+      const l = r.comps.get("light") as LightComp;
+      const rp = renderPos(r)!; const cx = rp.x * 16 + 8, cy = rp.y * 16 + 8;
       const flick = l.flicker ? Math.sin(tick * 0.3 + r.id) * 3 * l.flicker : 0;
       const g = dctx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(4, l.radius + flick));
       g.addColorStop(0, `rgba(0,0,0,${Math.min(1, l.strength)})`); g.addColorStop(1, "rgba(0,0,0,0)");
@@ -130,23 +154,26 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
     ctx.drawImage(dark, 0, 0);
     // Warm tint inside glows (additive, subtle)
     ctx.save(); ctx.globalCompositeOperation = "lighter";
-    for (const r of eng.entities.values()) {
-      const l = r.comps.get("light") as { radius: number; color: string; strength: number } | undefined;
-      if (!l || !r.pos) continue; const rp = eng.renderPos(r)!;
+    for (const r of lit) {
+      const l = r.comps.get("light") as LightComp; const rp = renderPos(r)!;
       const g = ctx.createRadialGradient(rp.x * 16 + 8, rp.y * 16 + 8, 2, rp.x * 16 + 8, rp.y * 16 + 8, l.radius);
       g.addColorStop(0, "rgba(255,180,90,0.10)"); g.addColorStop(1, "rgba(255,180,90,0)");
       ctx.fillStyle = g; ctx.fillRect(rp.x * 16 + 8 - l.radius, rp.y * 16 + 8 - l.radius, l.radius * 2, l.radius * 2);
     }
     ctx.restore();
   }
-  if (eng.screenTint) { ctx.globalAlpha = eng.screenTint.alpha * (1 - eng.screenTint.t / eng.screenTint.max); ctx.fillStyle = eng.screenTint.color; ctx.fillRect(0, 0, NATIVE_W, 320); ctx.globalAlpha = 1; }
+  // Screen tint
+  if (eng.tint) { ctx.globalAlpha = eng.tint.alpha * (1 - eng.tint.t / eng.tint.max); ctx.fillStyle = eng.tint.color; ctx.fillRect(0, 0, NATIVE_W, MAP_PX_H); ctx.globalAlpha = 1; }
+  // E prompt, then the overlay panel (Phase 2)
+  renderHooks.prompt(ctx, eng);
+  renderHooks.overlay(ctx, eng);
   // Banner
   if (eng.banner) { ctx.globalAlpha = Math.min(1, eng.banner.t / 30); ctx.fillStyle = "rgba(20,24,14,0.75)"; ctx.fillRect(0, 6, NATIVE_W, 14); ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0"; ctx.textAlign = "center"; drawFixedText(ctx, eng.banner.text, NATIVE_W / 2 - (eng.banner.text.length * 5) / 2, 16, 5); ctx.textAlign = "left"; ctx.globalAlpha = 1; }
   renderHud(ctx, eng);
 }
 
 function renderHud(ctx: CanvasRenderingContext2D, eng: Engine) {
-  const y0 = 320; ctx.fillStyle = "#202812"; ctx.fillRect(0, y0, NATIVE_W, HUD_H);
+  const y0 = MAP_PX_H; ctx.fillStyle = "#202812"; ctx.fillRect(0, y0, NATIVE_W, HUD_H);
   ctx.fillStyle = "#3a4a24"; ctx.fillRect(0, y0, NATIVE_W, 1);
   ctx.font = "8px monospace"; ctx.textBaseline = "alphabetic";
   // Clock in 10-minute steps, fixed-width digit cells, reserved slots.
@@ -170,6 +197,7 @@ function renderHud(ctx: CanvasRenderingContext2D, eng: Engine) {
   for (const slot of [...eng.hudSlots.values()].reverse()) {
     rx -= slot.width * 5;
     drawFixedText(ctx, slot.text.slice(0, slot.width).padEnd(slot.width, " "), rx, y0 + 12, 5);
+    if (slot.icon) { rx -= 18; drawSprite(ctx, slot.icon, rx, y0 + 20, eng.tickCount); }
     rx -= 8;
   }
 }

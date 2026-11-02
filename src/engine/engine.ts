@@ -1,322 +1,340 @@
-import type { CatalogEntry, Entity, GameEvent, Pos, SystemDef, World } from "./api";
-import { catalogFind, catalogGet, footprintTiles } from "./catalog";
-import { TUNING, phaseAt } from "../tuning";
+// Engine core (spec section 3): areas, entities, types, tiles, occupancy, clock,
+// per-system RNG, ownership records, serialize/snapshot. Only the host dispatcher
+// (src/engine/host.ts) writes the world on behalf of systems; the map builder and
+// the renderer use this class directly because they are engine code.
+//
+// Every write goes through a primitive below that records its inverse in the open
+// undo journal (if any), so a transaction can be rolled back exactly (spec 4.4).
+import { catalogGet, footprintTiles } from "./catalog";
+import { mulberryStep, streamSeed } from "./rng";
+import { ENGINE_OWNER, type EntityType, type Pos, type SpriteComp } from "./types";
+import { TUNING, phaseAt, type Phase } from "../tuning";
 
-export interface EntityType { sprite: string; tags: string[] }
-export type Handler = (ev: GameEvent, world: World) => void;
+export interface EntRec {
+  id: number; type: string; pos: Pos | null; tags: Set<string>; comps: Map<string, unknown>;
+  /** Render-only slide state: where the last non-instant move started and ticks left. */
+  slideFrom: Pos | null; slideT: number;
+}
+export interface Area { id: string; owner: string; tiles: string[][] }
+export interface Particle { area: string; sprite: string; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; frame: number }
+export interface FloatText { area: string; text: string; color: string; x: number; y: number; life: number; maxLife: number }
+export interface HudSlot { owner: string; key: string; text: string; width: number; icon?: string }
+export interface Overlay { title?: string; lines: string[]; bar?: { value: number; label?: string } }
 
-interface EntRec {
-  id: number; type: string; pos: Pos | null; tags: Set<string>;
-  comps: Map<string, unknown>; alive: boolean;
-  slideFrom: Pos | null; slideTo: Pos | null; slideT: number;
-}
-interface LoadedSystem { def: SystemDef; state: Record<string, unknown>; order: number }
+/** Deep copy of a plain-JSON value. */
+export function cloneJson<T>(v: T): T { return v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T); }
 
-/** Short, JSON-safe summary of an event payload / component value for pipeline reports. */
-export function summarizeValue(v: unknown): unknown {
-  if (v === null || typeof v === "number" || typeof v === "boolean") return v;
-  if (typeof v === "string") return v.length > 80 ? v.slice(0, 80) + "…" : v;
-  if (Array.isArray(v)) return v.slice(0, 6).map(summarizeValue);
-  if (typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if (typeof o.id === "number" && typeof o.type === "string" && "pos" in o) return { entity: `${o.type}#${o.id}`, pos: o.pos ?? null };
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(o).slice(0, 8)) out[k] = summarizeValue(val);
-    return out;
-  }
-  return String(v);
-}
-export function summarizePayload(data: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(data).slice(0, 8)) out[k] = summarizeValue(v);
-  return out;
-}
-
-export function mulberry(seed: number) {
-  let a = seed >>> 0;
-  return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
+type Undo = () => void;
 
 export class Engine {
-  width: number; height: number;
-  tilesGrid: string[][];
+  readonly width: number; readonly height: number; readonly seed: number;
+  areas = new Map<string, Area>();
   entities = new Map<number, EntRec>();
-  occupancy = new Map<string, Set<number>>();
   nextId = 1;
   tickCount = 0;
-  rng: () => number; rngCalls = 0;
-  hour = 9; day = 1; // start in the morning
-  timeSpeed = 1;
-  systems: LoadedSystem[] = [];
-  loadOrder: string[] = [];
+  // Clock. Advances only while `clockRunning` (daynight sets it when it loads, Phase 2).
+  day = 1; hour: number = TUNING.startHour; timeSpeed = 1; clockRunning = false;
+  // Registries and ownership records (spec 4.5). These restrict nothing.
   types = new Map<string, EntityType>();
-  typeOwner = new Map<string, string>(); // type name -> system id or "world"
-  handlers = new Map<string, { sys: LoadedSystem | null; fn: Handler }[]>();
-  currentSystem: LoadedSystem | null = null;
-  emitLog: { sys: string; name: string }[] = [];
-  handledLog: { sys: string; name: string }[] = [];
-  fxEffects: { kind: string; spriteId?: string; text?: string; color?: string; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; frame: number }[] = [];
-  tweens: { from: number; to: number; ticks: number; t: number; onUpdate: (v: number) => void; onDone?: () => void; sys: LoadedSystem | null }[] = [];
-  screenTint: { color: string; alpha: number; t: number; max: number } | null = null;
+  typeOwner = new Map<string, string>();
+  componentOwner = new Map<string, string>();
+  entityOwner = new Map<number, string>();
+  /** Live entities per owner, for the per-system entity limit. */
+  ownedCount = new Map<string, number>();
+  systemState = new Map<string, unknown>();
+  /** Saved RNG position per owner (spec 4.6). */
+  rngState = new Map<string, number>();
+  /** area id -> tile index (y * width + x) -> entity ids. All collision goes through this. */
+  occupancy = new Map<string, Map<number, Set<number>>>();
+  /** Undo journal of the open transaction, or null when none is open. */
+  journal: Undo[] | null = null;
+  private playerCache = 0;
+
+  // ---- Transient, render-only state (not serialized) ----
+  particles: Particle[] = [];
+  floats: FloatText[] = [];
+  tint: { color: string; alpha: number; t: number; max: number } | null = null;
   banner: { text: string; t: number } | null = null;
-  hudSlots = new Map<string, { icon?: string; text: string; width: number }>();
-  testMode = false;
-  // Pipeline instrumentation (capture is off unless a test/sandbox run turns it on).
-  capturing = false;
-  capEvents: { tick: number; name: string; payload: Record<string, unknown> }[] = [];
-  capInputs: { name: string; handledBy: string; receivedBy: string[] }[] = [];
-  capSpawned: number[] = [];
-  /** First real payload seen per event name (used by the AI designer's WORLD description). */
-  eventExamples = new Map<string, Record<string, unknown>>();
-  thrownInfo: { system: string; handler: string; message: string } | null = null;
-  beginCapture() { this.capturing = true; this.capEvents = []; this.capInputs = []; this.capSpawned = []; this.thrownInfo = null; }
-  endCapture() { this.capturing = false; }
+  hudSlots = new Map<string, HudSlot>();
+  overlay: { owner: string; value: Overlay } | null = null;
+  /** Tick each entity's current sprite anim started, so anims play from their first frame. */
+  animStart = new Map<number, number>();
 
-  constructor(width: number, height: number, tilesGrid: string[][], seed = TUNING.seed) {
-    this.width = width; this.height = height; this.tilesGrid = tilesGrid;
-    this.rng = mulberry(seed);
+  constructor(width: number = TUNING.areaW, height: number = TUNING.areaH, seed: number = TUNING.seed) {
+    this.width = width; this.height = height; this.seed = seed;
   }
-  rand(): number { this.rngCalls++; return this.rng(); }
 
-  // ---- entity types ----
-  registerType(name: string, t: EntityType, owner: string) { this.types.set(name, t); this.typeOwner.set(name, owner); }
-  unregisterSystemTypes(owner: string) { for (const [n, o] of [...this.typeOwner]) if (o === owner) { this.types.delete(n); this.typeOwner.delete(n); } }
+  // ======================= journal =======================
+  private record(u: Undo) { if (this.journal) this.journal.push(u); }
+  /** Undo every journaled write after `mark` (newest first). */
+  rollbackTo(mark: number) {
+    const j = this.journal; if (!j) return;
+    this.journal = null;
+    try { while (j.length > mark) j.pop()!(); } finally { this.journal = j; }
+  }
 
-  // ---- occupancy ----
-  key(x: number, y: number) { return x + "," + y; }
-  spriteIdOf(rec: EntRec): string { const s = rec.comps.get("sprite") as { id: string } | undefined; return s?.id ?? this.types.get(rec.type)?.sprite ?? ""; }
-  rebuildOccupancyFor(rec: EntRec) {
-    for (const set of this.occupancy.values()) set.delete(rec.id);
-    if (!rec.pos || !rec.alive) return;
-    for (const t of footprintTiles(this.spriteIdOf(rec), rec.pos.x, rec.pos.y)) {
-      const k = this.key(t.x, t.y); if (!this.occupancy.has(k)) this.occupancy.set(k, new Set());
-      this.occupancy.get(k)!.add(rec.id);
+  // ======================= registries =======================
+  registerType(name: string, t: EntityType, owner: string) {
+    this.types.set(name, { sprite: t.sprite, tags: [...t.tags] }); this.typeOwner.set(name, owner);
+  }
+  declareComponent(name: string, owner: string) { if (!this.componentOwner.has(name)) this.componentOwner.set(name, owner); }
+
+  // ======================= areas & tiles =======================
+  /** Create an area from a full tile grid. Journaled. */
+  createArea(id: string, tiles: string[][], owner: string): Area {
+    if (this.areas.has(id)) throw new Error(`area ${id} exists`);
+    const a: Area = { id, owner, tiles: tiles.map((r) => [...r]) };
+    this.areas.set(id, a); this.occupancy.set(id, new Map());
+    this.record(() => { this.areas.delete(id); this.occupancy.delete(id); });
+    return a;
+  }
+  inMap(x: number, y: number) { return x >= 0 && y >= 0 && x < this.width && y < this.height && Number.isInteger(x) && Number.isInteger(y); }
+  tileAt(area: string, x: number, y: number): string | null {
+    const a = this.areas.get(area); if (!a || !this.inMap(x, y)) return null; return a.tiles[y][x];
+  }
+  /** Set a terrain tile. Journaled. */
+  setTile(area: string, x: number, y: number, sprite: string) {
+    const a = this.areas.get(area)!; const old = a.tiles[y][x];
+    a.tiles[y][x] = sprite;
+    this.record(() => { a.tiles[y][x] = old; });
+  }
+  /** Walkable terrain: in the map, tagged walkable and not water. The map edge always blocks. */
+  isWalkable(area: string, x: number, y: number): boolean {
+    const id = this.tileAt(area, x, y); if (id === null) return false;
+    const e = catalogGet(id); if (!e) return false;
+    return e.tags.includes("walkable") && !e.tags.includes("water");
+  }
+
+  // ======================= entities =======================
+  has(rec: EntRec, name: string) { return rec.tags.has(name) || rec.comps.has(name); }
+  spriteIdOf(rec: EntRec): string { const s = rec.comps.get("sprite") as SpriteComp | undefined; return s?.id ?? this.types.get(rec.type)?.sprite ?? ""; }
+  footprintOfRec(rec: EntRec, pos: Pos | null = rec.pos): { x: number; y: number }[] {
+    if (!pos) return []; return footprintTiles(this.spriteIdOf(rec), pos.x, pos.y);
+  }
+  private occAdd(rec: EntRec) {
+    if (!rec.pos) return; const m = this.occupancy.get(rec.pos.area); if (!m) return;
+    for (const t of this.footprintOfRec(rec)) {
+      if (!this.inMap(t.x, t.y)) continue;
+      const k = t.y * this.width + t.x; let s = m.get(k); if (!s) { s = new Set(); m.set(k, s); } s.add(rec.id);
     }
   }
-  atIds(x: number, y: number): number[] { return [...(this.occupancy.get(this.key(x, y)) ?? [])]; }
-
-  handle(rec: EntRec): Entity {
-    const eng = this;
-    const e: Entity = {
-      get id() { return rec.id; }, get type() { return rec.type; },
-      get pos() { return rec.pos ? { ...rec.pos } : null; },
-      has(n) { return rec.tags.has(n) || rec.comps.has(n); },
-      tag(n) { rec.tags.add(n); }, untag(n) { rec.tags.delete(n); },
-      get(n) { return rec.comps.get(n) as never; },
-      set(n, v) { rec.comps.set(n, v); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      add(n, v) { rec.comps.set(n, v); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      remove(n) { rec.comps.delete(n); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      moveTo(x, y, opts) {
-        const from = rec.pos ? { ...rec.pos } : null;
-        rec.pos = { x, y }; eng.rebuildOccupancyFor(rec);
-        if (opts?.instant || !from) { rec.slideFrom = null; rec.slideTo = null; rec.slideT = 0; }
-        else { rec.slideFrom = from; rec.slideTo = { x, y }; rec.slideT = TUNING.slideTicks; }
-      },
-      lift() { rec.pos = null; rec.slideFrom = null; rec.slideTo = null; eng.rebuildOccupancyFor(rec); },
-      place(x, y) { rec.pos = { x, y }; rec.slideFrom = null; rec.slideTo = null; eng.rebuildOccupancyFor(rec); },
-      destroy() { rec.alive = false; rec.pos = null; eng.rebuildOccupancyFor(rec); eng.entities.delete(rec.id); },
-    };
-    return e;
+  private occRemove(rec: EntRec) {
+    if (!rec.pos) return; const m = this.occupancy.get(rec.pos.area); if (!m) return;
+    for (const t of this.footprintOfRec(rec)) {
+      if (!this.inMap(t.x, t.y)) continue;
+      const k = t.y * this.width + t.x; const s = m.get(k); if (s) { s.delete(rec.id); if (!s.size) m.delete(k); }
+    }
   }
-  spawnRec(type: string, pos: Pos): EntRec {
+  private insertRaw(rec: EntRec, owner: string) {
+    this.entities.set(rec.id, rec); this.occAdd(rec);
+    this.entityOwner.set(rec.id, owner); this.ownedCount.set(owner, (this.ownedCount.get(owner) ?? 0) + 1);
+  }
+  private deleteRaw(rec: EntRec) {
+    this.occRemove(rec); this.entities.delete(rec.id);
+    const owner = this.entityOwner.get(rec.id); this.entityOwner.delete(rec.id);
+    if (owner !== undefined) this.ownedCount.set(owner, (this.ownedCount.get(owner) ?? 1) - 1);
+    this.animStart.delete(rec.id);
+  }
+  /** Spawn a registered type at a position. Throws on an unknown type. Journaled. */
+  spawn(type: string, pos: Pos | null, owner: string): EntRec {
     const t = this.types.get(type);
-    if (!t) throw new Error(`spawn: unknown entity type "${type}". Registered types: ${[...this.types.keys()].sort().join(", ")}. (Bare catalog sprite ids are not types unless a type with that name is registered.)`);
-    const rec: EntRec = { id: this.nextId++, type, pos: { ...pos }, tags: new Set(t.tags), comps: new Map(), alive: true, slideFrom: null, slideTo: null, slideT: 0 };
-    rec.comps.set("sprite", { id: t.sprite });
-    this.entities.set(rec.id, rec); this.rebuildOccupancyFor(rec);
-    if (this.capturing) this.capSpawned.push(rec.id);
+    if (!t) throw new Error(`unknown entity type "${type}"`);
+    const prevNext = this.nextId;
+    const rec: EntRec = { id: this.nextId++, type, pos: pos ? { ...pos } : null, tags: new Set(t.tags), comps: new Map([["sprite", { id: t.sprite }]]), slideFrom: null, slideT: 0 };
+    this.insertRaw(rec, owner);
+    this.record(() => { this.deleteRaw(rec); this.nextId = prevNext; });
     return rec;
   }
-  byId(id: number): Entity | undefined { const r = this.entities.get(id); return r ? this.handle(r) : undefined; }
-  player(): Entity | undefined { return this.query("player")[0]; }
-  query(tagOrComponent: string): Entity[] { return [...this.entities.values()].filter((r) => r.alive && (r.tags.has(tagOrComponent) || r.comps.has(tagOrComponent))).map((r) => this.handle(r)); }
-
-  isWalkable(x: number, y: number): boolean {
-    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return false;
-    const id = this.tilesGrid[y][x]; const entry = catalogGet(id);
-    if (!entry) return false;
-    return entry.tags.includes("walkable") && !entry.tags.includes("water");
+  /** Remove an entity. Journaled (the record is kept intact for undo). */
+  destroy(id: number) {
+    const rec = this.entities.get(id); if (!rec) return;
+    const owner = this.entityOwner.get(id) ?? ENGINE_OWNER;
+    this.deleteRaw(rec);
+    this.record(() => this.insertRaw(rec, owner));
   }
-  /** A tile is free for X when walkable and holding no player/solid/pushable/item entity other than X. */
-  isFreeFor(x: number, y: number, selfId?: number): boolean {
-    if (!this.isWalkable(x, y)) return false;
-    for (const id of this.atIds(x, y)) {
-      if (id === selfId) continue; const r = this.entities.get(id); if (!r) continue;
-      const h = this.handle(r);
-      if (h.has("player") || h.has("solid") || h.has("pushable") || h.has("item")) return false;
+  /** Move, place (pos) or lift (null) an entity. `slide` animates the step. Journaled. */
+  setPos(id: number, pos: Pos | null, slide = false) {
+    const rec = this.entities.get(id)!;
+    const old = { pos: rec.pos, slideFrom: rec.slideFrom, slideT: rec.slideT };
+    this.occRemove(rec);
+    rec.pos = pos ? { ...pos } : null;
+    if (slide && old.pos && pos && old.pos.area === pos.area) { rec.slideFrom = { ...old.pos }; rec.slideT = TUNING.slideTicks; }
+    else { rec.slideFrom = null; rec.slideT = 0; }
+    this.occAdd(rec);
+    this.record(() => { this.occRemove(rec); rec.pos = old.pos; rec.slideFrom = old.slideFrom; rec.slideT = old.slideT; this.occAdd(rec); });
+  }
+  /** Set (or with `undefined`, remove) a component. A sprite change updates occupancy. Journaled. */
+  setComp(id: number, name: string, value: unknown) {
+    const rec = this.entities.get(id)!;
+    const had = rec.comps.has(name); const old = rec.comps.get(name);
+    const apply = (present: boolean, v: unknown) => {
+      if (name === "sprite") this.occRemove(rec);
+      if (present) rec.comps.set(name, v); else rec.comps.delete(name);
+      if (name === "sprite") this.occAdd(rec);
+    };
+    apply(value !== undefined, value);
+    this.record(() => apply(had, old));
+  }
+  /** Add or remove a tag. Journaled. */
+  setTag(id: number, name: string, on: boolean) {
+    const rec = this.entities.get(id)!; const had = rec.tags.has(name);
+    if (on) rec.tags.add(name); else rec.tags.delete(name);
+    this.record(() => { if (had) rec.tags.add(name); else rec.tags.delete(name); });
+  }
+  setState(owner: string, value: unknown) {
+    const had = this.systemState.has(owner); const old = this.systemState.get(owner);
+    if (value === undefined) this.systemState.delete(owner); else this.systemState.set(owner, value);
+    this.record(() => { if (had) this.systemState.set(owner, old); else this.systemState.delete(owner); });
+  }
+  /** Next number in [0, 1) from `owner`'s own stream. Journaled, so a rollback rewinds it. */
+  rand(owner: string): number {
+    const had = this.rngState.has(owner);
+    const cur = had ? this.rngState.get(owner)! : streamSeed(this.seed, owner);
+    const { state, value } = mulberryStep(cur);
+    this.rngState.set(owner, state);
+    this.record(() => { if (had) this.rngState.set(owner, cur); else this.rngState.delete(owner); });
+    return value;
+  }
+
+  // ======================= reads =======================
+  rec(id: number): EntRec | undefined { return this.entities.get(id); }
+  player(): EntRec | undefined {
+    const c = this.entities.get(this.playerCache);
+    if (c && c.tags.has("player")) return c;
+    for (const r of this.entities.values()) if (r.tags.has("player")) { this.playerCache = r.id; return r; }
+    return undefined;
+  }
+  /** The player's current area (the one that is drawn and used by the E resolver). */
+  currentArea(): string { return this.player()?.pos?.area ?? [...this.areas.keys()][0]; }
+  /** Ids whose footprint covers the tile, ascending. */
+  at(area: string, x: number, y: number): number[] {
+    if (!this.inMap(x, y)) return [];
+    const s = this.occupancy.get(area)?.get(y * this.width + x); return s ? [...s].sort((a, b) => a - b) : [];
+  }
+  /** Ids of entities with this tag or component, ascending. */
+  query(name: string): number[] {
+    const out: number[] = []; for (const r of this.entities.values()) if (this.has(r, name)) out.push(r.id);
+    return out.sort((a, b) => a - b);
+  }
+  /** Free tile for entity X: walkable and no player, solid, pushable or item entity other than X. Decorations don't count. */
+  isFreeFor(area: string, x: number, y: number, selfId = 0): boolean {
+    if (!this.isWalkable(area, x, y)) return false;
+    for (const id of this.at(area, x, y)) {
+      if (id === selfId) continue; const r = this.entities.get(id)!;
+      if (this.has(r, "player") || this.has(r, "solid") || this.has(r, "pushable") || this.has(r, "item")) return false;
     }
     return true;
   }
-  footprintFreeFor(spriteId: string, x: number, y: number, selfId?: number): boolean {
-    return footprintTiles(spriteId, x, y).every((t) => this.isFreeFor(t.x, t.y, selfId));
+  /** Every footprint tile of `spriteId` at `pos` is free for `selfId`. */
+  footprintFree(spriteId: string, pos: Pos, selfId = 0): boolean {
+    return footprintTiles(spriteId, pos.x, pos.y).every((t) => this.isFreeFor(pos.area, t.x, t.y, selfId));
   }
 
-  // ---- events ----
-  on(name: string, sys: LoadedSystem | null, fn: Handler) {
-    if (!this.handlers.has(name)) this.handlers.set(name, []);
-    this.handlers.get(name)!.push({ sys, fn });
+  // ======================= invariants =======================
+  /** Why this entity breaks an invariant (footprint off walkable terrain), or null. */
+  entityProblem(rec: EntRec): string | null {
+    if (!rec.pos) return null;
+    if (!this.areas.has(rec.pos.area)) return `${rec.type}#${rec.id} is in unknown area ${rec.pos.area}`;
+    for (const t of this.footprintOfRec(rec)) if (!this.isWalkable(rec.pos.area, t.x, t.y)) return `${rec.type}#${rec.id} would stand on unwalkable tile (${t.x}, ${t.y}) in ${rec.pos.area}`;
+    return null;
   }
-  emitAs(sys: LoadedSystem | null, name: string, data: Record<string, unknown> = {}): GameEvent {
-    const ev: GameEvent = { handled: false, ...data };
-    this.emitLog.push({ sys: sys?.def.id ?? this.currentSystem?.def.id ?? "(engine)", name });
-    if (!this.eventExamples.has(name)) this.eventExamples.set(name, summarizePayload(data));
-    if (this.capturing) this.capEvents.push({ tick: this.tickCount, name, payload: summarizePayload(data) });
-    const receivedBy: string[] = []; let handledBy = "none";
-    for (const h of [...(this.handlers.get(name) ?? [])]) {
-      const before = ev.handled; const prev = this.currentSystem; this.currentSystem = h.sys;
-      receivedBy.push(h.sys?.def.id ?? "(engine)");
-      try { h.fn(ev, this.facade(h.sys)); } catch (err) {
-        this.thrownInfo = { system: h.sys?.def.id ?? "(engine)", handler: name, message: (err as Error).message };
-        this.currentSystem = prev; throw err;
-      }
-      if (!before && ev.handled && h.sys) { this.handledLog.push({ sys: h.sys.def.id, name }); handledBy = h.sys.def.id; }
-      this.currentSystem = prev;
-    }
-    if (this.capturing && name.startsWith("input.")) this.capInputs.push({ name, handledBy, receivedBy });
-    return ev;
-  }
-  /** True when the occupancy lookup exactly matches every live entity's footprint. */
+  /** True when the occupancy lookup exactly matches every live entity's footprint, in every area. */
   validateOccupancy(): boolean {
     const want = new Map<string, Set<number>>();
     for (const r of this.entities.values()) {
       if (!r.pos) continue;
-      for (const t of footprintTiles(this.spriteIdOf(r), r.pos.x, r.pos.y)) { const k = this.key(t.x, t.y); if (!want.has(k)) want.set(k, new Set()); want.get(k)!.add(r.id); }
+      for (const t of this.footprintOfRec(r)) { if (!this.inMap(t.x, t.y)) continue; const k = `${r.pos.area}|${t.y * this.width + t.x}`; if (!want.has(k)) want.set(k, new Set()); want.get(k)!.add(r.id); }
     }
-    const norm = (m: Map<string, Set<number>>) => [...m.entries()].filter(([, s]) => s.size).map(([k, s]) => k + ":" + [...s].sort((a, b) => a - b).join(".")).sort().join("|");
-    return norm(want) === norm(this.occupancy);
+    const have = new Map<string, Set<number>>();
+    for (const [area, m] of this.occupancy) for (const [k, s] of m) if (s.size) have.set(`${area}|${k}`, s);
+    const norm = (m: Map<string, Set<number>>) => [...m.entries()].map(([k, s]) => k + ":" + [...s].sort((a, b) => a - b).join(".")).sort().join(" ");
+    return norm(want) === norm(have);
   }
-  entitySummary(id: number): { type: string; pos: Pos | null; components: Record<string, unknown> } | null {
-    const r = this.entities.get(id); if (!r) return null;
-    const components: Record<string, unknown> = {};
-    for (const [k, v] of r.comps) components[k] = summarizeValue(v);
-    return { type: r.type, pos: r.pos ? { ...r.pos } : null, components };
-  }
-  emit(name: string, data: Record<string, unknown> = {}): GameEvent { return this.emitAs(this.currentSystem, name, data); }
-  /** Send an input event (handled flag honoured in load order). */
-  emitInput(name: string, data: Record<string, unknown> = {}): GameEvent { return this.emitAs(null, name, data); }
-
-  facade(sys: LoadedSystem | null): World {
-    const eng = this;
-    const w: World = {
-      at: (x, y) => eng.atIds(x, y).map((id) => eng.byId(id)!).filter(Boolean),
-      query: (t) => eng.query(t),
-      spawn: (type, pos) => eng.handle(eng.spawnRec(type, pos)),
-      tiles: {
-        get: (x, y) => (x < 0 || y < 0 || x >= eng.width || y >= eng.height ? null : eng.tilesGrid[y][x]),
-        set: (x, y, id) => { if (x >= 0 && y >= 0 && x < eng.width && y < eng.height) eng.tilesGrid[y][x] = id; },
-        find: (tag) => { const out: Pos[] = []; for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) if (catalogGet(eng.tilesGrid[y][x])?.tags.includes(tag)) out.push({ x, y }); return out; },
-      },
-      on: (name, handler) => eng.on(name, sys, handler),
-      emit: (name, data) => eng.emitAs(sys, name, data ?? {}),
-      time: {
-        get day() { return eng.day; }, get phase() { return phaseAt(eng.hour); }, get hour() { return eng.hour; },
-        set(v) { eng.setTime(v, sys); },
-      },
-      rand: () => eng.rand(),
-      catalog: { find: catalogFind, get: catalogGet as (id: string) => CatalogEntry | undefined },
-      fx: {
-        tween: (o) => eng.tweens.push({ ...o, t: 0, sys }),
-        particles: (spriteId, pos) => { for (let i = 0; i < 6; i++) eng.fxEffects.push({ kind: "particle", spriteId, x: pos.x, y: pos.y, vx: (eng.rand() - 0.5) * 0.08, vy: -eng.rand() * 0.08, life: 0, maxLife: 24, frame: Math.floor(eng.rand() * 6) }); },
-        floatText: (text, pos, color) => eng.fxEffects.push({ kind: "text", text, color: color ?? "#fff", x: pos.x, y: pos.y, vx: 0, vy: -0.02, life: 0, maxLife: 50, frame: 0 }),
-        tint: (color, alpha, durationMs) => { eng.screenTint = { color, alpha, t: 0, max: Math.max(1, Math.round((durationMs / 1000) * 60)) }; },
-      },
-      ui: {
-        banner: (text) => { eng.banner = { text, t: TUNING.bannerTicks }; },
-        hud: { add: (id, o) => eng.hudSlots.set(id, o), remove: (id) => eng.hudSlots.delete(id) },
-      },
-      state: sys ? sys.state : {},
-    };
-    return w;
-  }
-  world(): World { return this.facade(null); }
-
-  setTime(v: string | number, sys: LoadedSystem | null) {
-    const from = { hour: this.hour, day: this.day, phase: phaseAt(this.hour) };
-    if (typeof v === "number") { this.hour = ((v % 24) + 24) % 24; }
-    else { const starts: Record<string, number> = { dawn: TUNING.phases.dawn, day: TUNING.phases.day, dusk: TUNING.phases.dusk, night: TUNING.phases.night, daytime: TUNING.phases.day }; this.hour = starts[v] ?? this.hour; }
-    const to = { hour: this.hour, day: this.day, phase: phaseAt(this.hour) };
-    // Attributed to daynight in contract checks: it owns every time.* event.
-    const dn = this.systems.find((s) => s.def.id === "daynight") ?? sys;
-    this.emitAs(dn, "time.jumped", { from, to });
-    // Phase event itself is emitted by daynight on its next tick (it tracks lastPhase).
+  /** Every invariant over the whole world (used by tests and the world check). */
+  invariantProblems(): string[] {
+    const out: string[] = [];
+    if (!this.player()) out.push("the player does not exist");
+    for (const r of this.entities.values()) { const p = this.entityProblem(r); if (p) out.push(p); }
+    if (!this.validateOccupancy()) out.push("occupancy does not match positions");
+    return out;
   }
 
-  // ---- systems ----
-  loadSystem(def: SystemDef) {
-    const existing = this.systems.findIndex((s) => s.def.id === def.id);
-    this.unloadSystem(def.id, true);
-    const loaded: LoadedSystem = { def, state: existing >= 0 ? this.systems[existing]?.state ?? {} : {}, order: existing >= 0 ? existing : this.systems.length };
-    // Preserve state/order on reload:
-    if (existing >= 0) { loaded.state = (this as unknown as { _saved?: Record<string, unknown> })._saved ?? loaded.state; }
-    for (const [name, t] of Object.entries(def.entities)) this.registerType(name, t, def.id);
-    if (existing >= 0) this.systems.splice(existing, 0, loaded); else this.systems.push(loaded);
-    if (!this.loadOrder.includes(def.id)) this.loadOrder.push(def.id);
-    for (const [name, fn] of Object.entries(def.on)) this.on(name, loaded, fn as Handler);
-    const prev = this.currentSystem; this.currentSystem = loaded;
-    def.migrate(this.facade(loaded));
-    this.currentSystem = prev;
-    return loaded;
+  // ======================= clock =======================
+  get phase(): Phase { return phaseAt(this.hour); }
+  /** Jump the clock to a phase start or an hour. Returns the hours before and after. */
+  jumpClock(to: string | number): { from: number; to: number } {
+    const from = this.hour;
+    if (typeof to === "number") this.hour = ((to % 24) + 24) % 24;
+    else { const starts: Record<string, number> = { ...TUNING.phases, daytime: TUNING.phases.day }; if (starts[to] !== undefined) this.hour = starts[to]; }
+    return { from, to: this.hour };
   }
-  unloadSystem(id: string, forReload = false) {
-    const idx = this.systems.findIndex((s) => s.def.id === id); if (idx < 0) return;
-    const [removed] = this.systems.splice(idx, 1);
-    if (forReload) (this as unknown as { _saved?: Record<string, unknown> })._saved = removed.state;
-    for (const [name, list] of this.handlers) this.handlers.set(name, list.filter((h) => h.sys !== removed));
-    this.unregisterSystemTypes(id);
-    if (!forReload) this.loadOrder = this.loadOrder.filter((x) => x !== id);
-  }
-  reloadAll(defs: SystemDef[]) {
-    const order = [...this.loadOrder];
-    const states = new Map(this.systems.map((s) => [s.def.id, s.state]));
-    for (const id of [...order].reverse()) this.unloadSystem(id);
-    for (const id of order) { const d = defs.find((x) => x.id === id); if (!d) continue; this.loadSystem(d); const l = this.systems.find((s) => s.def.id === id); if (l && states.has(id)) l.state = states.get(id)!; }
+  private tickClock() {
+    if (!this.clockRunning) return;
+    const prev = this.hour;
+    this.hour += this.timeSpeed / TUNING.ticksPerGameHour;
+    if (this.hour >= 24) this.hour -= 24;
+    // The day goes up when the clock crosses dawn.
+    const dawn = TUNING.phases.dawn;
+    if (prev < dawn && this.hour >= dawn && this.hour < dawn + 1) this.day++;
   }
 
+  // ======================= tick =======================
+  /** One fixed logic step of the engine itself (systems run from the host in later phases). */
   tick() {
     this.tickCount++;
-    // Clock advances only while daynight is loaded; daynight emits the events.
-    if (this.systems.some((s) => s.def.id === "daynight")) {
-      const prevHour = this.hour;
-      this.hour += (this.timeSpeed / TUNING.ticksPerGameHour);
-      if (this.hour >= 24) this.hour -= 24;
-      // Day goes up at dawn: crossing the dawn start from below.
-      const dawn = TUNING.phases.dawn;
-      if (prevHour < dawn && this.hour >= dawn && this.hour < dawn + 1) this.day++;
-      if (prevHour > this.hour) { /* wrapped midnight: nothing */ }
-    }
-    for (const s of [...this.systems]) { const prev = this.currentSystem; this.currentSystem = s; s.def.onTick(this.facade(s), 1 / 60); this.currentSystem = prev; }
-    for (const rec of this.entities.values()) if (rec.slideT > 0) rec.slideT--;
-    for (const fx of this.fxEffects) { fx.life++; fx.x += fx.vx; fx.y += fx.vy; }
-    this.fxEffects = this.fxEffects.filter((f) => f.life < f.maxLife);
-    for (const tw of [...this.tweens]) { tw.t++; tw.onUpdate(tw.from + (tw.to - tw.from) * Math.min(1, tw.t / tw.ticks)); if (tw.t >= tw.ticks) { tw.onDone?.(); this.tweens.splice(this.tweens.indexOf(tw), 1); } }
-    if (this.screenTint && ++this.screenTint.t >= this.screenTint.max) this.screenTint = null;
+    this.tickClock();
+    for (const r of this.entities.values()) if (r.slideT > 0 && --r.slideT === 0) r.slideFrom = null;
+    for (const p of this.particles) { p.life++; p.x += p.vx; p.y += p.vy; }
+    this.particles = this.particles.filter((p) => p.life < p.maxLife);
+    for (const f of this.floats) { f.life++; f.y -= 0.02; }
+    this.floats = this.floats.filter((f) => f.life < f.maxLife);
+    if (this.tint && ++this.tint.t >= this.tint.max) this.tint = null;
     if (this.banner && --this.banner.t <= 0) this.banner = null;
   }
 
+  // ======================= save =======================
   serialize(): string {
+    const sorted = [...this.entities.values()].sort((a, b) => a.id - b.id);
     return JSON.stringify({
-      width: this.width, height: this.height, tiles: this.tilesGrid, day: this.day, hour: this.hour, tickCount: this.tickCount, nextId: this.nextId,
-      entities: [...this.entities.values()].map((r) => ({ id: r.id, type: r.type, pos: r.pos, tags: [...r.tags], comps: [...r.comps.entries()] })),
-      systemState: Object.fromEntries(this.systems.map((s) => [s.def.id, s.state])),
-      loadOrder: this.loadOrder,
+      v: 1, width: this.width, height: this.height, seed: this.seed, nextId: this.nextId, tickCount: this.tickCount,
+      clock: { day: this.day, hour: this.hour, running: this.clockRunning },
+      areas: [...this.areas.values()].map((a) => ({ id: a.id, owner: a.owner, tiles: a.tiles })),
+      entities: sorted.map((r) => ({ id: r.id, type: r.type, pos: r.pos, tags: [...r.tags], comps: Object.fromEntries(r.comps), owner: this.entityOwner.get(r.id) ?? ENGINE_OWNER })),
+      types: Object.fromEntries([...this.types].map(([n, t]) => [n, { ...t, owner: this.typeOwner.get(n) ?? ENGINE_OWNER }])),
+      components: Object.fromEntries(this.componentOwner),
+      state: Object.fromEntries(this.systemState),
+      rng: Object.fromEntries(this.rngState),
     });
   }
   deserialize(json: string) {
-    const d = JSON.parse(json) as ReturnType<Engine["serialize"]> & Record<string, unknown>;
-    const data = d as unknown as { tiles: string[][]; day: number; hour: number; tickCount: number; nextId: number; entities: { id: number; type: string; pos: Pos | null; tags: string[]; comps: [string, unknown][] }[]; systemState: Record<string, Record<string, unknown>>; loadOrder: string[] };
-    this.tilesGrid = data.tiles.map((r) => [...r]); this.day = data.day; this.hour = data.hour; this.tickCount = data.tickCount; this.nextId = data.nextId;
-    this.entities.clear(); this.occupancy.clear();
-    for (const e of data.entities) { const rec: EntRec = { id: e.id, type: e.type, pos: e.pos, tags: new Set(e.tags), comps: new Map(e.comps), alive: true, slideFrom: null, slideTo: null, slideT: 0 }; this.entities.set(rec.id, rec); this.rebuildOccupancyFor(rec); }
-    for (const s of this.systems) if (data.systemState[s.def.id]) s.state = data.systemState[s.def.id];
-    this.loadOrder = data.loadOrder ?? this.loadOrder;
+    const d = JSON.parse(json) as SaveFile;
+    if (d.width !== this.width || d.height !== this.height) throw new Error("saved world has a different size");
+    this.journal = null;
+    this.nextId = d.nextId; this.tickCount = d.tickCount;
+    this.day = d.clock.day; this.hour = d.clock.hour; this.clockRunning = d.clock.running;
+    this.areas.clear(); this.occupancy.clear();
+    for (const a of d.areas) { this.areas.set(a.id, { id: a.id, owner: a.owner, tiles: a.tiles.map((r) => [...r]) }); this.occupancy.set(a.id, new Map()); }
+    for (const [n, t] of Object.entries(d.types)) { this.types.set(n, { sprite: t.sprite, tags: [...t.tags] }); this.typeOwner.set(n, t.owner); }
+    this.componentOwner = new Map(Object.entries(d.components));
+    this.entities.clear(); this.entityOwner.clear(); this.ownedCount.clear(); this.animStart.clear(); this.playerCache = 0;
+    for (const e of d.entities) this.insertRaw({ id: e.id, type: e.type, pos: e.pos, tags: new Set(e.tags), comps: new Map(Object.entries(e.comps)), slideFrom: null, slideT: 0 }, e.owner);
+    this.systemState = new Map(Object.entries(d.state));
+    this.rngState = new Map(Object.entries(d.rng));
   }
   snapshot(): string { return this.serialize(); }
-  restore(snap: string) { this.deserialize(snap); }
-  /** Render interpolation position in tiles (float), for the renderer only. */
-  renderPos(rec: { pos: Pos | null; slideFrom: Pos | null; slideTo: Pos | null; slideT: number }): Pos | null {
-    if (!rec.pos) return null;
-    if (rec.slideFrom && rec.slideTo && rec.slideT > 0) { const k = 1 - rec.slideT / TUNING.slideTicks; return { x: rec.slideFrom.x + (rec.slideTo.x - rec.slideFrom.x) * k, y: rec.slideFrom.y + (rec.slideTo.y - rec.slideFrom.y) * k }; }
-    return rec.pos;
+  restore(snap: string) {
+    this.deserialize(snap);
+    this.particles = []; this.floats = []; this.tint = null; this.banner = null;
   }
-  recById(id: number) { return this.entities.get(id); }
+}
+
+interface SaveFile {
+  v: number; width: number; height: number; seed: number; nextId: number; tickCount: number;
+  clock: { day: number; hour: number; running: boolean };
+  areas: { id: string; owner: string; tiles: string[][] }[];
+  entities: { id: number; type: string; pos: Pos | null; tags: string[]; comps: Record<string, unknown>; owner: string }[];
+  types: Record<string, EntityType & { owner: string }>;
+  components: Record<string, string>;
+  state: Record<string, unknown>;
+  rng: Record<string, number>;
 }

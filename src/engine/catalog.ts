@@ -1,4 +1,4 @@
-import type { CatalogEntry } from "./api";
+import type { CatalogEntry } from "./types";
 import raw from "../catalog.json";
 export interface CatalogFile { root: string; tileSize: number; sprites: CatalogEntry[] }
 export const CATALOG = raw as unknown as CatalogFile;

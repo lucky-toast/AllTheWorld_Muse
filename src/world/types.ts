@@ -1,5 +1,5 @@
 import { catalogGet } from "../engine/catalog";
-import type { EntityType } from "../engine/engine";
+import { WORLD_OWNER, type EntityType } from "../engine/types";
 // Base map entity types: name -> sprite + tags. Log is item+pushable on purpose.
 function fromCatalog(id: string, extra: string[] = []): EntityType {
   const e = catalogGet(id)!;
@@ -19,5 +19,5 @@ export const WORLD_TYPES: Record<string, EntityType> = {
   branch: fromCatalog("branch"), stone: fromCatalog("stone"),
 };
 export function registerWorldTypes(eng: { registerType: (n: string, t: EntityType, o: string) => void }) {
-  for (const [n, t] of Object.entries(WORLD_TYPES)) eng.registerType(n, t, "world");
+  for (const [n, t] of Object.entries(WORLD_TYPES)) eng.registerType(n, t, WORLD_OWNER);
 }

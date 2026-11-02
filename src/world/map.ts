@@ -1,11 +1,13 @@
-import { Engine, mulberry } from "../engine/engine";
+import { Engine } from "../engine/engine";
+import { mulberry } from "../engine/rng";
+import { BASE_AREA, WORLD_OWNER } from "../engine/types";
 import { registerWorldTypes } from "./types";
 import { TUNING } from "../tuning";
-export const MAP_W = 30, MAP_H = 20;
+export const MAP_W = TUNING.areaW, MAP_H = TUNING.areaH;
 // Hand-made forest clearing, ~30x20. Organic meadow in the middle, forest border
 // of varying depth, one short stream near the south edge, sparse natural clusters.
 export function buildWorld(): Engine {
-  const rand = mulberry(42);
+  const rand = mulberry(TUNING.mapSeed);
   const grid: string[][] = [];
   for (let y = 0; y < MAP_H; y++) {
     const row: string[] = [];
@@ -19,10 +21,10 @@ export function buildWorld(): Engine {
   }
   const sy = 16;
   grid[sy][3] = "stream_h_left"; for (let x = 4; x <= 7; x++) grid[sy][x] = "stream_h"; grid[sy][8] = "stream_h_right";
-  const eng = new Engine(MAP_W, MAP_H, grid, TUNING.seed);
+  const eng = new Engine(MAP_W, MAP_H, TUNING.seed);
+  eng.createArea(BASE_AREA, grid, WORLD_OWNER);
   registerWorldTypes(eng);
-  const w = eng.world();
-  const spawn = (t: string, x: number, y: number) => w.spawn(t, { x, y });
+  const spawn = (t: string, x: number, y: number) => eng.spawn(t, { x, y, area: BASE_AREA }, WORLD_OWNER);
   // Border: dense clusters of varying depth so it reads as forest, not a ring.
   for (let i = 0; i < 8; i++) {
     const x = Math.min(26, i * 4 - (i % 2));
@@ -39,17 +41,18 @@ export function buildWorld(): Engine {
   spawn("log_fallen", 12, 8); spawn("log_fallen", 20, 12); spawn("crate", 17, 9);
   spawn("branch", 11, 10); spawn("branch", 18, 13); spawn("stone", 14, 11); spawn("stone", 21, 10);
   const player = spawn("player", 15, 11);
-  player.set("facing", "down");
+  eng.setComp(player.id, "facing", "down");
   return eng;
 }
 /** Empty walkable arena used by every base-system test so map changes can't break them. */
 export function buildArena(w = 12, h = 12): Engine {
   const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => "grass"));
-  const eng = new Engine(w, h, grid, TUNING.seed);
+  const eng = new Engine(w, h, TUNING.seed);
+  eng.createArea(BASE_AREA, grid, WORLD_OWNER);
   registerWorldTypes(eng);
-  eng.registerType("test_item", { sprite: "branch", tags: ["item"] }, "test");
-  eng.registerType("test_block", { sprite: "rock_gray_small", tags: ["solid"] }, "test");
-  eng.registerType("test_pushable", { sprite: "crate", tags: ["pushable"] }, "test");
-  const p = eng.world().spawn("player", { x: 5, y: 5 }); p.set("facing", "down");
+  eng.registerType("test_item", { sprite: "branch", tags: ["item"] }, WORLD_OWNER);
+  eng.registerType("test_block", { sprite: "rock_gray_small", tags: ["solid"] }, WORLD_OWNER);
+  eng.registerType("test_pushable", { sprite: "crate", tags: ["pushable"] }, WORLD_OWNER);
+  const p = eng.spawn("player", { x: 5, y: 5, area: BASE_AREA }, WORLD_OWNER); eng.setComp(p.id, "facing", "down");
   return eng;
 }
