@@ -11,7 +11,7 @@ import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
 import { LiveLoader } from "./pipeline/live";
 import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
-import { drawTopBar, TOP_H, type ThinkingPhase } from "./engine/topbar";
+import { drawTopBar, TOP_H, wishNotice, type ThinkingPhase } from "./engine/topbar";
 import { LIMITS, TUNING } from "./tuning";
 import { AiTab } from "./dev/aitab";
 import { mapImagesBase64, renderMapImages } from "./ai/mapimage";
@@ -60,6 +60,8 @@ devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
 let chain: WishChain | null = null;
 // What the wish is waiting on, for the top bar's "The world is thinking" state.
 let thinking: ThinkingPhase | null = null;
+// How the last wish ended, when it didn't build everything, for the top bar's notice.
+let notice: { text: string; start: number } | null = null;
 const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); }, mapImages: () => renderMapImages(eng) });
 chain = new WishChain({
   host, planner: new SwitchProvider(() => aiTab.pickPlanner()), designer: new SwitchProvider(() => aiTab.pickDesigner()), pipeline, journal, log: aiLog,
@@ -70,7 +72,12 @@ chain = new WishChain({
     onJournal: () => changed.setEntries(journal.entries),
     onPlannerSend: (a, text) => { thinking = "planner"; aiTab.hooks.onPlannerSend?.(a, text); },
     onStepStart: (i, step) => { thinking = "designer"; aiTab.hooks.onStepStart?.(i, step); },
-    onDone: (r) => { thinking = null; aiTab.hooks.onDone?.(r); },
+    onDone: (r) => {
+      thinking = null;
+      const text = wishNotice(r.status, r.loaded.length);
+      notice = text ? { text, start: performance.now() } : null;
+      aiTab.hooks.onDone?.(r);
+    },
   },
   routeStages: (fn) => { aiStages = fn; },
 });
@@ -145,7 +152,7 @@ function frame(now: number) {
   drawTransition(ctx, live.transitionStart, now);
   ctx.restore();
   const newest = journal.entries[journal.entries.length - 1];
-  drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: chain?.running && !live.busy ? thinking : null }, now);
+  drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: chain?.running && !live.busy ? thinking : null, notice }, now);
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }

@@ -2,7 +2,9 @@
 // While a wish waits on the planner or the designer it shows "The world is listening…" or "The
 // world is shaping…" in a stream of drifting fx_leaf pieces, so the player can see the world is
 // thinking without anything covering the map. Screen-only: no sim state, nothing saved. The load
-// itself keeps the full-map leaf transition and the "The world feels different" banner.
+// itself keeps the full-map leaf transition and the "The world feels different" banner. When a
+// wish ends without building everything (dropped, stopped, an API error, or no steps), the bar
+// shows a short notice for a few seconds while a few leaves fall out of it.
 import { drawSprite, NATIVE_W } from "./render";
 
 export const TOP_H = 18;
@@ -16,9 +18,24 @@ export interface TopBarState {
   last: string | null;
   /** What the wish is waiting on, or null when no wish is being built (or a load is running). */
   thinking: ThinkingPhase | null;
+  /** A notice about how the last wish ended, and when it was set (ms), shown for NOTICE_MS. */
+  notice: { text: string; start: number } | null;
 }
 
-const BG = "#202812", EDGE = "#3a4a24", CREAM = "#f2ecd0", TAN = "#cdbf8a", DIM = "#7d8a62";
+/** How long a wish's end notice shows (ms), including its fade out. */
+export const NOTICE_MS = 6000;
+const NOTICE_FADE_MS = 1000;
+
+/** The notice for a wish that ended, or null when everything was built (the banner says so). */
+export function wishNotice(status: string, loaded: number): string | null {
+  switch (status) {
+    case "done": case "busy": case "empty": return null;
+    case "nothing": return "The world listened, but nothing changed.";
+    default: return loaded > 0 ? "Only part of the wish took root." : "The world couldn't make that wish come true.";
+  }
+}
+
+const RUST = "#e0a080", BG = "#202812", EDGE = "#3a4a24", CREAM = "#f2ecd0", TAN = "#cdbf8a", DIM = "#7d8a62";
 const CELL = 5; // fixed-width text cells, as in the bottom HUD
 const WORDS: Record<ThinkingPhase, string> = { planner: "The world is listening…", designer: "The world is shaping…" };
 const LEAVES: Record<ThinkingPhase, number> = { planner: 18, designer: 28 };
@@ -35,10 +52,12 @@ export function areaLabel(area: string): string {
 /** Draw the bar at the top of the canvas (y 0 to TOP_H). `now` is in ms. */
 export function drawTopBar(ctx: CanvasRenderingContext2D, s: TopBarState, now: number) {
   ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, NATIVE_W, TOP_H); ctx.clip(); // nothing spills onto the map
   ctx.fillStyle = BG; ctx.fillRect(0, 0, NATIVE_W, TOP_H);
   ctx.fillStyle = EDGE; ctx.fillRect(0, TOP_H - 1, NATIVE_W, 1);
   ctx.font = "8px monospace"; ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
   if (s.thinking) drawThinking(ctx, s.thinking, now);
+  else if (s.notice && now - s.notice.start < NOTICE_MS) drawNotice(ctx, s.notice.text, now - s.notice.start);
   else drawIdle(ctx, s);
   ctx.restore();
 }
@@ -75,4 +94,17 @@ function drawThinking(ctx: CanvasRenderingContext2D, phase: ThinkingPhase, now: 
     ctx.fillStyle = g; ctx.fillRect(Math.min(a, b), 0, fade, TOP_H - 1);
   }
   ctx.fillStyle = CREAM; fixedText(ctx, words, x0, 12);
+}
+
+function drawNotice(ctx: CanvasRenderingContext2D, text: string, age: number) {
+  // A few leaves drop out of the bar in the first moments, as if the wish fell apart.
+  for (let i = 0; i < 8; i++) {
+    const t = age - i * 90; if (t < 0 || t > 1400) continue;
+    const x = 40 + ((i * 131) % (NATIVE_W - 80)) + Math.sin(t / 200 + i) * 4;
+    ctx.globalAlpha = Math.max(0, 1 - t / 1400);
+    drawSprite(ctx, "fx_leaf", Math.round(x), Math.round(4 + t * 0.012), 0, { frame: i % 6 });
+  }
+  ctx.globalAlpha = Math.min(1, age / 300, (NOTICE_MS - age) / NOTICE_FADE_MS);
+  ctx.fillStyle = RUST; fixedText(ctx, text, Math.round(NATIVE_W / 2 - (text.length * CELL) / 2), 12);
+  ctx.globalAlpha = 1;
 }
