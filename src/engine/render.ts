@@ -94,11 +94,23 @@ export function drawnEntities(eng: Engine, area: string = eng.currentArea()): En
   return [...eng.entities.values()].filter((r) => r.pos && r.pos.area === area && r.comps.has("sprite"));
 }
 
+/**
+ * Where an area's tile (0, 0) is drawn on the map, in pixels. An area smaller than the map is
+ * centred, whole tiles from the top-left, with black around it; a map-sized one is at (0, 0).
+ */
+export function areaOffsetPx(eng: Engine, area: string): { x: number; y: number } {
+  const s = eng.areaSize(area); if (!s) return { x: 0, y: 0 };
+  return { x: Math.floor((eng.width - s.w) / 2) * 16, y: Math.floor((eng.height - s.h) / 2) * 16 };
+}
+
 export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, NATIVE_W, NATIVE_H);
   const tick = eng.tickCount;
   const area = eng.currentArea();
+  // A smaller area is drawn centred: everything in tile space below shifts by `off`.
+  const off = areaOffsetPx(eng, area);
+  ctx.save(); ctx.translate(off.x, off.y);
   drawArea(ctx, eng, area);
   // Particles / float text
   for (const p of eng.particles) if (p.area === area) drawSprite(ctx, p.sprite, Math.round(p.x * 16), Math.round((p.y + 1) * 16), tick, { frame: p.frame });
@@ -107,6 +119,7 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
     ctx.font = "8px monospace"; ctx.fillStyle = f.color; ctx.globalAlpha = 1 - f.life / f.maxLife;
     drawFixedText(ctx, f.text, Math.round(f.x * 16), Math.round(f.y * 16), 5); ctx.globalAlpha = 1;
   }
+  ctx.restore();
   // Lighting: darkness with soft holes for lights
   const light = lightingAt(eng.hour);
   if (light.alpha > 0.01) {
@@ -117,7 +130,7 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
     dctx.globalCompositeOperation = "destination-out"; dctx.globalAlpha = 1;
     for (const r of lit) {
       const l = r.comps.get("light") as LightComp;
-      const rp = renderPos(r)!; const cx = rp.x * 16 + 8, cy = rp.y * 16 + 8;
+      const rp = renderPos(r)!; const cx = off.x + rp.x * 16 + 8, cy = off.y + rp.y * 16 + 8;
       const flick = l.flicker ? Math.sin(tick * 0.3 + r.id) * 3 * l.flicker : 0;
       const g = dctx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(4, l.radius + flick));
       g.addColorStop(0, `rgba(0,0,0,${Math.min(1, l.strength)})`); g.addColorStop(1, "rgba(0,0,0,0)");
@@ -128,16 +141,17 @@ export function render(ctx: CanvasRenderingContext2D, eng: Engine) {
     ctx.save(); ctx.globalCompositeOperation = "lighter";
     for (const r of lit) {
       const l = r.comps.get("light") as LightComp; const rp = renderPos(r)!;
-      const g = ctx.createRadialGradient(rp.x * 16 + 8, rp.y * 16 + 8, 2, rp.x * 16 + 8, rp.y * 16 + 8, l.radius);
+      const cx = off.x + rp.x * 16 + 8, cy = off.y + rp.y * 16 + 8;
+      const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, l.radius);
       g.addColorStop(0, "rgba(255,180,90,0.10)"); g.addColorStop(1, "rgba(255,180,90,0)");
-      ctx.fillStyle = g; ctx.fillRect(rp.x * 16 + 8 - l.radius, rp.y * 16 + 8 - l.radius, l.radius * 2, l.radius * 2);
+      ctx.fillStyle = g; ctx.fillRect(cx - l.radius, cy - l.radius, l.radius * 2, l.radius * 2);
     }
     ctx.restore();
   }
   // Screen tint
   if (eng.tint) { ctx.globalAlpha = eng.tint.alpha * (1 - eng.tint.t / eng.tint.max); ctx.fillStyle = eng.tint.color; ctx.fillRect(0, 0, NATIVE_W, MAP_PX_H); ctx.globalAlpha = 1; }
   // E prompt, then the overlay panel
-  drawPrompt(ctx, eng);
+  drawPrompt(ctx, eng, off);
   drawOverlay(ctx, eng);
   // Banner
   if (eng.banner) { ctx.globalAlpha = Math.min(1, eng.banner.t / 30); ctx.fillStyle = "rgba(20,24,14,0.75)"; ctx.fillRect(0, 6, NATIVE_W, 14); ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0"; ctx.textAlign = "center"; drawFixedText(ctx, eng.banner.text, NATIVE_W / 2 - (eng.banner.text.length * 5) / 2, 16, 5); ctx.textAlign = "left"; ctx.globalAlpha = 1; }
@@ -153,7 +167,7 @@ export function drawArea(ctx: CanvasRenderingContext2D, eng: Engine, area: strin
   const tick = eng.tickCount;
   const tiles = eng.areas.get(area)?.tiles;
   // Terrain
-  if (tiles) for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
+  if (tiles) for (let y = 0; y < tiles.length; y++) for (let x = 0; x < tiles[y].length; x++) drawSprite(ctx, tiles[y][x], x * 16, (y + 1) * 16, tick);
   // Entities with a sprite, by layer, then y, then z
   const recs = drawnEntities(eng, area);
   const spr = (r: EntRec) => r.comps.get("sprite") as SpriteComp;
@@ -185,11 +199,11 @@ export function drawArea(ctx: CanvasRenderingContext2D, eng: Engine, area: strin
 
 const TEXT_CELL = 5;
 /** The one-line E prompt, centred above the target tile, kept on the map. */
-function drawPrompt(ctx: CanvasRenderingContext2D, eng: Engine) {
+function drawPrompt(ctx: CanvasRenderingContext2D, eng: Engine, off: { x: number; y: number }) {
   const p = eng.prompt; if (!p || p.area !== eng.currentArea()) return;
   const w = p.text.length * TEXT_CELL + 8, h = 11;
-  const x = Math.max(1, Math.min(NATIVE_W - w - 1, Math.round(p.x * 16 + 8 - w / 2)));
-  let y = p.y * 16 - h - 3; if (y < 1) y = (p.y + 1) * 16 + 3; // no room above: draw below the tile
+  const x = Math.max(1, Math.min(NATIVE_W - w - 1, Math.round(off.x + p.x * 16 + 8 - w / 2)));
+  let y = off.y + p.y * 16 - h - 3; if (y < 1) y = off.y + (p.y + 1) * 16 + 3; // no room above: draw below the tile
   ctx.fillStyle = "rgba(20,24,14,0.82)"; ctx.fillRect(x, y, w, h);
   ctx.font = "8px monospace"; ctx.fillStyle = "#f2ecd0";
   drawFixedText(ctx, p.text, x + 4, y + 8, TEXT_CELL);

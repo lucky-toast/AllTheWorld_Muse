@@ -67,7 +67,7 @@ const OPS: Record<string, Record<string, FieldType>> = {
   "tile.set": { ...TILE, sprite: "name" }, "tile.stamp": { ...TILE, rows: "json", "exact?": "bool" }, "state.set": { value: "json" },
   emit: { name: "name", "payload?": "json" }, timer: { ticks: "int", name: "name" },
   focus: { mode: "name" }, release: {},
-  "area.create": { name: "name", fill: "name" }, "area.list": {}, "area.current": {},
+  "area.create": { name: "name", fill: "name", "w?": "int", "h?": "int" }, "area.list": {}, "area.current": {}, "area.size": { "area?": "name" },
   travel: { area: "name", x: "int", y: "int" },
   "fx.particles": { sprite: "name", ...TILE, "count?": "int" },
   "fx.float": { text: "text", ...TILE, "color?": "name" },
@@ -522,7 +522,7 @@ export class Host {
     this.checkShape(req, shape);
     const op = req.op;
     const area = this.resolveArea(req);
-    if ("x" in shape && op !== "tile.get" && op !== "at" && !eng.inMap(req.x as number, req.y as number)) deny("bad_request", `tile (${req.x}, ${req.y}) is outside the ${eng.width}x${eng.height} map`);
+    if ("x" in shape && op !== "tile.get" && op !== "at" && !eng.inArea(area, req.x as number, req.y as number)) { const s = eng.areaSize(area)!; deny("bad_request", `tile (${req.x}, ${req.y}) is outside ${area}, which is ${s.w}x${s.h} (x 0 to ${s.w - 1}, y 0 to ${s.h - 1})`); }
 
     // ---- 2. Phase ----
     if ((op.startsWith("sim.") || op === "check") && this.mode === "live") deny("phase", `${op} is only allowed while tests or shots run`);
@@ -604,7 +604,7 @@ export class Host {
     const eng = this.eng; const out = new Map<string, string[]>(); // what -> its tiles
     const add = (what: string, x: number, y: number) => { const l = out.get(what) ?? []; l.push(`(${x}, ${y})`); out.set(what, l); };
     for (const t of footprintTiles(sprite, pos.x, pos.y)) {
-      if (!eng.inMap(t.x, t.y)) { out.set("the map edge", []); continue; }
+      if (!eng.inArea(pos.area, t.x, t.y)) { out.set(`the edge of ${pos.area}`, []); continue; }
       if (!eng.isWalkable(pos.area, t.x, t.y)) { add(`unwalkable ${eng.tileAt(pos.area, t.x, t.y)}`, t.x, t.y); continue; }
       if (!blocking) continue;
       for (const id of eng.at(pos.area, t.x, t.y)) {
@@ -642,10 +642,10 @@ export class Host {
     return (this.offsetCache = out);
   }
   /** Top-left of the closest w x h block (from (x, y)) where `free(tx, ty)` holds for every cell that counts, or null. */
-  private nearestBlock(x: number, y: number, w: number, h: number, cellFree: (tx: number, ty: number, cx: number, cy: number) => boolean, exact: boolean): { x: number; y: number } | null {
+  private nearestBlock(area: string, x: number, y: number, w: number, h: number, cellFree: (tx: number, ty: number, cx: number, cy: number) => boolean, exact: boolean): { x: number; y: number } | null {
     const eng = this.eng;
     const ok = (ox: number, oy: number) => {
-      if (!eng.inMap(ox, oy) || !eng.inMap(ox + w - 1, oy + h - 1)) return false;
+      if (!eng.inArea(area, ox, oy) || !eng.inArea(area, ox + w - 1, oy + h - 1)) return false;
       for (let cy = 0; cy < h; cy++) for (let cx = 0; cx < w; cx++) if (!cellFree(ox + cx, oy + cy, cx, cy)) return false;
       return true;
     };
@@ -727,12 +727,12 @@ export class Host {
       case "info": return { type: rec!.type, pos: rec!.pos ? { ...rec!.pos } : null, tags: [...rec!.tags] };
       case "get": { const v = rec!.comps.get(req.comp as string); return v === undefined ? null : cloneJson(v); }
       case "tile.get": {
-        const id = eng.inMap(x, y) ? eng.tileAt(area, x, y) : null; if (id === null) return null;
+        const id = eng.tileAt(area, x, y); if (id === null) return null;
         return { sprite: id, tags: [...(catalogGet(id)?.tags ?? [])] };
       }
       case "tile.find": {
-        const out: { x: number; y: number; area: string }[] = []; const a = eng.areas.get(area)!;
-        for (let ty = 0; ty < eng.height; ty++) for (let tx = 0; tx < eng.width; tx++) if (catalogGet(a.tiles[ty][tx])?.tags.includes(req.tag as string)) out.push({ x: tx, y: ty, area });
+        const out: { x: number; y: number; area: string }[] = []; const a = eng.areas.get(area)!; const s = eng.areaSize(area)!;
+        for (let ty = 0; ty < s.h; ty++) for (let tx = 0; tx < s.w; tx++) if (catalogGet(a.tiles[ty][tx])?.tags.includes(req.tag as string)) out.push({ x: tx, y: ty, area });
         return out;
       }
       case "catalog.get": { const e = catalogGet(req.id as string); return e ? cloneJson(e) : null; }
@@ -743,12 +743,14 @@ export class Host {
       case "state.getReplaced": { const v = eng.systemState.get(req.id as string); return v === undefined ? null : cloneJson(v); }
       case "space.find": {
         const w = req.w as number, h = req.h as number;
-        if (w < 1 || h < 1 || w > eng.width || h > eng.height) deny("bad_request", `w and h must be 1 to ${eng.width} and 1 to ${eng.height}`);
-        const b = this.nearestBlock(x, y, w, h, (tx, ty) => eng.isFreeFor(area, tx, ty), false);
+        const s = eng.areaSize(area)!;
+        if (w < 1 || h < 1 || w > s.w || h > s.h) deny("bad_request", `w and h must be 1 to ${s.w} and 1 to ${s.h} (the size of ${area})`);
+        const b = this.nearestBlock(area, x, y, w, h, (tx, ty) => eng.isFreeFor(area, tx, ty), false);
         return b ? { ...b, area } : null;
       }
       case "area.list": return [...eng.areas.keys()];
       case "area.current": return eng.currentArea();
+      case "area.size": return eng.areaSize(area);
 
       // ---- writes ----
       case "spawn": {
@@ -808,7 +810,8 @@ export class Host {
       case "tile.stamp": {
         const rows = this.checkRows(req.rows);
         const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
-        if (w > eng.width || h > eng.height) deny("bad_request", `rows is at most ${eng.height} rows of ${eng.width}`);
+        const s = eng.areaSize(area)!;
+        if (w > s.w || h > s.h) deny("bad_request", `rows is at most ${s.h} rows of ${s.w} (the size of ${area})`);
         // A cell is free for its new terrain when no player, solid, pushable or item stands on it,
         // and, when the new terrain isn't walkable, nothing stands on it at all. null cells don't count.
         const cellFree = (tx: number, ty: number, cx: number, cy: number) => {
@@ -816,7 +819,7 @@ export class Host {
           const ids = eng.at(area, tx, ty);
           return this.walkableSprite(s) ? ids.every((id) => !this.blocks(eng.rec(id)!)) : ids.length === 0;
         };
-        const o = this.nearestBlock(x, y, w, h, cellFree, req.exact === true);
+        const o = this.nearestBlock(area, x, y, w, h, cellFree, req.exact === true);
         if (!o) deny("denied", req.exact === true ? `the ${w}x${h} block at (${x}, ${y}) isn't free (something stands where the terrain changes); leave out exact to let the host move it to the nearest free block` : `there's no free ${w}x${h} block anywhere in ${area}`);
         this.write(() => {
           const touched = new Set<number>();
@@ -844,7 +847,10 @@ export class Host {
         if (!this.walkableSprite(fill)) deny("bad_request", `"${fill}" isn't walkable terrain, so nothing could stand in the area; fill it with a walkable floor and tileStamp the rest`);
         const id = `${system}.${name}`;
         if (eng.areas.has(id)) deny("denied", `area "${id}" already exists`);
-        const tiles = Array.from({ length: eng.height }, () => Array.from({ length: eng.width }, () => fill));
+        // Any size up to the map's; leaving out w or h (or passing 0) means the map's width or height.
+        const w = (req.w as number | undefined) || eng.width, h = (req.h as number | undefined) || eng.height;
+        if (w < 1 || h < 1 || w > eng.width || h > eng.height) deny("bad_request", `an area is 1 to ${eng.width} tiles wide and 1 to ${eng.height} tall (0 means the map's size); got ${w}x${h}`);
+        const tiles = Array.from({ length: h }, () => Array.from({ length: w }, () => fill));
         this.write(() => { eng.createArea(id, tiles, system); return []; });
         return id;
       }

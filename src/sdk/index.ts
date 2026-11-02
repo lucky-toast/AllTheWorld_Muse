@@ -199,6 +199,12 @@ export class Info {
   tags: string[] = [];
 }
 
+/** A width and height in tiles. */
+export class Size {
+  w: i32 = 0;
+  h: i32 = 0;
+}
+
 /** A terrain tile: its sprite id and catalog tags. */
 export class Tile {
   sprite: string = "";
@@ -387,8 +393,24 @@ export function release(): bool { return done(op("release")); }
 // ---- areas ----
 
 /** Create an area filled with one walkable terrain sprite (catalog tag "walkable"; water, pits and
- *  cliffs are refused). Returns its id ("<system>.<name>"), or "". */
-export function areaCreate(name: string, fill: string): string { return request(op("area.create").str("name", name).str("fill", fill)).str(); }
+ *  cliffs are refused). Returns its id ("<system>.<name>"), or "".
+ *  `w` x `h` is its size in tiles: anything from 1x1 up to the main map's size (30x20). 0 (the
+ *  default) means the map's width or height. Make an area the size the place should be: a hut's
+ *  inside can be 8x6 and a hall 16x10. Tiles run from (0, 0) to (w - 1, h - 1); the screen shows a
+ *  smaller area centred with darkness around it, and its edge blocks like the map edge does.
+ *  Positions outside it are refused, so use areaSize to read the size back at run time. */
+export function areaCreate(name: string, fill: string, w: i32 = 0, h: i32 = 0): string {
+  const o = op("area.create").str("name", name).str("fill", fill);
+  if (w > 0) o.int("w", w); if (h > 0) o.int("h", h);
+  return request(o).str();
+}
+/** An area's size in tiles ("" means the player's current area); 0x0 for an unknown area. */
+export function areaSize(area: string = ""): Size {
+  const o = op("area.size"); if (area.length) o.str("area", area);
+  const r = request(o); const s = new Size();
+  if (r.isObject()) { s.w = r.get("w").int(); s.h = r.get("h").int(); }
+  return s;
+}
 /** Ids of every area. */
 export function areaList(): string[] { return request(op("area.list")).strs(); }
 /** The player's current area id. */

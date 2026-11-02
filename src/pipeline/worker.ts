@@ -2,7 +2,7 @@
 // recompiles at startup. The client's watchdog terminates it when a stage runs over.
 // Shots render here to an OffscreenCanvas with lighting, cropped around the focus and zoomed.
 import { handleMessage } from "./protocol";
-import { loadSheetBitmaps, render, setRenderBackend, NATIVE_W, MAP_PX_H } from "../engine/render";
+import { areaOffsetPx, loadSheetBitmaps, render, setRenderBackend, NATIVE_W, MAP_PX_H } from "../engine/render";
 import type { Host } from "../engine/host";
 import type { Shot } from "../engine/manifest";
 import type { ToWorker } from "./types";
@@ -26,8 +26,9 @@ async function renderShot(baseUrl: string, host: Host, shot: Shot): Promise<stri
   render(full.getContext("2d") as unknown as CanvasRenderingContext2D, host.eng);
   const T = TUNING.shotTilesW, H = TUNING.shotTilesH, Z = TUNING.shotZoom;
   const cw = T * 16, ch = H * 16;
-  const sx = Math.max(0, Math.min(NATIVE_W - cw, shot.focus.x * 16 + 8 - cw / 2));
-  const sy = Math.max(0, Math.min(MAP_PX_H - ch, shot.focus.y * 16 + 8 - ch / 2));
+  const off = areaOffsetPx(host.eng, host.eng.currentArea()); // a smaller area is drawn centred
+  const sx = Math.max(0, Math.min(NATIVE_W - cw, off.x + shot.focus.x * 16 + 8 - cw / 2));
+  const sy = Math.max(0, Math.min(MAP_PX_H - ch, off.y + shot.focus.y * 16 + 8 - ch / 2));
   const out = new OffscreenCanvas(cw * Z, ch * Z);
   const octx = out.getContext("2d")!;
   octx.imageSmoothingEnabled = false;

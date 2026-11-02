@@ -370,6 +370,27 @@ export function test_door(): void {
   expect(r.ok).toBe(true);
 });
 
+test("areaCreate makes a room smaller than the map, and areaSize reads it back", async () => {
+  const g = game();
+  const manifest = JSON.stringify({ id: "hut", why: "A small room to test area sizes with." });
+  const source = `import { areaCreate, areaSize, areaList, travel, playerPos, check, simWalk, simFace } from "sdk";
+export function migrate(): void {
+  if (!areaList().includes("hut.inside")) areaCreate("inside", "interior_floor_brown_plain", 8, 6);
+}
+export function test_room(): void {
+  const s = areaSize("hut.inside");
+  check(s.w == 8 && s.h == 6, "the room is 8x6");
+  check(travel("hut.inside", s.w - 1, 2), "travel to the east wall");
+  check(areaSize().w == 8, "areaSize() is the current area's");
+  simFace("right"); simWalk("right");
+  check(playerPos()!.x == s.w - 1, "the room's edge blocks");
+  check(!travel("hut.inside", 20, 2), "outside the room is refused");
+}`;
+  const r = await g.pipeline.checkSystem(manifest, source);
+  expect(reportText(r)).not.toContain("failed");
+  expect(r.ok).toBe(true);
+});
+
 test("each test has its own time limit, and a timeout names the test that ran over", async () => {
   const slow = (): WorkerLike => {
     let handler: ((m: FromWorker) => void) | null = null;

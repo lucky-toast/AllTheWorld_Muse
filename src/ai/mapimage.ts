@@ -32,9 +32,15 @@ export function mapAreas(eng: Engine): string[] {
   return [current, ...newestFirst].slice(0, LIMITS.MAP_IMAGE_MAX_AREAS);
 }
 
-/** Size of one map image in pixels. */
-export function mapSize(eng: Engine): { w: number; h: number } {
-  return { w: MAP_MARGIN_LEFT + eng.width * MAP_CELL_PX + 1, h: MAP_MARGIN_TOP + eng.height * MAP_CELL_PX + 1 };
+/** An area's size in tiles (the map's for an unknown area). */
+function tilesOf(eng: Engine, area: string): { w: number; h: number } {
+  return eng.areaSize(area) ?? { w: eng.width, h: eng.height };
+}
+
+/** Size of one map image in pixels: an area smaller than the map gets a smaller image. */
+export function mapSize(eng: Engine, area: string = eng.currentArea()): { w: number; h: number } {
+  const t = tilesOf(eng, area);
+  return { w: MAP_MARGIN_LEFT + t.w * MAP_CELL_PX + 1, h: MAP_MARGIN_TOP + t.h * MAP_CELL_PX + 1 };
 }
 
 /** Pixel position of tile (x, y)'s top-left corner in a map image. */
@@ -44,18 +50,19 @@ export function tilePx(x: number, y: number): { px: number; py: number } {
 
 /** Draw one area's map. Pure in the world: nothing in the engine changes. */
 export function renderMap(eng: Engine, area: string, make: CanvasMaker = domCanvas): CanvasLike {
-  const world = make(eng.width * MAP_TILE_PX, eng.height * MAP_TILE_PX);
+  const t = tilesOf(eng, area);
+  const world = make(t.w * MAP_TILE_PX, t.h * MAP_TILE_PX);
   const wctx = world.getContext("2d") as CanvasRenderingContext2D;
   drawArea(wctx, eng, area, true);
 
-  const { w, h } = mapSize(eng);
+  const { w, h } = mapSize(eng, area);
   const out = make(w, h);
   const ctx = out.getContext("2d") as CanvasRenderingContext2D;
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = MARGIN_COLOR; ctx.fillRect(0, 0, w, h);
   // The grid: one colour behind the whole map; each tile is copied into its cell, leaving 1 px lines.
   ctx.fillStyle = GRID_COLOR; ctx.fillRect(MAP_MARGIN_LEFT, MAP_MARGIN_TOP, w - MAP_MARGIN_LEFT, h - MAP_MARGIN_TOP);
-  for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) {
+  for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) {
     const { px, py } = tilePx(x, y);
     ctx.drawImage(world as CanvasImageSource, x * MAP_TILE_PX, y * MAP_TILE_PX, MAP_TILE_PX, MAP_TILE_PX, px, py, MAP_TILE_PX, MAP_TILE_PX);
   }
@@ -64,8 +71,8 @@ export function renderMap(eng: Engine, area: string, make: CanvasMaker = domCanv
   ctx.font = "bold 10px monospace"; ctx.textAlign = "left";
   ctx.fillText(`area ${area}`, 2, MAP_LABEL_H / 2 + 1);
   ctx.font = "9px monospace"; ctx.textAlign = "center";
-  for (let x = 0; x < eng.width; x++) ctx.fillText(String(x), tilePx(x, 0).px + MAP_TILE_PX / 2, MAP_LABEL_H + MAP_NUMBERS_H / 2 + 1);
-  for (let y = 0; y < eng.height; y++) ctx.fillText(String(y), MAP_MARGIN_LEFT / 2, tilePx(0, y).py + MAP_TILE_PX / 2 + 1);
+  for (let x = 0; x < t.w; x++) ctx.fillText(String(x), tilePx(x, 0).px + MAP_TILE_PX / 2, MAP_LABEL_H + MAP_NUMBERS_H / 2 + 1);
+  for (let y = 0; y < t.h; y++) ctx.fillText(String(y), MAP_MARGIN_LEFT / 2, tilePx(0, y).py + MAP_TILE_PX / 2 + 1);
   return out;
 }
 

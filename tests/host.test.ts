@@ -222,6 +222,47 @@ describe("areas and travel", () => {
     expect(eng.validateOccupancy()).toBe(true);
     expect(call({ op: "area.list" })).toEqual({ ok: true, r: [BASE_AREA, "tester.cave", "tester.room"] });
   });
+  test("an area can be smaller than the map: its edge blocks, and positions outside it are refused", () => {
+    const { call, eng, player } = setup();
+    expect(call({ op: "area.create", name: "hut", fill: "interior_floor_brown_plain", w: 8, h: 6 })).toEqual({ ok: true, r: "tester.hut" });
+    expect(eng.areaSize("tester.hut")).toEqual({ w: 8, h: 6 });
+    expect(call({ op: "area.size", area: "tester.hut" })).toEqual({ ok: true, r: { w: 8, h: 6 } });
+    expect(call({ op: "area.size" })).toEqual({ ok: true, r: { w: 30, h: 20 } });
+    // Left out, or 0, means the map's size; bigger than the map, or negative, is refused.
+    call({ op: "area.create", name: "field", fill: "grass", w: 0 });
+    expect(eng.areaSize("tester.field")).toEqual({ w: 30, h: 20 });
+    denied(call({ op: "area.create", name: "huge", fill: "grass", w: 31, h: 5 }), "bad_request");
+    denied(call({ op: "area.create", name: "neg", fill: "grass", w: -2, h: 5 }), "bad_request");
+    // Inside works; outside is refused with the area's size.
+    expect(call({ op: "spawn", type: "crate", x: 7, y: 5, area: "tester.hut" })).toMatchObject({ ok: true });
+    const out = call({ op: "spawn", type: "crate", x: 8, y: 2, area: "tester.hut", exact: true });
+    expect(out).toMatchObject({ ok: false, code: "bad_request" });
+    expect(JSON.stringify(out)).toContain("8x6");
+    denied(call({ op: "tile.set", x: 10, y: 10, area: "tester.hut", sprite: "grass" }), "bad_request");
+    expect(call({ op: "tile.get", x: 10, y: 1, area: "tester.hut" })).toEqual({ ok: true, r: null });
+    expect(call({ op: "at", x: 10, y: 1, area: "tester.hut" })).toEqual({ ok: true, r: [] });
+    // Tile and space searches stay inside it.
+    const floors = call({ op: "tile.find", tag: "floor", area: "tester.hut" }) as { r: { x: number; y: number }[] };
+    expect(floors.r).toHaveLength(48);
+    denied(call({ op: "space.find", x: 0, y: 0, w: 9, h: 2, area: "tester.hut" }), "bad_request");
+    const sp = call({ op: "space.find", x: 7, y: 5, w: 3, h: 3, area: "tester.hut" }) as { r: { x: number; y: number } };
+    expect(sp.r.x + 3).toBeLessThanOrEqual(8); expect(sp.r.y + 3).toBeLessThanOrEqual(6);
+    // A stamp that would reach past the edge is moved inside; one bigger than the area is refused.
+    const st = call({ op: "tile.stamp", x: 6, y: 4, area: "tester.hut", rows: [["grass", "grass", "grass"], ["grass", "grass", "grass"]] }) as { r: { x: number; y: number } };
+    expect(st.r.x + 3).toBeLessThanOrEqual(8); expect(st.r.y + 2).toBeLessThanOrEqual(6);
+    denied(call({ op: "tile.stamp", x: 0, y: 0, area: "tester.hut", rows: [Array(9).fill("grass")] }), "bad_request");
+    // Travel in, then the edge blocks walking out like the map edge does.
+    expect(call({ op: "travel", area: "tester.hut", x: 0, y: 0 })).toMatchObject({ ok: true });
+    expect(eng.isWalkable("tester.hut", 0, 0)).toBe(true);
+    expect(eng.isWalkable("tester.hut", 8, 0)).toBe(false);
+    expect(eng.isWalkable("tester.hut", 0, 6)).toBe(false);
+    expect(player.pos).toEqual({ x: 0, y: 0, area: "tester.hut" });
+    denied(call({ op: "travel", area: "tester.hut", x: 12, y: 3 }), "bad_request");
+    // Sizes survive a save and load.
+    const copy = buildWorld(); copy.deserialize(eng.serialize());
+    expect(copy.areaSize("tester.hut")).toEqual({ w: 8, h: 6 });
+    expect(eng.validateOccupancy()).toBe(true);
+  });
   test("travel to a blocked tile is denied", () => {
     const { call, player } = setup();
     denied(call({ op: "travel", area: BASE_AREA, x: 5, y: 16 })); // stream

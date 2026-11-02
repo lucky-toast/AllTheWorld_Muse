@@ -107,17 +107,31 @@ export class Engine {
   }
 
   // ======================= areas & tiles =======================
-  /** Create an area from a full tile grid. Journaled. */
+  /**
+   * Create an area from a tile grid: `tiles[y][x]`, every row the same length. An area can be
+   * smaller than the map (the map size is the upper limit); tiles outside it don't exist. Journaled.
+   */
   createArea(id: string, tiles: string[][], owner: string): Area {
     if (this.areas.has(id)) throw new Error(`area ${id} exists`);
+    const w = tiles[0]?.length ?? 0;
+    if (tiles.length < 1 || tiles.length > this.height || w < 1 || w > this.width || tiles.some((r) => r.length !== w))
+      throw new Error(`area ${id} must be a grid of 1 to ${this.height} rows of 1 to ${this.width} tiles, every row the same length`);
     const a: Area = { id, owner, tiles: tiles.map((r) => [...r]) };
     this.areas.set(id, a); this.occupancy.set(id, new Map());
     this.record(() => { this.areas.delete(id); this.occupancy.delete(id); });
     return a;
   }
   inMap(x: number, y: number) { return x >= 0 && y >= 0 && x < this.width && y < this.height && Number.isInteger(x) && Number.isInteger(y); }
+  /** An area's size in tiles (at most the map's), or null for an unknown area. */
+  areaSize(area: string): { w: number; h: number } | null {
+    const a = this.areas.get(area); return a ? { w: a.tiles[0]?.length ?? 0, h: a.tiles.length } : null;
+  }
+  /** Whether (x, y) is a tile of `area`. Areas start at (0, 0) and can be smaller than the map. */
+  inArea(area: string, x: number, y: number): boolean {
+    const s = this.areaSize(area); return !!s && this.inMap(x, y) && x < s.w && y < s.h;
+  }
   tileAt(area: string, x: number, y: number): string | null {
-    const a = this.areas.get(area); if (!a || !this.inMap(x, y)) return null; return a.tiles[y][x];
+    if (!this.inArea(area, x, y)) return null; return this.areas.get(area)!.tiles[y][x];
   }
   /** Set a terrain tile. Journaled. */
   setTile(area: string, x: number, y: number, sprite: string) {
@@ -125,7 +139,7 @@ export class Engine {
     a.tiles[y][x] = sprite;
     this.record(() => { a.tiles[y][x] = old; });
   }
-  /** Walkable terrain: in the map, tagged walkable and not water. The map edge always blocks. */
+  /** Walkable terrain: in the area, tagged walkable and not water. The area's edge always blocks. */
   isWalkable(area: string, x: number, y: number): boolean {
     const id = this.tileAt(area, x, y); if (id === null) return false;
     const e = catalogGet(id); if (!e) return false;

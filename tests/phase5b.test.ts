@@ -12,6 +12,7 @@ import { LiveLoader } from "../src/pipeline/live";
 import { LocalStore, type ModuleCache } from "../src/pipeline/store";
 import { buildPrompt, runStep, MAP_IMAGE_NOTE } from "../src/ai/designer";
 import { mapAreas, mapSize, renderMaps, type CanvasLike } from "../src/ai/mapimage";
+import { areaOffsetPx } from "../src/engine/render";
 import { outgoingText, type AiProvider, type ChatMessage } from "../src/ai/provider";
 import { LIMITS } from "../src/tuning";
 
@@ -68,6 +69,17 @@ describe("map images", () => {
     host.addSystem({ id: "mover" }, false);
     expect(host.call("mover", { op: "travel", area: "tester.a2", x: 5, y: 5 }).ok).toBe(true);
     expect(mapAreas(eng)).toEqual(["tester.a2", "tester.a5", "tester.a4", "tester.a3"]);
+  });
+
+  test("a smaller area gets a smaller map image", () => {
+    const { eng, ok } = setup();
+    ok({ op: "area.create", name: "hut", fill: "grass", w: 8, h: 6 });
+    const hut = renderMaps(eng, fakeCanvas).find((m) => m.area === "tester.hut")!;
+    expect([hut.canvas.width, hut.canvas.height]).toEqual([mapSize(eng, "tester.hut").w, mapSize(eng, "tester.hut").h]);
+    expect(mapSize(eng, "tester.hut").w).toBe(16 + 8 * 17 + 1);
+    // On screen it's centred on whole tiles, with darkness around it.
+    expect(areaOffsetPx(eng, "tester.hut")).toEqual({ x: 11 * 16, y: 7 * 16 });
+    expect(areaOffsetPx(eng, BASE_AREA)).toEqual({ x: 0, y: 0 });
   });
 
   test("rendering a map changes nothing in the world", () => {
