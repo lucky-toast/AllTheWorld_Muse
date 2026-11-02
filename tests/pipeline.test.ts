@@ -409,7 +409,7 @@ export function test_dawn(): void {
   const text = reportText(r);
   expect(r.ok).toBe(false);
   // The handler is named, not the test, and the message says what the fuel went on.
-  expect(text).toContain("greedy.test_dawn failed: it threw: greedy.onEvent ran out of fuel (50000000 units) after");
+  expect(text).toContain("greedy.test_dawn failed: it threw: greedy.onEvent ran out of fuel (200000000 units) after");
   expect(text).toMatch(/SDK calls \(info \d+/);
   expect(text).not.toContain("test_dawn ran out of fuel");
   // What the rolled-back handler emitted is marked as undone.

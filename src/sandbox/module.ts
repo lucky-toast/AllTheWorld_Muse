@@ -216,7 +216,7 @@ class Runner {
     if (outer) outer.acc.remaining = outer.runner.fuel!.value as bigint; // the paused caller's fuel, up to date
     const txn = this.host.transactionId;
     const shared = !!outer && txn !== 0 && outer.acc.txn === txn && outer.acc.host === this.host && !CHECK_KINDS.has(kind);
-    const limit = BigInt(CHECK_KINDS.has(kind) ? LIMITS.fuelCheck : LIMITS.fuelLive);
+    const limit = BigInt(CHECK_KINDS.has(kind) ? LIMITS.fuelCheck : kind === "onTick" ? LIMITS.fuelLive : LIMITS.fuelEvent);
     const acc: Account = shared ? outer.acc : { remaining: limit, limit, txn, host: this.host, ops: new Map() };
     frames.push({ runner: this, acc });
     fuel.value = acc.remaining;
