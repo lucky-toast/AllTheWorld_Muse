@@ -168,6 +168,21 @@ describe("transactions (4.4)", () => {
   });
 });
 
+describe("sim.events", () => {
+  test("include migrate's events, marked, then the test's own", () => {
+    const { host, call } = setup();
+    call({ op: "emit", name: "tester.ping", payload: { n: 1 } }); // as if from migrate, before the test
+    let seen: unknown = null;
+    host.systems.get("tester")!.module.test_x = () => {
+      call({ op: "emit", name: "tester.ping", payload: { n: 2 } });
+      seen = call({ op: "sim.events", name: "tester.ping" });
+      call({ op: "check", cond: true, label: "ran" });
+    };
+    expect(host.runTest("tester", "x").passed).toBe(true);
+    expect(seen).toMatchObject({ ok: true, r: [{ payload: { n: 1 }, during: "migrate" }, { payload: { n: 2 }, during: "test" }] });
+  });
+});
+
 describe("areas and travel", () => {
   test("area.create, spawn into it, and travel to a free tile", () => {
     const { call, eng, player } = setup();

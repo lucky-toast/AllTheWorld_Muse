@@ -448,7 +448,11 @@ export function simTime(phase: string): bool { return done(op("sim.time").str("p
 export function simTimeHour(hour: f64): bool { return done(op("sim.time").num("phaseOrHour", hour)); }
 /** Send a key ("up", "down", "left", "right", "e", "q", "escape") "down" or "up", then run one tick. */
 export function simKey(key: string, kind: string): bool { return done(op("sim.key").str("key", key).str("kind", kind)); }
-/** Events fired since the test started (all, or only `name`): a JSON array of { tick, name, payload }. */
+/** Events fired since the world was built (all, or only `name`): a JSON array of
+ *  { tick, name, payload, during }. `during` is "migrate" for events fired while the world was set
+ *  up (every system's migrate, before the test began) and "test" for the rest, so a check like
+ *  "x.placed fired once" sees migrate's announcement. Count only during == "test" to check what
+ *  the test's own actions caused. */
 export function simEvents(name: string = ""): Json { const o = op("sim.events"); if (name.length) o.str("name", name); return request(o); }
 /** Record a named check. A test passes only if every check passed and at least one ran. Cover the
  *  cases where your action should do nothing, too. */

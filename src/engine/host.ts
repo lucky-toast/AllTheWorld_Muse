@@ -31,7 +31,7 @@ export interface DenialEntry { tick: number; system: string; op: string; code: C
 /** A spawn or place that didn't go where it was asked, because something was in the way there. */
 export interface RelocationEntry { tick: number; system: string; op: string; what: string; asked: Pos; placed: Pos; inTheWay: string }
 export interface NearLimitEntry { tick: number; system: string; limit: string; used: number; max: number }
-export interface EventEntry { tick: number; name: string; payload: Record<string, unknown> }
+export interface EventEntry { tick: number; name: string; payload: Record<string, unknown>; during?: "migrate" | "test" }
 /** Two systems wrote the same entity while handling one event (logged, never failed). */
 export interface OverlapEntry { tick: number; event: string; entity: number; systems: string[] }
 /** A handler call that threw and was rolled back. */
@@ -411,7 +411,7 @@ export class Host {
   private deliver(name: string, payload: Record<string, unknown>) {
     const entry = { tick: this.eng.tickCount, name, payload };
     this.events.push(entry); if (this.events.length > LIMITS.eventLogMax) this.events.shift();
-    this.capture?.events.push(entry);
+    this.capture?.events.push({ ...entry, during: "test" });
     if ((name === "player.moved" || name === "player.blocked") && this.lastAttemptTick !== this.eng.tickCount) { this.lastAttemptTick = this.eng.tickCount; this.stepAttempts++; }
     const reactors = this.registry.reactors(name); if (!reactors.length) return;
     const json = JSON.stringify(payload);
@@ -471,7 +471,9 @@ export class Host {
   runTest(system: string, name: string): { passed: boolean; checks: { label: string; passed: boolean }[]; events: EventEntry[]; error: string | null } {
     const sys = this.systems.get(system);
     const fn = sys?.module[`test_${name}`];
-    const capture: TestCapture = { checks: [], events: [] };
+    // Events from before the test (world setup: every system's migrate) count too, marked as such,
+    // so a test can check what its migrate announced.
+    const capture: TestCapture = { checks: [], events: this.events.map((e) => ({ ...e, during: "migrate" as const })) };
     const mode = this.mode; this.mode = "test"; this.capture = capture;
     let error: string | null = null;
     try { if (!fn) throw new Error(`"${system}" has no test_${name}`); fn.call(sys!.module); }
