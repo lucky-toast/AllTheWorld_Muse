@@ -34,6 +34,10 @@ export interface EventEntry { tick: number; name: string; payload: Record<string
 export interface OverlapEntry { tick: number; event: string; entity: number; systems: string[] }
 /** A handler call that threw and was rolled back. */
 export interface FaultEntry { tick: number; system: string; kind: CallKind; msg: string }
+/** A strike against an AI system (spec 10.4): a fault during live play. `count` is strikes in the window. */
+export interface StrikeEntry { tick: number; system: string; msg: string; count: number }
+/** Systems unloaded together after too many strikes (the struck system first, then its dependents). */
+export interface UnloadEntry { tick: number; ids: string[]; reason: string }
 /** What the running test has recorded (checks and every event since it started). */
 export interface TestCapture { checks: { label: string; passed: boolean }[]; events: EventEntry[] }
 
@@ -91,7 +95,7 @@ function isPlainJson(v: unknown, depth = 0): boolean {
 }
 function utf8Len(s: string): number { return s.length * 3 <= LIMITS.requestBytes ? s.length : new TextEncoder().encode(s).length; }
 
-interface Txn { system: string; kind: CallKind; effects: (() => void)[] }
+interface Txn { id: number; system: string; kind: CallKind; effects: (() => void)[] }
 interface EmitFrame { event: string; writes: Map<number, Set<string>> }
 
 export class Host {
@@ -111,11 +115,16 @@ export class Host {
   events: EventEntry[] = [];
   overlaps: OverlapEntry[] = [];
   faults: FaultEntry[] = [];
+  strikes: StrikeEntry[] = [];
+  unloads: UnloadEntry[] = [];
   /** The running test's checks and events, or null outside tests. */
   capture: TestCapture | null = null;
-  /** Called when a transaction rolls back (strikes arrive in Phase 3). */
+  /** Called when a transaction rolls back (after the fault is logged, before any strike). */
   onFault: ((system: string, kind: CallKind, message: string) => void) | null = null;
   private txn: Txn | null = null;
+  private txnCounter = 0;
+  /** Recent strike ticks per system, inside the strike window. */
+  private strikeTicks = new Map<string, number[]>();
   private emitDepth = 0;
   private emitFrames: EmitFrame[] = [];
   /** Ticks on which the player tried a step (player.moved or player.blocked fired), for sim.walk. */
@@ -153,7 +162,7 @@ export class Host {
     const sys: LoadedSystem = { id: manifest.id, manifest, base: def.base, def, module: {} };
     this.systems.set(sys.id, sys);
     this.rebuildRegistry();
-    sys.module = def.create((req) => this.call(sys.id, req));
+    sys.module = def.create((req) => this.call(sys.id, req), this);
     if (sys.module.migrate) {
       const r = this.invoke(sys.id, "migrate", () => sys.module.migrate!());
       if (!r.ok) {
@@ -189,7 +198,7 @@ export class Host {
   /** Shift+R: rebuild the registry and re-create every loaded module, keeping the world. Nothing is migrated or duplicated. */
   reloadSystems() {
     this.rebuildRegistry();
-    for (const sys of this.systems.values()) sys.module = sys.def.create((req) => this.call(sys.id, req));
+    for (const sys of this.systems.values()) sys.module = sys.def.create((req) => this.call(sys.id, req), this);
   }
 
   private rebuildRegistry() {
@@ -205,7 +214,7 @@ export class Host {
     if (this.txn) { fn(); return { ok: true }; } // nested (an emit reaching another system): part of the outer transaction
     this.syncCounters();
     this.calls.clear();
-    const txn: Txn = { system, kind, effects: [] };
+    const txn: Txn = { id: ++this.txnCounter, system, kind, effects: [] };
     this.txn = txn; this.eng.journal = [];
     const depth = this.emitDepth; const frames = this.emitFrames.length;
     try { fn(); }
@@ -219,6 +228,7 @@ export class Host {
       // The holder faulted: the engine takes the controls back.
       this.focus.endIfHolder(who, "fault");
       this.onFault?.(who, kind, msg);
+      if (this.mode === "live" && kind !== "migrate") this.strike(who, msg);
       return { ok: false, error: msg };
     }
     this.eng.journal = null; this.txn = null;
@@ -226,6 +236,42 @@ export class Host {
     return { ok: true };
   }
   get inTransaction() { return this.txn !== null; }
+  /** Id of the open transaction (unique per host), or 0 when none is open. Nested calls share it. */
+  get transactionId(): number { return this.txn?.id ?? 0; }
+
+  // ======================= strikes (10.4) =======================
+  /** A fault during live play counts as a strike against an AI system. Three in a minute unload it and its dependents. */
+  private strike(system: string, msg: string) {
+    const sys = this.systems.get(system); if (!sys || sys.base) return;
+    const now = this.eng.tickCount;
+    const ticks = (this.strikeTicks.get(system) ?? []).filter((t) => now - t < LIMITS.strikeWindowTicks);
+    ticks.push(now); this.strikeTicks.set(system, ticks);
+    this.pushLog(this.strikes, { tick: now, system, msg, count: ticks.length });
+    if (ticks.length >= LIMITS.strikesToUnload) { this.strikeTicks.delete(system); this.unloadWithDependents(system, "strikes"); }
+  }
+
+  /** Every loaded system that builds on `id`, directly or through others, in load order. */
+  dependentsOf(id: string): string[] {
+    const out = new Set<string>([id]);
+    for (const s of this.systems.values()) if (s.manifest.buildsOn.some((b) => out.has(b))) out.add(s.id);
+    out.delete(id);
+    return [...out];
+  }
+
+  /** Unload a system and everything that builds on it (dependents first), with a banner. Their entities stay. */
+  unloadWithDependents(id: string, reason: string) {
+    if (!this.systems.has(id)) return;
+    const ids = [id, ...this.dependentsOf(id)];
+    for (const x of [...ids].reverse()) this.unload(x, reason);
+    this.pushLog(this.unloads, { tick: this.eng.tickCount, ids, reason });
+    const text = `${id} kept failing and was removed`;
+    this.eng.banner = { text: text.length <= LIMITS.textMaxChars ? text : "A system kept failing and was removed", t: TUNING.bannerTicks };
+  }
+
+  /** Log a system that used more than half of a limit in one call (the sandbox reports fuel this way). */
+  logNearLimit(system: string, limit: string, used: number, max: number) {
+    if (used > max * LIMITS.nearLimitShare) this.pushLog(this.nearLimits, { tick: this.eng.tickCount, system, limit, used, max });
+  }
 
   /** Call one handler of a loaded system as a transaction (or inside the open one). A missing handler does nothing. */
   callHandler(system: string, kind: CallKind, fn: (m: SystemModule) => void): { ok: true } | { ok: false; error: string } {

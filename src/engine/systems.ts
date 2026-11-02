@@ -2,7 +2,7 @@
 // objects; AI systems (Phase 3) are WebAssembly modules wrapped to the same shape.
 // Both reach the world only through the `call` they are given, bound to their id.
 import type { Manifest } from "./manifest";
-import type { Request, Response } from "./host";
+import type { Host, Request, Response } from "./host";
 
 /** host.call bound to one system id. */
 export type HostCall = (request: Request) => Response;
@@ -30,8 +30,11 @@ export interface SystemDef {
   manifest: unknown;
   /** Base systems are trusted TypeScript and may use the engine's reserved event prefixes. */
   base: boolean;
-  /** Create the module. Called on every load and on Shift+R; module globals never survive it. */
-  create(call: HostCall): SystemModule;
+  /**
+   * Create the module. Called on every load and on Shift+R; module globals never survive it.
+   * `host` is for the sandbox adapter's bookkeeping (fuel accounts, logs); a module reaches the world only through `call`.
+   */
+  create(call: HostCall, host: Host): SystemModule;
 }
 
 /** A system loaded into a host: validated, frozen manifest plus its live module. */
