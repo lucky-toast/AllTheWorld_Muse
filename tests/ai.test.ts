@@ -69,6 +69,9 @@ describe("companion files", () => {
     expect(docOf("spawn")).toContain("registered");
     expect(docOf("catalogGet")).toContain("ONE entity");
     expect(docOf("rand")).toContain("Math.random");
+    expect(docOf("spawn")).toContain("posOf(id)");
+    expect(docOf("simTime")).toContain("one tick");
+    expect(docOf("areaCreate")).toContain("walkable");
     // Base systems give a one-line shape for every component they own; it's what the designer sees.
     const comps = Object.assign({}, ...BASE_SYSTEMS.map((s) => (s.manifest as { components?: Record<string, string> }).components ?? {})) as Record<string, string>;
     for (const c of ["facing", "held", "light", "moveDelay"]) {

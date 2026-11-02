@@ -190,6 +190,8 @@ function runOne(build: () => Engine, entries: Entry[], system: string, name: str
   return {
     message: `${test} failed: ${why}${extra}`, test, checks: r.checks, events: r.events.slice(-LIMITS.eventLogMax),
     denied: host.denials.slice(d0).filter((x) => x.system === system).map((x) => ({ op: x.op, code: x.code, msg: x.msg })),
+    // From the start, migrate included: a spawn moved there is what a test's fixed coordinates miss.
+    moved: host.relocations.filter((x) => x.system === system).map((x) => ({ op: x.op, what: x.what, asked: x.asked, placed: x.placed, inTheWay: x.inTheWay })),
     entities: entitiesOf(host, system),
   };
 }

@@ -28,6 +28,8 @@ export type HostMode = "live" | "test" | "shot";
 export type CallKind = "perform" | "onEvent" | "onTick" | "onTimer" | "onInput" | "onTween" | "migrate" | "test" | "shot";
 
 export interface DenialEntry { tick: number; system: string; op: string; code: Code; msg: string }
+/** A spawn or place that didn't go where it was asked, because something was in the way there. */
+export interface RelocationEntry { tick: number; system: string; op: string; what: string; asked: Pos; placed: Pos; inTheWay: string }
 export interface NearLimitEntry { tick: number; system: string; limit: string; used: number; max: number }
 export interface EventEntry { tick: number; name: string; payload: Record<string, unknown> }
 /** Two systems wrote the same entity while handling one event (logged, never failed). */
@@ -118,6 +120,8 @@ export class Host {
   /** Successions made by `load` in this host: new id -> the systems it retired and the load order before. `forget` undoes them. */
   private successions = new Map<string, { retired: LoadedSystem[]; order: string[] }>();
   denials: DenialEntry[] = [];
+  /** Spawns and places the host moved to the nearest free spot (failure reports show them). */
+  relocations: RelocationEntry[] = [];
   nearLimits: NearLimitEntry[] = [];
   events: EventEntry[] = [];
   overlaps: OverlapEntry[] = [];
@@ -588,13 +592,31 @@ export class Host {
    * position in the area where it fits (by distance from (x, y), then top to bottom, left to right).
    * With exact, (x, y) or a denial.
    */
-  private placement(what: string, sprite: string, blocking: boolean, pos: Pos, exact: boolean, selfId = 0): Pos {
+  /** What keeps `sprite` from fitting at `pos`, e.g. "tree_round#12 at (23, 6)" or "unwalkable stream_h at (4, 16)". */
+  private inTheWay(sprite: string, blocking: boolean, pos: Pos, selfId: number): string {
+    const eng = this.eng; const out = new Map<string, string[]>(); // what -> its tiles
+    const add = (what: string, x: number, y: number) => { const l = out.get(what) ?? []; l.push(`(${x}, ${y})`); out.set(what, l); };
+    for (const t of footprintTiles(sprite, pos.x, pos.y)) {
+      if (!eng.inMap(t.x, t.y)) { out.set("the map edge", []); continue; }
+      if (!eng.isWalkable(pos.area, t.x, t.y)) { add(`unwalkable ${eng.tileAt(pos.area, t.x, t.y)}`, t.x, t.y); continue; }
+      if (!blocking) continue;
+      for (const id of eng.at(pos.area, t.x, t.y)) {
+        if (id === selfId) continue; const r = eng.entities.get(id)!;
+        if (BLOCKERS.some((b) => eng.has(r, b))) add(`${r.type}#${r.id}`, t.x, t.y);
+      }
+    }
+    return [...out].map(([what, tiles]) => tiles.length ? `${what} at ${tiles.join(", ")}` : what).join("; ");
+  }
+  private placement(what: string, sprite: string, blocking: boolean, pos: Pos, exact: boolean, selfId = 0, system = "", op = ""): Pos {
     if (this.fits(sprite, blocking, pos, selfId)) return pos;
     const fp = footprintOf(sprite); const size = `${fp.w}x${fp.h}`;
     if (exact) deny("denied", `(${pos.x}, ${pos.y}) isn't free for ${what} (${size} footprint, extending up from x, y); leave out exact to let the host use the nearest free spot`);
     for (const [dx, dy] of this.offsets()) {
       const p = { x: pos.x + dx, y: pos.y + dy, area: pos.area };
-      if (this.eng.inMap(p.x, p.y) && this.fits(sprite, blocking, p, selfId)) return p;
+      if (this.eng.inMap(p.x, p.y) && this.fits(sprite, blocking, p, selfId)) {
+        this.pushLog(this.relocations, { tick: this.eng.tickCount, system, op, what, asked: { ...pos }, placed: { ...p }, inTheWay: this.inTheWay(sprite, blocking, pos, selfId) });
+        return p;
+      }
     }
     return deny("denied", `there's no free spot for ${what} (${size} footprint) anywhere in ${pos.area}`);
   }
@@ -725,7 +747,7 @@ export class Host {
         const live = (eng.ownedCount.get(system) ?? 0) + 1;
         if (live > LIMITS.liveEntitiesPerSystem) deny("limit", `over ${LIMITS.liveEntitiesPerSystem} live entities spawned by "${system}"`);
         const t = eng.types.get(type)!;
-        const at = this.placement(`a ${type}`, t.sprite, t.tags.some((g) => BLOCKERS.includes(g)), pos(), req.exact === true);
+        const at = this.placement(`a ${type}`, t.sprite, t.tags.some((g) => BLOCKERS.includes(g)), pos(), req.exact === true, 0, system, "spawn");
         let id = 0;
         this.write(() => { const r = eng.spawn(type, at, system); id = r.id; return [r]; });
         this.noteWrite(system, id);
@@ -738,7 +760,7 @@ export class Host {
       case "move": this.write(() => { eng.setPos(rec!.id, pos(), req.instant !== true); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
       case "lift": this.write(() => { eng.setPos(rec!.id, null); return [rec!]; }); this.noteWrite(system, rec!.id); return null;
       case "place": {
-        const at = this.placement(`${rec!.type}#${rec!.id}`, eng.spriteIdOf(rec!), this.blocks(rec!), pos(), req.exact === true, rec!.id);
+        const at = this.placement(`${rec!.type}#${rec!.id}`, eng.spriteIdOf(rec!), this.blocks(rec!), pos(), req.exact === true, rec!.id, system, "place");
         this.write(() => { eng.setPos(rec!.id, at); return [rec!]; }); this.noteWrite(system, rec!.id);
         return { ...at };
       }

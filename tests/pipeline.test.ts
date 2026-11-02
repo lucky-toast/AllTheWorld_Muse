@@ -125,6 +125,16 @@ test("shots are produced (not rendered in Node) and logged", async () => {
 // ---------------------------------------------------------------------------
 // Load, loadChecked and Undo (spec 13.1)
 // ---------------------------------------------------------------------------
+describe("report text", () => {
+  test("names spawns the host moved, and what was in the way", () => {
+    const text = reportText({ ok: false, stage: "Tests", systemId: "forest_cottage", durationMs: 1, shots: [], log: [], errors: [{
+      message: "forest_cottage.test_x failed", moved: [{ op: "spawn", what: "a cottage", asked: { x: 21, y: 6, area: "clearing" }, placed: { x: 21, y: 5, area: "clearing" }, inTheWay: "tree_round#12 at (23, 6)" }],
+    }] } as unknown as Parameters<typeof reportText>[0]);
+    expect(text).toContain("spawn a cottage: asked (21, 6, clearing), placed (21, 5, clearing); in the way: tree_round#12 at (23, 6)");
+    expect(text).toContain("posOf");
+  });
+});
+
 describe("live load", () => {
   test("campfire loads live: saved, announced, and three dropped branches make a fire", async () => {
     const g = game();

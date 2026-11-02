@@ -17,6 +17,8 @@ export interface PipelineError {
   events?: { tick: number; name: string; payload: Record<string, unknown> }[];
   /** Requests denied during the test. */
   denied?: { op: string; code: string; msg: string }[];
+  /** Spawns and places (in migrate or the test) that the host moved off the asked spot, and what was in the way. */
+  moved?: { op: string; what: string; asked: { x: number; y: number; area: string }; placed: { x: number; y: number; area: string }; inTheWay: string }[];
   /** What the system spawned, plus the player, at the end. */
   entities?: { id: number; type: string; pos: { x: number; y: number; area: string } | null; components: Record<string, unknown> }[];
 }

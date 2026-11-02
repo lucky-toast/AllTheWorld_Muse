@@ -27,6 +27,9 @@
 // is free and otherwise the closest spot where the whole thing fits, and say where they put it.
 // Pass exact = true only when nowhere else will do: then a taken spot is refused instead.
 // Nothing solid, pushable or an item ever lands on the player's tile.
+// So never assume the spot you asked for: read it back (posOf(id) after spawn, place's return)
+// and work from that, in code and in tests. A test that checks p.x == 21 because migrate asked
+// for 21 fails whenever a tree stood there; check against posOf, or where the thing really is.
 import { send, failure, truncated, op, tileReq, done, numText, JsonParser } from "./internal";
 
 // ============================== JSON ==============================
@@ -292,8 +295,8 @@ export function stateGetReplaced(id: string): Json { return request(op("state.ge
  * Spawn a registered entity type (a base map type, one in this system's manifest "entities", or
  * one another loaded system registered), never a bare catalog sprite id: declare new types in
  * "entities" first. Its bottom-left goes at (x, y), or, when its footprint doesn't fit there, at
- * the closest spot in the area where it does (posOf(id) tells where). Returns its id, or 0 when
- * refused. With exact = true a spot that doesn't fit is refused instead.
+ * the closest spot in the area where it does: always read where with posOf(id), never assume
+ * (x, y). Returns its id, or 0 when refused. With exact = true a spot that doesn't fit is refused instead.
  */
 export function spawn(type: string, x: i32, y: i32, area: string = "", exact: bool = false): i32 {
   const o = tileReq("spawn", x, y, area).str("type", type); if (exact) o.bool("exact", true);

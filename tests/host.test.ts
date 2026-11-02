@@ -31,6 +31,19 @@ describe("host basics", () => {
     expect(eng.entities.size).toBe(before);
     expect(call({ op: "spawn", type: "spark", x: 15, y: 8 })).toMatchObject({ ok: true });
   });
+  test("a spawn moved off a taken spot is recorded with what was in the way", () => {
+    const { call, host, eng } = setup();
+    const base = [...eng.entities.values()].find((r) => r.type === "crate")!; // the map's crate at (17, 9)
+    const r = call({ op: "spawn", type: "crate", x: 17, y: 9 });
+    expect(r).toMatchObject({ ok: true });
+    expect(host.relocations).toEqual([expect.objectContaining({
+      system: "tester", op: "spawn", what: "a crate", asked: { x: 17, y: 9, area: BASE_AREA }, inTheWay: `crate#${base.id} at (17, 9)`,
+    })]);
+    expect(host.relocations[0].placed).not.toEqual({ x: 17, y: 9, area: BASE_AREA });
+    // A spawn that fits where it was asked records nothing.
+    call({ op: "spawn", type: "crate", x: 15, y: 6 });
+    expect(host.relocations).toHaveLength(1);
+  });
   test("bad shapes, unknown ops and gone entities", () => {
     const { call, eng } = setup();
     denied(call({ op: "nope" }), "bad_request");
