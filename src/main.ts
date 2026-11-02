@@ -12,6 +12,11 @@ import { LiveLoader } from "./pipeline/live";
 import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
 import { LIMITS, TUNING } from "./tuning";
+import { AiTab } from "./dev/aitab";
+import { WishChain } from "./ai/chain";
+import { AiLog, Journal } from "./ai/journal";
+import { ChangedPanel } from "./ai/changed";
+import type { StageEvent } from "./pipeline/types";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 canvas.width = NATIVE_W; canvas.height = NATIVE_H;
@@ -28,12 +33,32 @@ const loop = new FixedLoop();
 // Storage, the live loader and the pipeline (spec 12, 13). Set up before the first frame.
 const store = await detectStore();
 let tab: PipelineTab | null = null;
-const live = new LiveLoader(host, store, { onChange: () => tab?.refresh() });
-const pipeline = new Pipeline({ createWorker: browserWorker, live, baseUrl: location.origin, onStage: (e) => tab?.onStage(e) });
+// The journal feeds "What changed"; the AI log is data/ai-log.jsonl (spec 13.3, 13.5).
+const journal = new Journal(store);
+await journal.load();
+const aiLog = new AiLog(store);
+const changed = new ChangedPanel(document.getElementById("changed") as HTMLDivElement);
+changed.setEntries(journal.entries);
+const live = new LiveLoader(host, store, {
+  onChange: () => tab?.refresh(),
+  onUndone: (id) => { void journal.forget(id).then(() => changed.setEntries(journal.entries)); },
+});
+// While a wish step is checked, its stage events also go to that attempt's row in the AI tab.
+let aiStages: ((e: StageEvent) => void) | null = null;
+const pipeline = new Pipeline({ createWorker: browserWorker, live, baseUrl: location.origin, onStage: (e) => { tab?.onStage(e); aiStages?.(e); } });
 configurePipeline(pipeline);
 pipeline.warm();
 tab = new PipelineTab(pipeline, live, () => void startFresh());
 devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
+// The wish chain and the AI tab (spec 13.5, 13.6).
+let chain: WishChain | null = null;
+const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); } });
+chain = new WishChain({
+  host, planner: aiTab.planner, designer: aiTab.designer, pipeline, journal, log: aiLog,
+  hooks: { ...aiTab.hooks, onJournal: () => changed.setEntries(journal.entries) },
+  routeStages: (fn) => { aiStages = fn; },
+});
+devPanel.addTab("AI", aiTab.body);
 async function startFresh() {
   await live.startFresh();
   const keep = new URLSearchParams(); if (params.get("dev")) keep.set("dev", "1");
@@ -59,6 +84,8 @@ function setPanel(open: boolean) {
 window.addEventListener("resize", fit);
 setPanel(!!params.get("dev"));
 document.getElementById("devclose")?.addEventListener("click", () => setPanel(false));
+// Clicking the game opens "What changed".
+canvas.addEventListener("click", () => changed.toggle());
 
 attachKeyboard(host.controls, {
   onTimeSpeed() {
@@ -68,6 +95,7 @@ attachKeyboard(host.controls, {
   onDevPanel() { setPanel(!panelOpen); },
   // Shift+R: rebuild the registry and re-create every loaded module, keeping the world.
   onReloadSystems() { host.reloadSystems(); eng.banner = { text: "Systems reloaded", t: TUNING.bannerTicks }; },
+  onChanged() { changed.toggle(); },
 }, () => panelOpen || live.busy);
 
 // Startup: every stored AI system through the Module stage again, then the saved world.
@@ -81,7 +109,7 @@ const time = params.get("time");
 if (time && ["night", "dusk", "dawn", "day"].includes(time)) eng.jumpClock(time);
 host.interactions.refresh(true);
 // Dev builds expose the engine and host for poking at from the console.
-if (import.meta.env.DEV) Object.assign(window, { atw: { eng, host, live, pipeline, tab } });
+if (import.meta.env.DEV) Object.assign(window, { atw: { eng, host, live, pipeline, tab, chain, aiTab, journal, aiLog } });
 
 // Pixel font from the pack path; this pack copy has no font file, so text falls back to monospace.
 try {

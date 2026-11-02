@@ -89,7 +89,7 @@ function toError(d: Diagnostic, fs: Record<string, string>): CompileError {
 
 /**
  * Answer asc's file lookups from the in-memory files. asc looks for package "sdk" in nested
- * node_modules folders that depend on its working directory (different in Node and in a
+ * node_modules folders that depend on its working folder (different in Node and in a
  * browser, and with backslashes on Windows), so any path ending in node_modules/sdk/<file> is the SDK's <file>.
  */
 export function read(fs: Record<string, string>, name: string): string | null {

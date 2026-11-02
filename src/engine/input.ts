@@ -85,9 +85,9 @@ const CODE_KEY: Record<string, Key> = {
   KeyE: "e", Space: "e", KeyQ: "q", Escape: "escape",
 };
 /** Every game and dev key calls preventDefault (spec 3). */
-const PREVENT = new Set([...Object.keys(CODE_KEY), "KeyT", "Backquote"]);
+const PREVENT = new Set([...Object.keys(CODE_KEY), "KeyT", "KeyC", "Backquote"]);
 
-export interface DevKeys { onTimeSpeed(): void; onDevPanel(): void; onReloadSystems(): void }
+export interface DevKeys { onTimeSpeed(): void; onDevPanel(): void; onReloadSystems(): void; /** C: the "What changed" panel. */ onChanged?(): void }
 
 /** Browser keyboard: dev keys, and game keys queued on `controls` unless `swallowed()` (dev panel open). */
 export function attachKeyboard(controls: Controls, dev: DevKeys, swallowed: () => boolean, target: Window = window) {
@@ -98,6 +98,7 @@ export function attachKeyboard(controls: Controls, dev: DevKeys, swallowed: () =
     if (e.repeat) return; // the engine paces held keys itself, never the OS repeat
     if (e.code === "Backquote") { dev.onDevPanel(); return; }
     if (e.code === "KeyT") { dev.onTimeSpeed(); return; }
+    if (e.code === "KeyC" && !e.ctrlKey && !e.metaKey) { dev.onChanged?.(); return; }
     if (e.code === "KeyR" && e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); dev.onReloadSystems(); return; }
     const key = CODE_KEY[e.code];
     if (key && !swallowed()) controls.press(key);

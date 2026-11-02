@@ -24,6 +24,8 @@ export interface LiveOptions {
   now?(): number;
   /** Called after a load, an undo or the startup reload changed what is loaded. */
   onChange?(): void;
+  /** Called after Undo took a system out. */
+  onUndone?(id: string): void;
 }
 
 const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -119,6 +121,7 @@ export class LiveLoader implements LiveSide {
       this.index = this.index.filter((e) => e.id !== last.id);
       await this.store.remove(last.id, this.index);
       await this.store.saveWorld(this.host.eng.serialize());
+      this.opts.onUndone?.(last.id);
       this.opts.onChange?.();
       return `undid ${last.id}: the world is back to just before it loaded`;
     } finally { this.busy = false; }

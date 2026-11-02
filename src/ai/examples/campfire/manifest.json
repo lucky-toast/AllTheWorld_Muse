@@ -1,0 +1,28 @@
+{
+  "id": "campfire",
+  "why": "Three branches dropped side by side become a campfire that lights the night, then burns down to ash.",
+  "buildsOn": ["carry"],
+  "replaces": [],
+  "entities": {
+    "campfire": { "sprite": "firepit", "tags": ["solid", "campfire"] },
+    "campfire_flame": { "sprite": "fx_fire", "tags": ["campfire_flame"] }
+  },
+  "components": {
+    "burnTicks": "number: ticks a campfire burns before it dies down, on the campfire",
+    "burnLeft": "number: ticks of burning left, on a lit campfire",
+    "flame": "number: id of the campfire's flame entity, on the campfire",
+    "flameOf": "number: id of the campfire a flame belongs to, on the flame",
+    "fadeTween": "number: id of the tween fading a dying campfire's light, on the campfire"
+  },
+  "interactions": [],
+  "reactions": ["item.dropped"],
+  "emits": {
+    "campfire.lit": { "fire": "entity", "pos": "pos" },
+    "campfire.dying": { "fire": "entity" },
+    "campfire.out": { "fire": "entity", "pos": "pos" }
+  },
+  "shots": [
+    { "name": "lit_at_night", "ticks": 30, "focus": { "x": 16, "y": 9 }, "time": "night" },
+    { "name": "ash_ring", "ticks": 5, "focus": { "x": 16, "y": 9 } }
+  ]
+}
