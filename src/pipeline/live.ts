@@ -62,7 +62,7 @@ export class LiveLoader implements LiveSide {
     const ids = [...this.host.systems.keys()];
     const loaded = ids.filter((id) => !this.host.systems.get(id)!.base).map((id) => {
       const r = this.records.get(id); if (!r) throw new Error(`"${id}" is loaded but its module isn't known`);
-      return { manifest: r.manifest, wasm: r.wasm };
+      return { manifest: r.manifest, wasm: r.wasm, source: r.source };
     });
     return { loaded, loadedIds: ids, world: this.host.eng.serialize(), successors: Object.fromEntries(this.host.successors) };
   }

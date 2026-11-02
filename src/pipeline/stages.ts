@@ -18,6 +18,7 @@ import type { Host } from "../engine/host";
 import { BASE_SYSTEMS } from "../systems/base";
 import { validateManifest, checkManifestContext, type Manifest, type Shot } from "../engine/manifest";
 import { testNames, type SystemDef } from "../engine/systems";
+import { relatedSystems } from "./related";
 import { compileSystem, formatCompileError, MODULE_FILE } from "../sandbox/compile";
 import { aiSystem, prepareModule, ModuleError, type AiSystemDef } from "../sandbox/module";
 import { runShot } from "../sandbox/runners";
@@ -126,8 +127,14 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
       const names = namesOf(() => buildArena(), arenaEntries, idOf(base), after);
       for (const name of names) { const r = runOne(() => buildArena(), arenaEntries, idOf(base), name, false, after, hooks); if (r) failures.push(r); }
     }
-    // Every remaining AI system's tests on fresh real maps, with it loaded (a replaced system's own tests are dropped).
-    for (const def of kept) {
+    // The tests of every loaded AI system it could affect, on fresh real maps, with it loaded (a
+    // replaced system's own tests are dropped). Systems it shares nothing with are skipped: see related.ts.
+    const sourceOf = new Map(req.loaded.map((l) => [(l.manifest as { id?: string })?.id, l.source ?? null]));
+    const rel = relatedSystems({ manifest, source: req.source }, kept.map((d) => ({ manifest: d.manifest as Manifest, source: sourceOf.get(idOf(d)) ?? null })));
+    const rerun = new Set(rel.related.map((r) => r.id));
+    for (const r of rel.related) report.log.push(`re-ran ${r.id}'s tests: ${r.why}`);
+    if (rel.skipped.length) report.log.push(`skipped the tests of ${rel.skipped.join(", ")}: nothing shared with ${id}`);
+    for (const def of kept.filter((d) => rerun.has(idOf(d)))) {
       const sid = idOf(def);
       for (const name of def.prepared.exports.filter((n) => n.startsWith("test_")).map((n) => n.slice(5))) {
         const r = runOne(buildWorld, real(), sid, name, true, after, hooks); if (r) failures.push(r);

@@ -53,7 +53,11 @@ export interface Report {
 }
 
 /** A loaded AI system as the worker needs it to rebuild the world: its manifest and compiled module. */
-export interface LoadedModule { manifest: unknown; wasm: Uint8Array<ArrayBuffer> }
+export interface LoadedModule {
+  manifest: unknown; wasm: Uint8Array<ArrayBuffer>;
+  /** Its source, so the Tests stage can tell whether a new system could affect it (missing: assume it could). */
+  source?: string;
+}
 
 export interface CheckRequest {
   manifestJson: string;

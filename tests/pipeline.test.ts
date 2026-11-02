@@ -193,6 +193,8 @@ describe("live load", () => {
     expect((await submit(g, "campfire")).ok).toBe(true);
     const r = await submit(g, "chop");
     expect(r.ok).toBe(true);
+    // chop makes branches and campfire burns them, so campfire's tests ran again with chop loaded.
+    expect(r.log.find((l) => l.startsWith("re-ran campfire's tests"))).toMatch(/shares .*branch/);
     expect(g.eng.query("axe").length).toBe(1);
     // Play on a little, then save as autosave would.
     for (let i = 0; i < 120; i++) g.host.tick();
