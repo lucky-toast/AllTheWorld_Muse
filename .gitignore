@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.tools/
+.tools-node.zip
+.tmp/
+data/
+.env*.local

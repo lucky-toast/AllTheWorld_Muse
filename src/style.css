@@ -1,0 +1,51 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #101408; }
+#wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+canvas#game { image-rendering: pixelated; display: block; }
+/* Pinned to the right edge of the screen; the game canvas re-fits into the space left of it (see fit() in main.ts), so it never covers the map. */
+#devpanel { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 92vw; box-sizing: border-box; background: #1c2416; color: #e8e4c8; border-left: 2px solid #5a6b42; overflow: auto; padding: 10px; font-family: monospace; z-index: 10; }
+#devpanel canvas { image-rendering: pixelated; max-width: 100%; }
+.devhead { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.devsec { font-weight: bold; margin: 8px 0 6px; }
+.devtabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.devtabs button { font-family: monospace; font-size: 11px; padding: 4px 7px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
+.devtabs button.on { background: #5a6b42; }
+/* Pipeline tab */
+#devpanel button { font-family: monospace; font-size: 11px; padding: 3px 6px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
+#devpanel button:disabled { opacity: 0.5; cursor: default; }
+#devpanel button.bad { border-color: #8a5a3a; }
+#devpanel button.danger { background: #5a2a1f; border-color: #a0503a; }
+.pipebtns { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.stagerow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.stagebox { font-size: 9px; padding: 4px 2px; text-align: center; border: 1px solid #5a6b42; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-height: 30px; justify-content: center; }
+.stagebox .ms { opacity: 0.8; }
+.stagebox.grey { background: #2a3020; color: #9a9a88; }
+.stagebox.amber { background: #b8860b; color: #1c2416; }
+.stagebox.green { background: #3f7a32; color: #f2ecd0; }
+.stagebox.red { background: #9a2f24; color: #f2ecd0; }
+.pipereport, .pipedetail, .pipelog, .pipelist { white-space: pre-wrap; word-break: break-word; font-size: 10px; background: #141a0e; padding: 6px; margin: 4px 0; max-height: 260px; overflow: auto; }
+.pipelist { max-height: none; }
+.pipedetail { border: 1px solid #9a2f24; }
+.pipeshots { display: flex; flex-wrap: wrap; gap: 6px; }
+.pipeshots figure { margin: 0; font-size: 10px; }
+.pipeshots img { width: 180px; image-rendering: pixelated; display: block; }
+.pipestatus { font-size: 10px; min-height: 12px; color: #cdbf8a; }
+/* AI tab */
+.ai-wish { flex: 1; font-family: monospace; font-size: 11px; background: #141a0e; color: #e8e4c8; border: 1px solid #5a6b42; padding: 3px 5px; }
+.ai-text { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 10px; background: #141a0e; color: #e8e4c8; border: 1px solid #5a6b42; margin: 3px 0; resize: vertical; }
+.ai-message { color: #cdbf8a; }
+.ai-len { font-size: 10px; opacity: 0.8; align-self: center; }
+.ai-setting { display: block; font-size: 10px; margin: 4px 0; }
+.ai-radio { margin-left: 8px; }
+.ai-plan { font-size: 10px; margin: 4px 0 4px 18px; padding: 0; }
+.ai-step { border-top: 1px solid #5a6b42; margin-top: 8px; }
+.ai-attempt { font-size: 10px; margin-top: 6px; opacity: 0.85; }
+.ai-result, .ai-ok, .ai-dropped { font-size: 10px; margin: 3px 0; white-space: pre-wrap; }
+.ai-ok { color: #8fd07a; } .ai-dropped { color: #e88a7a; }
+.ai-log { max-height: 200px; }
+/* "What changed" panel */
+#changed { position: fixed; top: 12px; left: 12px; width: 300px; max-height: 80vh; overflow: auto; background: rgba(28, 36, 22, 0.95); color: #e8e4c8; border: 2px solid #5a6b42; padding: 10px; font-family: monospace; font-size: 12px; z-index: 9; }
+#changed .changed-close { float: right; font-family: monospace; font-size: 11px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
+.changed-title { font-weight: bold; font-size: 14px; margin-bottom: 6px; }
+.changed-journal { font-style: italic; opacity: 0.85; margin: 6px 0; }
+.changed-wish { font-size: 11px; opacity: 0.8; margin: 6px 0; }
+.changed-past { font-size: 11px; } .changed-past span { opacity: 0.6; }

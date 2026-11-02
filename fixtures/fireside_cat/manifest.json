@@ -1,0 +1,18 @@
+{
+  "id": "fireside_cat",
+  "why": "A cat comes to curl up beside every lit campfire, and wanders off when the fire goes out.",
+  "buildsOn": ["campfire"],
+  "replaces": [],
+  "entities": {
+    "fireside_cat": { "sprite": "cat", "tags": ["fireside_cat"] }
+  },
+  "components": {
+    "warmingBy": "number: id of the campfire a fireside cat sits by, on the cat"
+  },
+  "interactions": [],
+  "reactions": ["campfire.lit", "campfire.out"],
+  "emits": {},
+  "shots": [
+    { "name": "cat_by_the_fire", "ticks": 30, "focus": { "x": 16, "y": 9 }, "time": "night" }
+  ]
+}

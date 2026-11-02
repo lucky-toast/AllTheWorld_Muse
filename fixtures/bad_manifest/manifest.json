@@ -1,0 +1,5 @@
+{
+  "id": "bad_manifest",
+  "why": "A dragon sleeps in the meadow (bad fixture: its sprite isn't in the catalog).",
+  "entities": { "dragon": { "sprite": "dragon_huge", "tags": ["solid"] } }
+}

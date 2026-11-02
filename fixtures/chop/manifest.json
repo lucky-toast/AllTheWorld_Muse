@@ -1,0 +1,14 @@
+{
+  "id": "chop",
+  "why": "Chop fallen logs with an axe to get branches.",
+  "buildsOn": ["carry"],
+  "replaces": [],
+  "entities": { "axe": { "sprite": "axe", "tags": ["item", "tool", "axe"] } },
+  "components": { "chopTicks": "number: ticks a chop takes, on the axe" },
+  "interactions": [
+    { "verb": "chop", "label": "Chop", "target": "log_fallen", "held": "axe" }
+  ],
+  "reactions": [],
+  "emits": { "chop.chopped": { "pos": "pos", "log": "entity" } },
+  "shots": [ { "name": "mid_chop", "ticks": 20, "focus": { "x": 12, "y": 8 }, "time": "day" } ]
+}
