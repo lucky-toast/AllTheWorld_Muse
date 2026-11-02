@@ -1,0 +1,4 @@
+{
+  "id": "bad_memory",
+  "why": "Remembers every tick (bad fixture: it keeps a megabyte for each and never lets go)."
+}

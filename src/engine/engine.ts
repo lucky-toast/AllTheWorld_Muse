@@ -330,6 +330,7 @@ export class Engine {
     this.day = d.clock.day; this.hour = d.clock.hour; this.clockRunning = d.clock.running;
     this.areas.clear(); this.occupancy.clear();
     for (const a of d.areas) { this.areas.set(a.id, { id: a.id, owner: a.owner, tiles: a.tiles.map((r) => [...r]) }); this.occupancy.set(a.id, new Map()); }
+    this.types.clear(); this.typeOwner.clear();
     for (const [n, t] of Object.entries(d.types)) { this.types.set(n, { sprite: t.sprite, tags: [...t.tags] }); this.typeOwner.set(n, t.owner); }
     this.componentOwner = new Map(Object.entries(d.components));
     this.entities.clear(); this.entityOwner.clear(); this.ownedCount.clear(); this.animStart.clear(); this.playerCache = 0;

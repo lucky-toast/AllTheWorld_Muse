@@ -7,5 +7,7 @@ export default defineConfig({
   build: { target: "es2022" },
   optimizeDeps: { exclude: ["assemblyscript", "binaryen"] },
   worker: { format: "es" },
+  // Saved systems and the world live in data/; writing them must never reload the page.
+  server: { watch: { ignored: ["**/data/**"] } },
   test: { include: ["tests/**/*.test.ts"], globals: true },
 });

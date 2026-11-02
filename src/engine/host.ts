@@ -148,8 +148,10 @@ export class Host {
    * Load a system: validate and freeze its manifest, register its entity types and components,
    * rebuild the registry, create its module, run `migrate` (one transaction) and emit system.loaded.
    * Throws (and loads nothing) if the manifest is invalid, the id is taken or migrate fails.
+   * `migrate: false` skips migrate (the system is joining a saved world it already set up, or a
+   * test arena); `announce: false` leaves system.loaded for the caller to emit.
    */
-  load(def: SystemDef): LoadedSystem {
+  load(def: SystemDef, opts: { migrate?: boolean; announce?: boolean } = {}): LoadedSystem {
     const raw = def.manifest as { id?: unknown; replaces?: unknown };
     const inherited = Array.isArray(raw?.replaces) ? raw.replaces.flatMap((id) => Object.keys(this.systems.get(id as string)?.manifest.emits ?? {})) : [];
     const res = validateManifest(def.manifest, { base: def.base, inherited });
@@ -163,15 +165,33 @@ export class Host {
     this.systems.set(sys.id, sys);
     this.rebuildRegistry();
     sys.module = def.create((req) => this.call(sys.id, req), this);
-    if (sys.module.migrate) {
+    if (sys.module.migrate && opts.migrate !== false) {
+      const prev = this.migrating; this.migrating = sys.id;
       const r = this.invoke(sys.id, "migrate", () => sys.module.migrate!());
+      this.migrating = prev;
       if (!r.ok) {
         this.systems.delete(sys.id); this.rebuildRegistry(); this.eng.restore(snap);
         throw new Error(`migrate of "${sys.id}" failed: ${r.error}`);
       }
     }
-    this.emitEngine("system.loaded", { id: sys.id });
+    if (opts.announce !== false) this.emitEngine("system.loaded", { id: sys.id });
     return sys;
+  }
+
+  /**
+   * Take a system out without a trace (no system.unloaded): a live load that failed, or Undo,
+   * which restores the snapshot taken before the load right after. Clears its focus, timers,
+   * tweens, HUD slots and overlay like unload.
+   */
+  forget(id: string) {
+    if (!this.systems.has(id)) return;
+    if (this.focus.holder === id) this.focus.endIfHolder(id, "unload");
+    this.systems.delete(id);
+    this.eng.timers = this.eng.timers.filter((t) => t.system !== id);
+    this.eng.tweens = this.eng.tweens.filter((t) => t.system !== id);
+    for (const [k, slot] of this.eng.hudSlots) if (slot.owner === id) this.eng.hudSlots.delete(k);
+    if (this.eng.overlay?.owner === id) this.eng.overlay = null;
+    this.rebuildRegistry();
   }
 
   /** Load a manifest with no handlers (tests and tools). Missing fields get defaults. */

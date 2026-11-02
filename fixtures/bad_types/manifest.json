@@ -1,0 +1,4 @@
+{
+  "id": "bad_types",
+  "why": "Summons a dragon each night (bad fixture: it calls a helper the SDK doesn't have)."
+}

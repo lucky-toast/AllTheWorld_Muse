@@ -1,0 +1,6 @@
+{
+  "id": "bad_test",
+  "why": "Rubbing two stones makes a spark (bad fixture: its test checks for a spark it never spawns).",
+  "entities": { "spark": { "sprite": "fx_spark", "tags": ["spark"] } },
+  "reactions": ["item.dropped"]
+}

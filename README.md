@@ -13,16 +13,18 @@ npm run typecheck
 
 ## State of the rebuild
 
-Phase 2 of 7: manifests, events, base systems, interactions on E and Q, input and focus.
+Phase 4 of 7: the 7-stage pipeline, live load, storage and the dev panel's Pipeline tab.
 
-- `src/engine/engine.ts`: world state (areas, entities, types, tiles, occupancy, clock, per-system RNG, ownership records, timers and tweens, serialize/snapshot) with an undo journal.
-- `src/engine/host.ts`: `host.call(systemId, request)`, the one dispatcher, with the five checks, transactions, and the denial, near-limit, overlap and fault logs. It also loads systems, delivers events, fires timers and tweens, and runs the test-only `sim.*` and `check` requests.
-- `src/engine/manifest.ts` (schema and context checks), `registry.ts` (interaction table, reactions, event ownership), `events.ts` (payload checks), `interactions.ts` (the E resolver and Q cycle), `input.ts` (keyboard routing), `focus.ts` (borrow and freeze with their guards), `testrun.ts` (the arena test runner).
-- `src/systems/base/`: movement, carry, push and daynight, as TypeScript systems that only use `host.call`. Their tests are `test_*` handlers run in a 12x12 arena.
-- `src/engine/render.ts`: the renderer ported from the old game, plus the E prompt and the overlay panel. `src/world/`: the forest clearing, identical to commit `24531c5`.
-- `devserver/storage.ts`: the dev-server storage plugin. Only the id and path guards exist so far.
+- `src/engine/`: world state, the one dispatcher (`host.ts`), manifests, registry, events, the E resolver, input and focus, the renderer.
+- `src/systems/base/`: movement, carry, push and daynight.
+- `src/sdk/` and `src/sandbox/`: AI systems as AssemblyScript compiled to metered WebAssembly (compile, loader, meter, test and shot runners).
+- `src/pipeline/`: `checkSystem`, `loadChecked`, `submitSystem` (`client.ts`, with the stage watchdog), stages 1 to 6 (`stages.ts`) run in a Web Worker (`worker.ts`), Load, Undo, the startup reload and autosave (`live.ts`), storage (`store.ts`: dev server, or localStorage plus an IndexedDB module cache), the leaf transition, and the report as text.
+- `devserver/storage.ts`: the `/__data` endpoints for `data/systems/<id>/`, `systems.json`, `world.json`, `journal.json` and `ai-log.jsonl`, with the id and path guards.
+- `src/dev/`: the dev panel (Sprites and Pipeline tabs). `fixtures/`: campfire and chop, plus one bad fixture per stage.
 
-Keys: arrows/WASD (tap to turn, hold to walk), E or Space runs the highlighted action, Q cycles actions, Escape ends a system's focus. T cycles time speed 1x/4x/16x, Shift+R re-creates every system without losing the world, backtick opens the dev panel (Sprites tab). URL aids: `?dev=1`, `?time=night|dusk|dawn|day`.
+Keys: arrows/WASD (tap to turn, hold to walk), E or Space runs the highlighted action, Q cycles actions, Escape ends a system's focus. T cycles time speed 1x/4x/16x, Shift+R re-creates every system without losing the world, backtick opens the dev panel. URL aids: `?dev=1`, `?time=night|dusk|dawn|day`, `?submit=<fixture>`.
+
+Saved systems and the world are in `data/` (git-ignored) under `npm run dev`, and in the browser's localStorage and IndexedDB in a built copy. "Start fresh" in the Pipeline tab deletes them.
 
 ## Decisions the original kickoff didn't specify (kept)
 

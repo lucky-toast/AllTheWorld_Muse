@@ -17,7 +17,7 @@
 // module's instance is then thrown away and re-created on its next call, because the
 // AssemblyScript runtime can't be trusted after a trap.
 import { inspect, meter, typeName, WasmError, FUEL_EXPORT, type FuncType, type WasmInfo } from "./meter";
-import { GLUE_EXPORTS, START_EXPORT } from "./compile";
+import { START_EXPORT } from "./abi";
 import type { HostCall, SystemDef, SystemModule } from "../engine/systems";
 import type { Host, Request } from "../engine/host";
 import { LIMITS } from "../tuning";

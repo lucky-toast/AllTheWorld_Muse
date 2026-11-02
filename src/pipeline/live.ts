@@ -1,0 +1,179 @@
+// The live side of the pipeline: Load (spec 13.1), Undo, the startup reload and autosave
+// (spec 13.2). No DOM here; main.ts draws the transition (transition.ts) and wires the page.
+//
+// Load: pause ticks and input, fade in the leaf transition, and while the screen is covered:
+// snapshot the live world, add the system to the registry, instantiate it (the Module stage
+// runs again on the checked bytes), run migrate, save it, emit system.loaded. Then fade back
+// and show "The world feels different". If anything throws, the snapshot is restored and Load
+// fails. Undo restores the latest load's snapshot, takes that system out and removes it from
+// storage.
+import type { Host } from "../engine/host";
+import { aiSystem, prepareModuleAsync } from "../sandbox/module";
+import { TUNING } from "../tuning";
+import type { LiveSide } from "./client";
+import type { LoadedModule, Report } from "./types";
+import { sha256Hex, type IndexEntry, type Store } from "./store";
+
+/** A loaded AI system with what it was built from. */
+export interface AiRecord { id: string; manifestJson: string; manifest: unknown; source: string; wasm: Uint8Array<ArrayBuffer> }
+
+export interface LiveOptions {
+  /** Waits during the transition (tests pass a no-op). */
+  wait?(ms: number): Promise<void>;
+  /** Clock for the transition (ms). */
+  now?(): number;
+  /** Called after a load, an undo or the startup reload changed what is loaded. */
+  onChange?(): void;
+}
+
+const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export class LiveLoader implements LiveSide {
+  /** Loaded AI systems by id. */
+  records = new Map<string, AiRecord>();
+  /** Every stored system (skipped ones too, so saving never drops them). */
+  index: IndexEntry[] = [];
+  /** Stored systems that didn't load at startup, with why. */
+  skipped: { id: string; reason: string }[] = [];
+  /** Startup notes (recompiles, a world that couldn't be restored). */
+  notes: string[] = [];
+  /** Snapshots taken before each live load this session, newest last. */
+  history: { id: string; snapshot: string }[] = [];
+  /** True while a load or undo runs: ticks, input and autosave pause. */
+  busy = false;
+  /** When the leaf transition started (ms), or 0. */
+  transitionStart = 0;
+  /** Set by Start fresh so nothing is saved again before the reload. */
+  frozen = false;
+  private wait: (ms: number) => Promise<void>;
+  private now: () => number;
+
+  constructor(public host: Host, public store: Store, private opts: LiveOptions = {}) {
+    this.wait = opts.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    this.now = opts.now ?? (() => performance.now());
+  }
+
+  checkInputs(): { loaded: LoadedModule[]; loadedIds: string[]; world: string } {
+    const ids = [...this.host.systems.keys()];
+    const loaded = ids.filter((id) => !this.host.systems.get(id)!.base).map((id) => {
+      const r = this.records.get(id); if (!r) throw new Error(`"${id}" is loaded but its module isn't known`);
+      return { manifest: r.manifest, wasm: r.wasm };
+    });
+    return { loaded, loadedIds: ids, world: this.host.eng.serialize() };
+  }
+
+  async load(report: Report): Promise<Report> {
+    const fail = (message: string): Report => ({ ...report, ok: false, stage: "Load", errors: [{ message }] });
+    const c = report.checked; const id = report.systemId;
+    if (!c || !id) return fail("the report has nothing to load");
+    if (this.busy) return fail("another load is running");
+    if (this.host.systems.has(id)) return fail(`a system with id "${id}" already exists`);
+    if (this.index.some((e) => e.id === id)) return fail(`a stored system already uses the id "${id}"`);
+    const host = this.host; const eng = host.eng;
+    this.busy = true; this.transitionStart = this.now();
+    host.controls.releaseAll();
+    try {
+      let manifest: unknown;
+      let def;
+      try { manifest = JSON.parse(c.manifestJson); def = aiSystem(await prepareModuleAsync(c.wasm, manifest)); }
+      catch (e) { return fail(`the module didn't load: ${msgOf(e)}`); }
+      await this.wait(TUNING.transitionInMs); // the screen is covered now
+      const snapshot = eng.snapshot();
+      const entry: IndexEntry = { id, order: this.index.reduce((m, e) => Math.max(m, e.order + 1), 0), buildsOn: [...((manifest as { buildsOn?: string[] }).buildsOn ?? [])], replacedBy: null, timestamp: new Date().toISOString() };
+      try {
+        host.load(def, { announce: false });
+        await this.store.save(entry, { manifestJson: c.manifestJson, source: c.source, wasm: c.wasm }, [...this.index, entry]);
+        this.index.push(entry);
+        this.records.set(id, { id, manifestJson: c.manifestJson, manifest, source: c.source, wasm: c.wasm });
+        host.emitEngine("system.loaded", { id });
+        await this.store.saveWorld(eng.serialize());
+      } catch (e) {
+        host.forget(id); eng.restore(snapshot); host.interactions.refresh(true);
+        this.records.delete(id); this.index = this.index.filter((x) => x.id !== id);
+        try { await this.store.remove(id, this.index); } catch { /* nothing more to undo */ }
+        return fail(`loading failed, so the world was restored: ${msgOf(e)}`);
+      }
+      this.history.push({ id, snapshot });
+      host.interactions.refresh(true);
+      this.opts.onChange?.();
+      await this.wait(TUNING.transitionOutMs);
+      eng.banner = { text: TUNING.loadBanner, t: TUNING.bannerTicks };
+      return { ...report, ok: true, stage: "Load", errors: [] };
+    } finally {
+      this.busy = false; this.transitionStart = 0;
+    }
+  }
+
+  /** Undo the latest live load. Returns what happened, in words. */
+  async undo(): Promise<string> {
+    if (this.busy) return "a load is running";
+    const last = this.history.at(-1);
+    if (!last) return "nothing to undo (only loads made since the page opened can be undone)";
+    this.busy = true;
+    try {
+      this.history.pop();
+      this.host.forget(last.id);
+      this.host.eng.restore(last.snapshot);
+      this.host.interactions.refresh(true);
+      this.records.delete(last.id);
+      this.index = this.index.filter((e) => e.id !== last.id);
+      await this.store.remove(last.id, this.index);
+      await this.store.saveWorld(this.host.eng.serialize());
+      this.opts.onChange?.();
+      return `undid ${last.id}: the world is back to just before it loaded`;
+    } finally { this.busy = false; }
+  }
+
+  /**
+   * Startup (spec 13.2): base systems are already loaded; load every stored AI system in order
+   * (skipping replaced ones), each through the Module stage again, then restore the saved world.
+   * A system that fails is skipped with everything that builds on it. `compile` rebuilds a
+   * module from source when it is missing or doesn't match its hash.
+   */
+  async startup(compile: (manifest: unknown, source: string) => Promise<Uint8Array<ArrayBuffer>>): Promise<void> {
+    const host = this.host;
+    let world: string | null = null;
+    try { world = await this.store.loadWorld(); if (world !== null) JSON.parse(world); }
+    catch (e) { this.notes.push(`the saved world couldn't be read, so the world starts fresh: ${msgOf(e)}`); world = null; }
+    this.index = (await this.store.index()).sort((a, b) => a.order - b.order);
+    const failed = new Set<string>();
+    const skip = (id: string, reason: string) => { failed.add(id); this.skipped.push({ id, reason }); };
+    for (const e of this.index) {
+      if (e.replacedBy) continue;
+      const dep = e.buildsOn.find((b) => failed.has(b) || !host.systems.has(b));
+      if (dep) { skip(e.id, failed.has(dep) ? `it builds on ${dep}, which was skipped` : `it builds on ${dep}, which isn't loaded`); continue; }
+      try {
+        const files = await this.store.read(e.id);
+        const manifest = JSON.parse(files.manifestJson) as unknown;
+        let wasm = files.wasm;
+        if (wasm && files.sha256 !== null && (await sha256Hex(wasm)) !== files.sha256) {
+          this.notes.push(`${e.id}: module.wasm doesn't match module.sha256, so it was compiled again from its source`);
+          wasm = null;
+        } else if (!wasm) this.notes.push(`${e.id}: its compiled module was missing, so it was compiled again from its source`);
+        if (!wasm) { wasm = await compile(manifest, files.source); await this.store.cacheModule(e.id, files.source, wasm); }
+        const def = aiSystem(await prepareModuleAsync(wasm, manifest)); // the Module stage: validation and fresh metering
+        host.load(def, { migrate: world === null, announce: false });
+        this.records.set(e.id, { id: e.id, manifestJson: files.manifestJson, manifest, source: files.source, wasm });
+      } catch (err) { skip(e.id, msgOf(err)); }
+    }
+    if (world !== null) {
+      try { host.eng.restore(world); }
+      catch (e) { this.notes.push(`the saved world couldn't be restored: ${msgOf(e)}`); }
+    }
+    host.interactions.refresh(true);
+    this.opts.onChange?.();
+  }
+
+  /** Autosave (every few seconds, and when the page goes away). */
+  async saveWorld(): Promise<void> {
+    if (this.busy || this.frozen) return;
+    await this.store.saveWorld(this.host.eng.serialize());
+  }
+  saveWorldOnExit() { if (!this.busy && !this.frozen) this.store.saveWorldOnExit(this.host.eng.serialize()); }
+
+  /** Start fresh: delete everything saved. The caller reloads the page. */
+  async startFresh(): Promise<void> {
+    this.frozen = true;
+    await this.store.clear();
+  }
+}

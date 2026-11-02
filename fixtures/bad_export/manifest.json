@@ -1,0 +1,5 @@
+{
+  "id": "bad_export",
+  "why": "Poke a crate with E (bad fixture: it lists an interaction but has no perform).",
+  "interactions": [ { "verb": "poke", "label": "Poke", "target": "crate" } ]
+}

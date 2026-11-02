@@ -9,3 +9,23 @@ canvas#game { image-rendering: pixelated; display: block; }
 .devtabs { display: flex; gap: 4px; margin-bottom: 6px; }
 .devtabs button { font-family: monospace; font-size: 11px; padding: 4px 7px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
 .devtabs button.on { background: #5a6b42; }
+/* Pipeline tab */
+#devpanel button { font-family: monospace; font-size: 11px; padding: 3px 6px; background: #31401f; color: #e8e4c8; border: 1px solid #5a6b42; cursor: pointer; }
+#devpanel button:disabled { opacity: 0.5; cursor: default; }
+#devpanel button.bad { border-color: #8a5a3a; }
+#devpanel button.danger { background: #5a2a1f; border-color: #a0503a; }
+.pipebtns { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.stagerow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.stagebox { font-size: 9px; padding: 4px 2px; text-align: center; border: 1px solid #5a6b42; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-height: 30px; justify-content: center; }
+.stagebox .ms { opacity: 0.8; }
+.stagebox.grey { background: #2a3020; color: #9a9a88; }
+.stagebox.amber { background: #b8860b; color: #1c2416; }
+.stagebox.green { background: #3f7a32; color: #f2ecd0; }
+.stagebox.red { background: #9a2f24; color: #f2ecd0; }
+.pipereport, .pipedetail, .pipelog, .pipelist { white-space: pre-wrap; word-break: break-word; font-size: 10px; background: #141a0e; padding: 6px; margin: 4px 0; max-height: 260px; overflow: auto; }
+.pipelist { max-height: none; }
+.pipedetail { border: 1px solid #9a2f24; }
+.pipeshots { display: flex; flex-wrap: wrap; gap: 6px; }
+.pipeshots figure { margin: 0; font-size: 10px; }
+.pipeshots img { width: 180px; image-rendering: pixelated; display: block; }
+.pipestatus { font-size: 10px; min-height: 12px; color: #cdbf8a; }

@@ -6,7 +6,12 @@ import { attachKeyboard } from "./engine/input";
 import { loadBaseSystems } from "./systems/base";
 import { loadSheets, render, NATIVE_W, NATIVE_H } from "./engine/render";
 import { DevPanel } from "./dev/devpanel";
-import { TUNING } from "./tuning";
+import { PipelineTab } from "./dev/pipelinetab";
+import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
+import { LiveLoader } from "./pipeline/live";
+import { detectStore } from "./pipeline/store";
+import { drawTransition } from "./pipeline/transition";
+import { LIMITS, TUNING } from "./tuning";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 canvas.width = NATIVE_W; canvas.height = NATIVE_H;
@@ -20,6 +25,20 @@ const host = new Host(eng);
 loadBaseSystems(host);
 const devPanel = new DevPanel(panelEl);
 const loop = new FixedLoop();
+// Storage, the live loader and the pipeline (spec 12, 13). Set up before the first frame.
+const store = await detectStore();
+let tab: PipelineTab | null = null;
+const live = new LiveLoader(host, store, { onChange: () => tab?.refresh() });
+const pipeline = new Pipeline({ createWorker: browserWorker, live, baseUrl: location.origin, onStage: (e) => tab?.onStage(e) });
+configurePipeline(pipeline);
+pipeline.warm();
+tab = new PipelineTab(pipeline, live, () => void startFresh());
+devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
+async function startFresh() {
+  await live.startFresh();
+  const keep = new URLSearchParams(); if (params.get("dev")) keep.set("dev", "1");
+  location.href = location.pathname + (keep.size ? `?${keep}` : "");
+}
 
 // Screen fit: the largest whole-number scale that fits (fractional below 1x), centered,
 // re-fit on resize and when the dev panel opens. The panel never covers the map.
@@ -49,14 +68,20 @@ attachKeyboard(host.controls, {
   onDevPanel() { setPanel(!panelOpen); },
   // Shift+R: rebuild the registry and re-create every loaded module, keeping the world.
   onReloadSystems() { host.reloadSystems(); eng.banner = { text: "Systems reloaded", t: TUNING.bannerTicks }; },
-}, () => panelOpen);
+}, () => panelOpen || live.busy);
+
+// Startup: every stored AI system through the Module stage again, then the saved world.
+await live.startup((m, src) => pipeline.compile(m, src));
+// Autosave every few seconds and when the page goes away.
+setInterval(() => { void live.saveWorld().catch((e) => console.warn("autosave failed:", e)); }, LIMITS.autosaveMs);
+window.addEventListener("pagehide", () => live.saveWorldOnExit());
 
 // URL aid: ?time=night|dusk|dawn|day jumps the clock on load.
 const time = params.get("time");
 if (time && ["night", "dusk", "dawn", "day"].includes(time)) eng.jumpClock(time);
 host.interactions.refresh(true);
 // Dev builds expose the engine and host for poking at from the console.
-if (import.meta.env.DEV) Object.assign(window, { atw: { eng, host } });
+if (import.meta.env.DEV) Object.assign(window, { atw: { eng, host, live, pipeline, tab } });
 
 // Pixel font from the pack path; this pack copy has no font file, so text falls back to monospace.
 try {
@@ -66,10 +91,21 @@ try {
 
 let last = performance.now();
 function frame(now: number) {
-  loop.advance(now - last, () => host.tick()); last = now;
+  // Ticks and input pause while a system loads live.
+  if (live.busy) loop.reset(); else loop.advance(now - last, () => host.tick());
+  last = now;
   ctx.imageSmoothingEnabled = false;
   render(ctx, eng);
+  drawTransition(ctx, live.transitionStart, now);
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }
-void loadSheets().then(() => { last = performance.now(); requestAnimationFrame(frame); });
+void loadSheets().then(() => {
+  last = performance.now(); requestAnimationFrame(frame);
+  // URL aid: ?submit=<fixture> sends a fixture through the pipeline once (dropped from the URL so a refresh doesn't resend it).
+  const submit = params.get("submit");
+  if (submit) {
+    const url = new URL(location.href); url.searchParams.delete("submit"); history.replaceState(null, "", url);
+    void tab!.submitFixture(submit);
+  }
+});

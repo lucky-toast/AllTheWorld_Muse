@@ -1,0 +1,6 @@
+{
+  "id": "bad_prefix",
+  "why": "Says when a fire is lit (bad fixture: it emits an event it doesn't own).",
+  "reactions": ["item.dropped"],
+  "emits": { "fire.lit": { "pos": "pos" } }
+}

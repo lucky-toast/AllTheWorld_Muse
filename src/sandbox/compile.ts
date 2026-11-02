@@ -23,10 +23,8 @@ export const MODULE_FILE = "module.ts";
 const ENTRY_FILE = "__atw_entry.ts";
 const OUT_FILE = "module.wasm";
 
-/** The glue exports the host relies on (spec 10.2; see src/sdk/README.md). */
-export const GLUE_EXPORTS = ["__atw_alloc", "__atw_string", "__atw_unpin", "__atw_abort_message", "__atw_abort_file", "__atw_abort_line", "__atw_abort_column"] as const;
-/** The exported start function. The host calls it under fuel right after instantiating. */
-export const START_EXPORT = "__atw_start";
+import { GLUE_EXPORTS, START_EXPORT } from "./abi";
+export { GLUE_EXPORTS, START_EXPORT };
 
 /** The fixed compiler settings (spec 10.1). */
 export const ASC_FLAGS: readonly string[] = [

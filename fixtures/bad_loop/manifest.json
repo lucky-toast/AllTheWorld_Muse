@@ -1,0 +1,4 @@
+{
+  "id": "bad_loop",
+  "why": "Counts ticks (bad fixture: on its 50th tick it never stops counting)."
+}

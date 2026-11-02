@@ -46,6 +46,21 @@ export const TUNING = {
   simWalkTicksPerStep: 300,
   // Most ticks one sim.wait may run (10 game minutes at 1x).
   simWaitMaxTicks: 36_000,
+  // Live load leaf transition (spec 13.1): ms to fade in until the screen is covered ...
+  transitionInMs: 850,
+  // ... and ms to fade back out after the load (about 2 s in all).
+  transitionOutMs: 1150,
+  // fx_leaf pieces swirling across the screen during the transition.
+  transitionLeaves: 42,
+  // How dark the transition's fade gets at its peak (0 to 1).
+  transitionFade: 0.88,
+  // Banner shown after a system loads live.
+  loadBanner: "The world feels different",
+  // Size of a pipeline shot: tiles around the focus (about 9x7) ...
+  shotTilesW: 9,
+  shotTilesH: 7,
+  // ... and its zoom.
+  shotZoom: 3,
   // Size of every area in tiles (the clearing and every area systems create).
   areaW: 30,
   areaH: 20,
@@ -85,6 +100,12 @@ export const LIMITS = {
   stageMs: 20_000,
   // Ticks the World check runs the system on a copy of the live world.
   worldCheckTicks: 300,
+  // Ticks the World check keeps running after re-creating every module from the saved world.
+  worldCheckResumeTicks: 60,
+  // Autosave interval of the live world in ms (spec 13.2).
+  autosaveMs: 5_000,
+  // Largest body the dev-server storage accepts, in bytes.
+  storageBodyBytes: 16 * 1024 * 1024,
   // Borrow focus time limit in ticks (60 s). Engine takes the controls back.
   focusBorrowTicks: 60 * 60,
   // Freeze focus time limit in ticks (30 s). Engine takes the controls back.
