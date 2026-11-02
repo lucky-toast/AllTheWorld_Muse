@@ -1,11 +1,10 @@
 // The dev panel's AI tab (spec 13.6): a "Player wish" box and Start; then the planner's message
 // (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy,
-// Download art board, Download maps), reply box and Submit, with an attempt row of stage boxes and a token
+// Download maps), reply box and Submit, with an attempt row of stage boxes and a token
 // estimate. A "What changed" on/off setting, and "Send messages: Dev panel / API": in API mode the
 // same boxes show what was sent, the reply fills in by itself with the real token usage, and there
 // is no Submit. The mode is read when a wish starts and kept for the whole chain. The plan shows
 // here only, never in the game.
-import { renderArtBoard } from "../engine/render";
 import { STAGES, type Report, type Stage, type StageEvent } from "../pipeline/types";
 import type { ChainHooks, ChainResult } from "../ai/chain";
 import type { DesignerHooks } from "../ai/designer";
@@ -26,14 +25,13 @@ const sizeText = (text: string) => `${text.length} chars · ~${estTokens(text.le
  * One message box with Copy, and a reply box with Submit, wired to a ManualProvider. In API mode
  * (show(text, true)) the reply box is read-only, Submit is hidden, and fill() puts the reply in.
  */
-function exchange(provider: ManualProvider, opts: { cls: string; status: (t: string) => void; art?: () => void; maps?: () => void }) {
+function exchange(provider: ManualProvider, opts: { cls: string; status: (t: string) => void; maps?: () => void }) {
   const root = el("div", `aix ${opts.cls}`);
   const msg = el("textarea", "ai-text ai-message"); msg.readOnly = true; msg.rows = 6;
   const row = el("div", "pipebtns");
   const copy = button("Copy");
   copy.addEventListener("click", () => { msg.select(); void navigator.clipboard?.writeText(msg.value).then(() => opts.status("Copied. Paste it into your AI chat."), () => { document.execCommand?.("copy"); }); });
   row.append(copy);
-  if (opts.art) { const art = button("Download art board"); art.addEventListener("click", opts.art); row.append(art); }
   if (opts.maps) { const maps = button("Download maps"); maps.addEventListener("click", opts.maps); row.append(maps); }
   const size = el("span", "ai-len", ""); row.append(size);
   const reply = el("textarea", "ai-text ai-reply"); reply.rows = 5; reply.placeholder = "Paste the AI's reply here";
@@ -203,7 +201,7 @@ export class AiTab {
       onAttempt: (attempt) => {
         const step = this.stepEls[i]; if (!step) return;
         step.append(el("div", "ai-attempt", attempt === 0 ? "Designer message" : `Repair ${attempt} of ${LIMITS.repairsPerStep}`));
-        const x = exchange(this.manualDesigner, { cls: "ai-designer", status: (t) => this.say(t), art: () => downloadArtBoard(), maps: () => void this.downloadMaps() });
+        const x = exchange(this.manualDesigner, { cls: "ai-designer", status: (t) => this.say(t), maps: () => void this.downloadMaps() });
         const stages = el("div", "stagerow"); const row = new Map<Stage, HTMLDivElement>();
         for (const s of STAGES) { const bx = el("div", "stagebox grey"); bx.append(el("span", "name", s), el("span", "ms", "")); row.set(s, bx); stages.append(bx); }
         x.root.insertBefore(stages, x.result);
@@ -245,10 +243,4 @@ export class AiTab {
     const text = this.opts.log.entries.slice(-40).map(fmt).join("\n") || "(empty)";
     if (this.logEl.textContent !== text) this.logEl.textContent = text;
   }
-}
-
-/** Download art board (the old renderArtBoard) as a PNG. */
-function downloadArtBoard() {
-  const c = document.createElement("canvas"); renderArtBoard(c);
-  const a = document.createElement("a"); a.href = c.toDataURL("image/png"); a.download = "art-board.png"; a.click();
 }

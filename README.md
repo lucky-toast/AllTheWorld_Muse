@@ -74,7 +74,7 @@ In **Dev panel** mode the AI tab runs the whole chain by hand through `ManualPro
 
 1. Type a wish in "Player wish" and press Start. The wish is cleaned (letters, digits and simple punctuation, at most 100 characters).
 2. The planner's message appears. Copy it to a model, paste the reply (one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`) and press Submit. At most 4 steps are kept. An unreadable reply gets one re-ask.
-3. For each step in order, the designer's message appears, with Copy, Download art board and Download maps. Paste the reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) and press Submit. The attempt row lights the stage boxes as the pipeline runs.
+3. For each step in order, the designer's message appears, with Copy and Download maps. Paste the reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) and press Submit. The attempt row lights the stage boxes as the pipeline runs.
 4. A failed attempt gets the repair message to send back, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
 
 In **API** mode the chain runs with no clicks: the planner and every designer step, repairs included, go to the Meta Muse API through the dev server, and systems load as their replies pass the pipeline. The boxes still show each outgoing message (with Copy and the downloads), the reply fills in by itself, and the size line adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 tokens`. The map images go with each designer message automatically. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.

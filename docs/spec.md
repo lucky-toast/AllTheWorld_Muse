@@ -46,7 +46,7 @@ Toast owns the wording of all three. Don't reword them. If a slot or instruction
 | `src/catalog.json` (106 sprites) | Unchanged. Nothing outside it is ever drawn |
 | `src/world/map.ts`, `src/world/types.ts` | Same layout, same types, same seed. Port the calls to the new engine. The map must look identical |
 | `src/tuning.ts` feel values | Same values (walk pace, slide, tap-to-turn, phases, lighting, player light, banner). Add the new limits from section 15 |
-| `src/engine/render.ts` | Port sprite drawing, y-sorting, lighting, HUD, art board and sprites tab. Add the E prompt and the overlay |
+| `src/engine/render.ts` | Port sprite drawing, y-sorting, lighting, HUD and sprites tab. Add the E prompt and the overlay |
 | `src/engine/input.ts` tap/hold timing | Same feel. The routing changes (section 7) |
 | `src/engine/catalog.ts` | Unchanged apart from imports |
 | `index.html`, `src/style.css` | Reuse |
@@ -440,7 +440,7 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion `designer.md`
 | --- | --- |
 | `{{PILLARS}}` | `src/ai/pillars.md` |
 | `{{API}}` | The text of `src/sdk/index.ts` |
-| `{{CATALOG}}` | After the cache breakpoint: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. A step with no tags uses the tags and ids its text names. The designer gets no tag index and no art board. |
+| `{{CATALOG}}` | After the cache breakpoint: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. A step with no tags uses the tags and ids its text names. The designer gets no tag index. |
 | `{{SYSTEM_EXAMPLES}}` | Every manifest and module pair in `src/ai/examples/`, sorted by name, as a fenced `json` and a fenced `ts` block. Seed it with the campfire and chop fixtures until Toast writes the final three examples. These are never loaded into the world |
 | `{{BASE_SYSTEMS}}` | One system block per base system, in load order |
 | `{{AI_SYSTEMS}}` | One block per loaded, not-replaced AI system in load order, except the newest |
@@ -507,7 +507,7 @@ Backtick toggles it. It swallows game input while open and sits to the right of 
 
 - **Sprites tab:** every catalog sprite at 4x on a grass tile with its outline, playing its first anim (the old `renderSpritesTab`).
 - **Pipeline tab:** one button per fixture, a row of 7 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report with shots, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
-- **AI tab:** a "Player wish" box and Start. Then the planner's message (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy, Download art board, Download maps), reply box and Submit, with an attempt row of stage boxes and a token estimate. A "What changed" on/off setting, and "Send messages: Dev panel (copy and paste) / API", stored in the browser and fixed for each wish when it starts. In API mode the boxes still show what was sent, the reply box fills in by itself and is read-only, Submit is hidden, the real token usage shows next to the estimate, and the map images go with each designer message. The API option is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. The plan shows here only.
+- **AI tab:** a "Player wish" box and Start. Then the planner's message (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy, Download maps), reply box and Submit, with an attempt row of stage boxes and a token estimate. A "What changed" on/off setting, and "Send messages: Dev panel (copy and paste) / API", stored in the browser and fixed for each wish when it starts. In API mode the boxes still show what was sent, the reply box fills in by itself and is read-only, Submit is hidden, the real token usage shows next to the estimate, and the map images go with each designer message. The API option is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. The plan shows here only.
 
 ---
 
