@@ -11,6 +11,7 @@ import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
 import { LiveLoader } from "./pipeline/live";
 import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
+import { drawTopBar, TOP_H, type ThinkingPhase } from "./engine/topbar";
 import { LIMITS, TUNING } from "./tuning";
 import { AiTab } from "./dev/aitab";
 import { mapImagesBase64, renderMapImages } from "./ai/mapimage";
@@ -21,7 +22,9 @@ import { ChangedPanel } from "./ai/changed";
 import type { StageEvent } from "./pipeline/types";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
-canvas.width = NATIVE_W; canvas.height = NATIVE_H;
+// The canvas is the top bar (topbar.ts) above the game frame (map and bottom HUD).
+const CANVAS_H = TOP_H + NATIVE_H;
+canvas.width = NATIVE_W; canvas.height = CANVAS_H;
 const ctx = canvas.getContext("2d")!;
 const panelEl = document.getElementById("devpanel") as HTMLDivElement;
 const wrap = document.getElementById("wrap")!;
@@ -55,12 +58,20 @@ devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
 // The wish chain and the AI tab (spec 13.5, 13.6). The AI tab picks each role's provider (copy and
 // paste, or the Muse API) when a wish starts; in API mode the maps go with the designer's message.
 let chain: WishChain | null = null;
+// What the wish is waiting on, for the top bar's "The world is thinking" state.
+let thinking: ThinkingPhase | null = null;
 const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); }, mapImages: () => renderMapImages(eng) });
 chain = new WishChain({
   host, planner: new SwitchProvider(() => aiTab.pickPlanner()), designer: new SwitchProvider(() => aiTab.pickDesigner()), pipeline, journal, log: aiLog,
   mapImages: () => (aiTab.sendsImages ? mapImagesBase64(eng) : Promise.resolve([])),
   stats: store, // data/ai-usage.jsonl and data/ai-wishes.jsonl; npm run ai-report
-  hooks: { ...aiTab.hooks, onJournal: () => changed.setEntries(journal.entries) },
+  hooks: {
+    ...aiTab.hooks,
+    onJournal: () => changed.setEntries(journal.entries),
+    onPlannerSend: (a, text) => { thinking = "planner"; aiTab.hooks.onPlannerSend?.(a, text); },
+    onStepStart: (i, step) => { thinking = "designer"; aiTab.hooks.onStepStart?.(i, step); },
+    onDone: (r) => { thinking = null; aiTab.hooks.onDone?.(r); },
+  },
   routeStages: (fn) => { aiStages = fn; },
 });
 devPanel.addTab("AI", aiTab.body);
@@ -77,9 +88,9 @@ function fit() {
   const reserved = panelOpen ? panelEl.offsetWidth : 0;
   const availW = Math.max(1, window.innerWidth - reserved);
   wrap.style.width = `${availW}px`;
-  const whole = Math.max(1, Math.min(Math.floor(availW / NATIVE_W), Math.floor(window.innerHeight / NATIVE_H)));
-  const s = availW < NATIVE_W || window.innerHeight < NATIVE_H ? Math.min(availW / NATIVE_W, window.innerHeight / NATIVE_H) : whole;
-  canvas.style.width = `${Math.floor(NATIVE_W * s)}px`; canvas.style.height = `${Math.floor(NATIVE_H * s)}px`;
+  const whole = Math.max(1, Math.min(Math.floor(availW / NATIVE_W), Math.floor(window.innerHeight / CANVAS_H)));
+  const s = availW < NATIVE_W || window.innerHeight < CANVAS_H ? Math.min(availW / NATIVE_W, window.innerHeight / CANVAS_H) : whole;
+  canvas.style.width = `${Math.floor(NATIVE_W * s)}px`; canvas.style.height = `${Math.floor(CANVAS_H * s)}px`;
   ctx.imageSmoothingEnabled = false;
 }
 function setPanel(open: boolean) {
@@ -128,8 +139,13 @@ function frame(now: number) {
   if (live.busy) loop.reset(); else loop.advance(now - last, () => host.tick());
   last = now;
   ctx.imageSmoothingEnabled = false;
+  // The game frame sits below the top bar; the load transition and its banner still cover only the map.
+  ctx.save(); ctx.translate(0, TOP_H);
   render(ctx, eng);
   drawTransition(ctx, live.transitionStart, now);
+  ctx.restore();
+  const newest = journal.entries[journal.entries.length - 1];
+  drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: chain?.running && !live.busy ? thinking : null }, now);
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }
