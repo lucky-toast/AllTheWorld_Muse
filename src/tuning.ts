@@ -1,4 +1,4 @@
-// Every feel value for All the World lives here. Nothing else hard-codes these.
+// Every feel value and every limit for All the World lives here.
 export const TUNING = {
   // Ticks per second of game logic; rendering is separate.
   ticksPerSecond: 60,
@@ -10,29 +10,76 @@ export const TUNING = {
   tapTurnTicks: 9,
   // Seed for the world RNG so every run and test is identical.
   seed: 1337,
-  // In-game minutes added per tick at 1x (600 ticks = 1 game hour, a full day ~40 min... shortened below).
-  // We use ticks per game hour directly instead:
-  ticksPerGameHour: 360, // 6 real seconds per game hour at 1x; full day = 144 s, calm like Stardew.
-  // Phase start hours (24h clock). Night (20->5) is shorter than the waking day.
+  // Ticks per in-game hour at 1x; a full day is 144 real seconds.
+  ticksPerGameHour: 360,
+  // Phase start hours on a 24-hour clock.
   phases: { dawn: 5, day: 7, dusk: 17, night: 20 } as Record<string, number>,
-  // Player's faint glow from daynight.migrate.
+  // The player's faint glow, given by daynight in a later phase.
   playerLight: { radius: 34, color: "#ffd9a0", strength: 0.85 },
-  // Lighting per phase: darkness overlay colour + alpha (0 = full daylight).
+  // Lighting per phase: darkness overlay colour and alpha.
   lighting: {
     dawn: { color: "#8fa3c7", alpha: 0.34 },
     day: { color: "#000000", alpha: 0 },
     dusk: { color: "#b5651d", alpha: 0.3 },
     night: { color: "#060d2a", alpha: 0.9 },
   } as Record<string, { color: string; alpha: number }>,
-  // Banner / float text lifetimes in ticks.
+  // Banner lifetime in ticks.
   bannerTicks: 180,
-  // Pipeline (AI system checker) budgets.
-  pipeline: {
-    stageTimeoutMs: 6000, // worker is killed if a stage runs longer than this
-    tickBudgetMs: 100, // a single tick slower than this fails Sandbox run
-    sandboxTicks: 300, // ticks run against a copy of the live world in Sandbox run
+  // Every sandbox and pipeline limit from spec section 15.
+  limits: {
+    // Fuel for one live system call, including nested emits.
+    fuelPerLiveCall: 50_000_000,
+    // Fuel for one migrate, test or shot call.
+    fuelPerSetup: 500_000_000,
+    // Maximum linear memory for one module.
+    memoryPerModuleBytes: 16 * 1024 * 1024,
+    // Host requests allowed in one invocation.
+    hostCallsPerInvocation: 100_000,
+    // Maximum UTF-8 JSON request size.
+    requestSizeBytes: 64 * 1024,
+    // Maximum UTF-8 JSON response size.
+    responseSizeBytes: 64 * 1024,
+    // Entity ids returned by one query before truncation.
+    queryResults: 5_000,
+    // Spawns allowed per system in one tick.
+    spawnsPerTickPerSystem: 200,
+    // Live entities one system may own.
+    liveEntitiesPerSystem: 5_000,
+    // Particles and float texts kept per tick.
+    effectsPerTick: 64,
+    // Minimum ticks between banners from one system.
+    bannerIntervalTicks: 120,
+    // Maximum nested emit depth.
+    emitNesting: 16,
+    // Maximum saved JSON state per system.
+    stateSizeBytes: 1024 * 1024,
+    // Maximum AssemblyScript compile time.
+    compileTimeMs: 30_000,
+    // Maximum time for any other pipeline stage.
+    stageTimeMs: 20_000,
+    // Ticks run by the pipeline world check.
+    worldCheckTicks: 300,
+    // Seconds borrow focus may be held.
+    focusBorrowSeconds: 60,
+    // Seconds freeze focus may be held.
+    focusFreezeSeconds: 30,
+    // Seconds before a system may take focus again.
+    focusCooldownSeconds: 10,
+    // Strikes in the window that unload a system.
+    strikesBeforeUnload: 3,
+    // Strike counting window in seconds.
+    strikesWindowSeconds: 60,
+    // Designer repairs allowed per planner step.
+    repairsPerStep: 3,
+    // Planner steps kept from one wish.
+    planMaxSteps: 4,
+    // Characters kept from a player wish.
+    wishMaxChars: 100,
+    // Fraction of a limit that triggers a near-limit log entry.
+    nearLimitThreshold: 0.5,
   },
 } as const;
+
 export type Phase = "dawn" | "day" | "dusk" | "night";
 export function phaseAt(hour: number): Phase {
   const p = TUNING.phases;
@@ -41,4 +88,6 @@ export function phaseAt(hour: number): Phase {
   if (hour >= p.dusk && hour < p.night) return "dusk";
   return "night";
 }
-export function phaseStart(phase: Phase): number { return TUNING.phases[phase]; }
+export function phaseStart(phase: Phase): number {
+  return TUNING.phases[phase];
+}

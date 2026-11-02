@@ -1,322 +1,431 @@
-import type { CatalogEntry, Entity, GameEvent, Pos, SystemDef, World } from "./api";
-import { catalogFind, catalogGet, footprintTiles } from "./catalog";
-import { TUNING, phaseAt } from "../tuning";
+import { catalogGet, footprintTiles } from "./catalog";
+import { TUNING, phaseAt, type Phase } from "../tuning";
+import { Host } from "./host";
 
+export interface Pos { x: number; y: number; area: string }
 export interface EntityType { sprite: string; tags: string[] }
-export type Handler = (ev: GameEvent, world: World) => void;
 
-interface EntRec {
-  id: number; type: string; pos: Pos | null; tags: Set<string>;
-  comps: Map<string, unknown>; alive: boolean;
-  slideFrom: Pos | null; slideTo: Pos | null; slideT: number;
+export interface EntRec {
+  id: number;
+  type: string;
+  pos: Pos | null;
+  tags: Set<string>;
+  comps: Map<string, unknown>;
+  slideFrom: Pos | null;
+  slideTo: Pos | null;
+  slideT: number;
 }
-interface LoadedSystem { def: SystemDef; state: Record<string, unknown>; order: number }
 
-/** Short, JSON-safe summary of an event payload / component value for pipeline reports. */
-export function summarizeValue(v: unknown): unknown {
-  if (v === null || typeof v === "number" || typeof v === "boolean") return v;
-  if (typeof v === "string") return v.length > 80 ? v.slice(0, 80) + "…" : v;
-  if (Array.isArray(v)) return v.slice(0, 6).map(summarizeValue);
-  if (typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if (typeof o.id === "number" && typeof o.type === "string" && "pos" in o) return { entity: `${o.type}#${o.id}`, pos: o.pos ?? null };
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(o).slice(0, 8)) out[k] = summarizeValue(val);
-    return out;
+export interface Area {
+  id: string;
+  tiles: string[][];
+  occupancy: Map<string, Set<number>>;
+}
+
+export interface FxEffect {
+  kind: "particle" | "text";
+  spriteId?: string;
+  text?: string;
+  color?: string;
+  x: number;
+  y: number;
+  area: string;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  frame: number;
+}
+
+export interface HudSlot { owner: string; icon?: string; text: string; width: number }
+export interface OverlayState { title?: string; lines: string[]; bar?: { value: number; label?: string } }
+
+interface RngStream { a: number; calls: number }
+
+function hashString(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
   }
-  return String(v);
-}
-export function summarizePayload(data: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(data).slice(0, 8)) out[k] = summarizeValue(v);
-  return out;
+  return h >>> 0;
 }
 
 export function mulberry(seed: number) {
   let a = seed >>> 0;
-  return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export class Engine {
-  width: number; height: number;
-  tilesGrid: string[][];
+  readonly host: Host;
+  areas = new Map<string, Area>();
+  areaOrder: string[] = [];
+  currentAreaId = "clearing";
   entities = new Map<number, EntRec>();
-  occupancy = new Map<string, Set<number>>();
   nextId = 1;
   tickCount = 0;
-  rng: () => number; rngCalls = 0;
-  hour = 9; day = 1; // start in the morning
+  day = 1;
+  hour = 9;
   timeSpeed = 1;
-  systems: LoadedSystem[] = [];
-  loadOrder: string[] = [];
+  clockEnabled = false;
   types = new Map<string, EntityType>();
-  typeOwner = new Map<string, string>(); // type name -> system id or "world"
-  handlers = new Map<string, { sys: LoadedSystem | null; fn: Handler }[]>();
-  currentSystem: LoadedSystem | null = null;
-  emitLog: { sys: string; name: string }[] = [];
-  handledLog: { sys: string; name: string }[] = [];
-  fxEffects: { kind: string; spriteId?: string; text?: string; color?: string; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; frame: number }[] = [];
-  tweens: { from: number; to: number; ticks: number; t: number; onUpdate: (v: number) => void; onDone?: () => void; sys: LoadedSystem | null }[] = [];
+  typeOwner = new Map<string, string>();
+  componentOwner = new Map<string, string>();
+  entityOwner = new Map<number, string>();
+  systemState = new Map<string, unknown>();
+  fxEffects: FxEffect[] = [];
+  effectsThisTick = { particles: 0, floats: 0 };
   screenTint: { color: string; alpha: number; t: number; max: number } | null = null;
   banner: { text: string; t: number } | null = null;
-  hudSlots = new Map<string, { icon?: string; text: string; width: number }>();
-  testMode = false;
-  // Pipeline instrumentation (capture is off unless a test/sandbox run turns it on).
-  capturing = false;
-  capEvents: { tick: number; name: string; payload: Record<string, unknown> }[] = [];
-  capInputs: { name: string; handledBy: string; receivedBy: string[] }[] = [];
-  capSpawned: number[] = [];
-  /** First real payload seen per event name (used by the AI designer's WORLD description). */
-  eventExamples = new Map<string, Record<string, unknown>>();
-  thrownInfo: { system: string; handler: string; message: string } | null = null;
-  beginCapture() { this.capturing = true; this.capEvents = []; this.capInputs = []; this.capSpawned = []; this.thrownInfo = null; }
-  endCapture() { this.capturing = false; }
+  hudSlots = new Map<string, HudSlot>();
+  overlay: OverlayState | null = null;
+  interactionPrompt: string | null = null;
+  deniedLog: { tick: number; system: string; op: string; code: string; msg: string }[] = [];
+  nearLimitLog: { tick: number; system: string; op: string; used: number; limit: number }[] = [];
+  private rngStreams = new Map<string, RngStream>();
+  private playerEverSpawned = false;
 
-  constructor(width: number, height: number, tilesGrid: string[][], seed = TUNING.seed) {
-    this.width = width; this.height = height; this.tilesGrid = tilesGrid;
-    this.rng = mulberry(seed);
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    tiles: string[][],
+    readonly seed: number = TUNING.seed,
+  ) {
+    this.createAreaRecord("clearing", tiles);
+    this.host = new Host(this);
   }
-  rand(): number { this.rngCalls++; return this.rng(); }
 
-  // ---- entity types ----
-  registerType(name: string, t: EntityType, owner: string) { this.types.set(name, t); this.typeOwner.set(name, owner); }
-  unregisterSystemTypes(owner: string) { for (const [n, o] of [...this.typeOwner]) if (o === owner) { this.types.delete(n); this.typeOwner.delete(n); } }
+  private createAreaRecord(id: string, tiles: string[][]): Area {
+    const area: Area = { id, tiles: tiles.map((row) => [...row]), occupancy: new Map() };
+    this.areas.set(id, area);
+    this.areaOrder.push(id);
+    return area;
+  }
 
-  // ---- occupancy ----
-  key(x: number, y: number) { return x + "," + y; }
-  spriteIdOf(rec: EntRec): string { const s = rec.comps.get("sprite") as { id: string } | undefined; return s?.id ?? this.types.get(rec.type)?.sprite ?? ""; }
-  rebuildOccupancyFor(rec: EntRec) {
-    for (const set of this.occupancy.values()) set.delete(rec.id);
-    if (!rec.pos || !rec.alive) return;
-    for (const t of footprintTiles(this.spriteIdOf(rec), rec.pos.x, rec.pos.y)) {
-      const k = this.key(t.x, t.y); if (!this.occupancy.has(k)) this.occupancy.set(k, new Set());
-      this.occupancy.get(k)!.add(rec.id);
+  createArea(id: string, fill: string): Area {
+    if (this.areas.has(id)) throw new Error(`area "${id}" already exists`);
+    const tiles = Array.from({ length: this.height }, () => Array.from({ length: this.width }, () => fill));
+    return this.createAreaRecord(id, tiles);
+  }
+
+  area(id = this.currentAreaId): Area {
+    const area = this.areas.get(id);
+    if (!area) throw new Error(`unknown area "${id}"`);
+    return area;
+  }
+
+  registerType(name: string, type: EntityType, owner: string): void {
+    this.types.set(name, { sprite: type.sprite, tags: [...type.tags] });
+    this.typeOwner.set(name, owner);
+  }
+
+  declareComponent(name: string, owner: string): void {
+    this.componentOwner.set(name, owner);
+  }
+
+  key(x: number, y: number): string {
+    return `${x},${y}`;
+  }
+
+  spriteIdOf(rec: EntRec): string {
+    const sprite = rec.comps.get("sprite") as { id?: unknown } | string | undefined;
+    if (typeof sprite === "string") return sprite;
+    if (sprite && typeof sprite.id === "string") return sprite.id;
+    return this.types.get(rec.type)?.sprite ?? "";
+  }
+
+  footprintOf(rec: EntRec, pos: Pos): Pos[] {
+    return footprintTiles(this.spriteIdOf(rec), pos.x, pos.y).map((t) => ({ ...t, area: pos.area }));
+  }
+
+  removeOccupancyFor(rec: EntRec): void {
+    for (const area of this.areas.values()) {
+      for (const ids of area.occupancy.values()) ids.delete(rec.id);
     }
   }
-  atIds(x: number, y: number): number[] { return [...(this.occupancy.get(this.key(x, y)) ?? [])]; }
 
-  handle(rec: EntRec): Entity {
-    const eng = this;
-    const e: Entity = {
-      get id() { return rec.id; }, get type() { return rec.type; },
-      get pos() { return rec.pos ? { ...rec.pos } : null; },
-      has(n) { return rec.tags.has(n) || rec.comps.has(n); },
-      tag(n) { rec.tags.add(n); }, untag(n) { rec.tags.delete(n); },
-      get(n) { return rec.comps.get(n) as never; },
-      set(n, v) { rec.comps.set(n, v); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      add(n, v) { rec.comps.set(n, v); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      remove(n) { rec.comps.delete(n); if (n === "sprite") eng.rebuildOccupancyFor(rec); },
-      moveTo(x, y, opts) {
-        const from = rec.pos ? { ...rec.pos } : null;
-        rec.pos = { x, y }; eng.rebuildOccupancyFor(rec);
-        if (opts?.instant || !from) { rec.slideFrom = null; rec.slideTo = null; rec.slideT = 0; }
-        else { rec.slideFrom = from; rec.slideTo = { x, y }; rec.slideT = TUNING.slideTicks; }
-      },
-      lift() { rec.pos = null; rec.slideFrom = null; rec.slideTo = null; eng.rebuildOccupancyFor(rec); },
-      place(x, y) { rec.pos = { x, y }; rec.slideFrom = null; rec.slideTo = null; eng.rebuildOccupancyFor(rec); },
-      destroy() { rec.alive = false; rec.pos = null; eng.rebuildOccupancyFor(rec); eng.entities.delete(rec.id); },
-    };
-    return e;
+  rebuildOccupancyFor(rec: EntRec): void {
+    this.removeOccupancyFor(rec);
+    if (!rec.pos) return;
+    const area = this.areas.get(rec.pos.area);
+    if (!area) return;
+    for (const tile of footprintTiles(this.spriteIdOf(rec), rec.pos.x, rec.pos.y)) {
+      const key = this.key(tile.x, tile.y);
+      if (!area.occupancy.has(key)) area.occupancy.set(key, new Set());
+      area.occupancy.get(key)!.add(rec.id);
+    }
   }
-  spawnRec(type: string, pos: Pos): EntRec {
-    const t = this.types.get(type);
-    if (!t) throw new Error(`spawn: unknown entity type "${type}". Registered types: ${[...this.types.keys()].sort().join(", ")}. (Bare catalog sprite ids are not types unless a type with that name is registered.)`);
-    const rec: EntRec = { id: this.nextId++, type, pos: { ...pos }, tags: new Set(t.tags), comps: new Map(), alive: true, slideFrom: null, slideTo: null, slideT: 0 };
-    rec.comps.set("sprite", { id: t.sprite });
-    this.entities.set(rec.id, rec); this.rebuildOccupancyFor(rec);
-    if (this.capturing) this.capSpawned.push(rec.id);
-    return rec;
-  }
-  byId(id: number): Entity | undefined { const r = this.entities.get(id); return r ? this.handle(r) : undefined; }
-  player(): Entity | undefined { return this.query("player")[0]; }
-  query(tagOrComponent: string): Entity[] { return [...this.entities.values()].filter((r) => r.alive && (r.tags.has(tagOrComponent) || r.comps.has(tagOrComponent))).map((r) => this.handle(r)); }
 
-  isWalkable(x: number, y: number): boolean {
-    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return false;
-    const id = this.tilesGrid[y][x]; const entry = catalogGet(id);
-    if (!entry) return false;
-    return entry.tags.includes("walkable") && !entry.tags.includes("water");
+  atIds(x: number, y: number, areaId = this.currentAreaId): number[] {
+    const area = this.areas.get(areaId);
+    return area ? [...(area.occupancy.get(this.key(x, y)) ?? [])] : [];
   }
-  /** A tile is free for X when walkable and holding no player/solid/pushable/item entity other than X. */
-  isFreeFor(x: number, y: number, selfId?: number): boolean {
-    if (!this.isWalkable(x, y)) return false;
-    for (const id of this.atIds(x, y)) {
-      if (id === selfId) continue; const r = this.entities.get(id); if (!r) continue;
-      const h = this.handle(r);
-      if (h.has("player") || h.has("solid") || h.has("pushable") || h.has("item")) return false;
+
+  recById(id: number): EntRec | undefined {
+    return this.entities.get(id);
+  }
+
+  playerRec(): EntRec | undefined {
+    for (const rec of this.entities.values()) if (rec.tags.has("player")) return rec;
+    return undefined;
+  }
+
+  hasPlayer(): boolean {
+    return this.playerRec() !== undefined;
+  }
+
+  notePlayerSpawned(): void {
+    this.playerEverSpawned = true;
+  }
+
+  get playerEverCreated(): boolean {
+    return this.playerEverSpawned;
+  }
+
+  isInside(x: number, y: number): boolean {
+    return x >= 0 && y >= 0 && x < this.width && y < this.height;
+  }
+
+  tileAt(x: number, y: number, areaId = this.currentAreaId): string | null {
+    const area = this.areas.get(areaId);
+    if (!area || !this.isInside(x, y)) return null;
+    return area.tiles[y][x];
+  }
+
+  isWalkable(x: number, y: number, areaId = this.currentAreaId): boolean {
+    const id = this.tileAt(x, y, areaId);
+    if (!id) return false;
+    const entry = catalogGet(id);
+    return !!entry && entry.tags.includes("walkable") && !entry.tags.includes("water");
+  }
+
+  /** Free for X: walkable terrain and no player, solid, pushable or item entity other than X. */
+  isFreeFor(x: number, y: number, selfId = 0, areaId = this.currentAreaId): boolean {
+    if (!this.isWalkable(x, y, areaId)) return false;
+    for (const id of this.atIds(x, y, areaId)) {
+      if (id === selfId) continue;
+      const rec = this.entities.get(id);
+      if (!rec) continue;
+      if (rec.tags.has("player") || rec.tags.has("solid") || rec.tags.has("pushable") || rec.tags.has("item")) return false;
+      if (rec.comps.has("player") || rec.comps.has("solid") || rec.comps.has("pushable") || rec.comps.has("item")) return false;
     }
     return true;
   }
-  footprintFreeFor(spriteId: string, x: number, y: number, selfId?: number): boolean {
-    return footprintTiles(spriteId, x, y).every((t) => this.isFreeFor(t.x, t.y, selfId));
+
+  footprintFreeFor(spriteId: string, x: number, y: number, selfId = 0, areaId = this.currentAreaId): boolean {
+    return footprintTiles(spriteId, x, y).every((tile) => this.isFreeFor(tile.x, tile.y, selfId, areaId));
   }
 
-  // ---- events ----
-  on(name: string, sys: LoadedSystem | null, fn: Handler) {
-    if (!this.handlers.has(name)) this.handlers.set(name, []);
-    this.handlers.get(name)!.push({ sys, fn });
+  footprintWalkable(spriteId: string, x: number, y: number, areaId: string): boolean {
+    return footprintTiles(spriteId, x, y).every((tile) => this.isWalkable(tile.x, tile.y, areaId));
   }
-  emitAs(sys: LoadedSystem | null, name: string, data: Record<string, unknown> = {}): GameEvent {
-    const ev: GameEvent = { handled: false, ...data };
-    this.emitLog.push({ sys: sys?.def.id ?? this.currentSystem?.def.id ?? "(engine)", name });
-    if (!this.eventExamples.has(name)) this.eventExamples.set(name, summarizePayload(data));
-    if (this.capturing) this.capEvents.push({ tick: this.tickCount, name, payload: summarizePayload(data) });
-    const receivedBy: string[] = []; let handledBy = "none";
-    for (const h of [...(this.handlers.get(name) ?? [])]) {
-      const before = ev.handled; const prev = this.currentSystem; this.currentSystem = h.sys;
-      receivedBy.push(h.sys?.def.id ?? "(engine)");
-      try { h.fn(ev, this.facade(h.sys)); } catch (err) {
-        this.thrownInfo = { system: h.sys?.def.id ?? "(engine)", handler: name, message: (err as Error).message };
-        this.currentSystem = prev; throw err;
-      }
-      if (!before && ev.handled && h.sys) { this.handledLog.push({ sys: h.sys.def.id, name }); handledBy = h.sys.def.id; }
-      this.currentSystem = prev;
-    }
-    if (this.capturing && name.startsWith("input.")) this.capInputs.push({ name, handledBy, receivedBy });
-    return ev;
-  }
-  /** True when the occupancy lookup exactly matches every live entity's footprint. */
+
   validateOccupancy(): boolean {
-    const want = new Map<string, Set<number>>();
-    for (const r of this.entities.values()) {
-      if (!r.pos) continue;
-      for (const t of footprintTiles(this.spriteIdOf(r), r.pos.x, r.pos.y)) { const k = this.key(t.x, t.y); if (!want.has(k)) want.set(k, new Set()); want.get(k)!.add(r.id); }
+    const wanted = new Map<string, Map<string, Set<number>>>();
+    for (const areaId of this.areaOrder) wanted.set(areaId, new Map());
+    for (const rec of this.entities.values()) {
+      if (!rec.pos) continue;
+      const areaMap = wanted.get(rec.pos.area);
+      if (!areaMap) return false;
+      for (const tile of footprintTiles(this.spriteIdOf(rec), rec.pos.x, rec.pos.y)) {
+        const key = this.key(tile.x, tile.y);
+        if (!areaMap.has(key)) areaMap.set(key, new Set());
+        areaMap.get(key)!.add(rec.id);
+      }
     }
-    const norm = (m: Map<string, Set<number>>) => [...m.entries()].filter(([, s]) => s.size).map(([k, s]) => k + ":" + [...s].sort((a, b) => a - b).join(".")).sort().join("|");
-    return norm(want) === norm(this.occupancy);
+    const normalize = (map: Map<string, Set<number>>): string => [...map.entries()]
+      .filter(([, ids]) => ids.size > 0)
+      .map(([key, ids]) => `${key}:${[...ids].sort((a, b) => a - b).join(".")}`)
+      .sort()
+      .join("|");
+    for (const area of this.areas.values()) {
+      if (normalize(area.occupancy) !== normalize(wanted.get(area.id)!)) return false;
+    }
+    return true;
   }
-  entitySummary(id: number): { type: string; pos: Pos | null; components: Record<string, unknown> } | null {
-    const r = this.entities.get(id); if (!r) return null;
-    const components: Record<string, unknown> = {};
-    for (const [k, v] of r.comps) components[k] = summarizeValue(v);
-    return { type: r.type, pos: r.pos ? { ...r.pos } : null, components };
-  }
-  emit(name: string, data: Record<string, unknown> = {}): GameEvent { return this.emitAs(this.currentSystem, name, data); }
-  /** Send an input event (handled flag honoured in load order). */
-  emitInput(name: string, data: Record<string, unknown> = {}): GameEvent { return this.emitAs(null, name, data); }
 
-  facade(sys: LoadedSystem | null): World {
-    const eng = this;
-    const w: World = {
-      at: (x, y) => eng.atIds(x, y).map((id) => eng.byId(id)!).filter(Boolean),
-      query: (t) => eng.query(t),
-      spawn: (type, pos) => eng.handle(eng.spawnRec(type, pos)),
-      tiles: {
-        get: (x, y) => (x < 0 || y < 0 || x >= eng.width || y >= eng.height ? null : eng.tilesGrid[y][x]),
-        set: (x, y, id) => { if (x >= 0 && y >= 0 && x < eng.width && y < eng.height) eng.tilesGrid[y][x] = id; },
-        find: (tag) => { const out: Pos[] = []; for (let y = 0; y < eng.height; y++) for (let x = 0; x < eng.width; x++) if (catalogGet(eng.tilesGrid[y][x])?.tags.includes(tag)) out.push({ x, y }); return out; },
-      },
-      on: (name, handler) => eng.on(name, sys, handler),
-      emit: (name, data) => eng.emitAs(sys, name, data ?? {}),
-      time: {
-        get day() { return eng.day; }, get phase() { return phaseAt(eng.hour); }, get hour() { return eng.hour; },
-        set(v) { eng.setTime(v, sys); },
-      },
-      rand: () => eng.rand(),
-      catalog: { find: catalogFind, get: catalogGet as (id: string) => CatalogEntry | undefined },
-      fx: {
-        tween: (o) => eng.tweens.push({ ...o, t: 0, sys }),
-        particles: (spriteId, pos) => { for (let i = 0; i < 6; i++) eng.fxEffects.push({ kind: "particle", spriteId, x: pos.x, y: pos.y, vx: (eng.rand() - 0.5) * 0.08, vy: -eng.rand() * 0.08, life: 0, maxLife: 24, frame: Math.floor(eng.rand() * 6) }); },
-        floatText: (text, pos, color) => eng.fxEffects.push({ kind: "text", text, color: color ?? "#fff", x: pos.x, y: pos.y, vx: 0, vy: -0.02, life: 0, maxLife: 50, frame: 0 }),
-        tint: (color, alpha, durationMs) => { eng.screenTint = { color, alpha, t: 0, max: Math.max(1, Math.round((durationMs / 1000) * 60)) }; },
-      },
-      ui: {
-        banner: (text) => { eng.banner = { text, t: TUNING.bannerTicks }; },
-        hud: { add: (id, o) => eng.hudSlots.set(id, o), remove: (id) => eng.hudSlots.delete(id) },
-      },
-      state: sys ? sys.state : {},
+  private rngStream(systemId: string): RngStream {
+    let stream = this.rngStreams.get(systemId);
+    if (!stream) {
+      stream = { a: (this.seed ^ hashString(systemId)) >>> 0, calls: 0 };
+      this.rngStreams.set(systemId, stream);
+    }
+    return stream;
+  }
+
+  randFor(systemId: string): number {
+    const stream = this.rngStream(systemId);
+    stream.calls++;
+    stream.a |= 0;
+    stream.a = (stream.a + 0x6d2b79f5) | 0;
+    let t = Math.imul(stream.a ^ (stream.a >>> 15), 1 | stream.a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  rngSnapshot(systemId: string): { a: number; calls: number } {
+    const stream = this.rngStream(systemId);
+    return { a: stream.a, calls: stream.calls };
+  }
+
+  restoreRng(systemId: string, snapshot: { a: number; calls: number }): void {
+    this.rngStreams.set(systemId, { ...snapshot });
+  }
+
+  phase(): Phase {
+    return phaseAt(this.hour);
+  }
+
+  jumpTime(value: string | number): void {
+    if (typeof value === "number") {
+      this.hour = ((value % 24) + 24) % 24;
+      return;
+    }
+    const starts: Record<string, number> = {
+      dawn: TUNING.phases.dawn,
+      day: TUNING.phases.day,
+      daytime: TUNING.phases.day,
+      dusk: TUNING.phases.dusk,
+      night: TUNING.phases.night,
     };
-    return w;
-  }
-  world(): World { return this.facade(null); }
-
-  setTime(v: string | number, sys: LoadedSystem | null) {
-    const from = { hour: this.hour, day: this.day, phase: phaseAt(this.hour) };
-    if (typeof v === "number") { this.hour = ((v % 24) + 24) % 24; }
-    else { const starts: Record<string, number> = { dawn: TUNING.phases.dawn, day: TUNING.phases.day, dusk: TUNING.phases.dusk, night: TUNING.phases.night, daytime: TUNING.phases.day }; this.hour = starts[v] ?? this.hour; }
-    const to = { hour: this.hour, day: this.day, phase: phaseAt(this.hour) };
-    // Attributed to daynight in contract checks: it owns every time.* event.
-    const dn = this.systems.find((s) => s.def.id === "daynight") ?? sys;
-    this.emitAs(dn, "time.jumped", { from, to });
-    // Phase event itself is emitted by daynight on its next tick (it tracks lastPhase).
+    if (value in starts) this.hour = starts[value];
   }
 
-  // ---- systems ----
-  loadSystem(def: SystemDef) {
-    const existing = this.systems.findIndex((s) => s.def.id === def.id);
-    this.unloadSystem(def.id, true);
-    const loaded: LoadedSystem = { def, state: existing >= 0 ? this.systems[existing]?.state ?? {} : {}, order: existing >= 0 ? existing : this.systems.length };
-    // Preserve state/order on reload:
-    if (existing >= 0) { loaded.state = (this as unknown as { _saved?: Record<string, unknown> })._saved ?? loaded.state; }
-    for (const [name, t] of Object.entries(def.entities)) this.registerType(name, t, def.id);
-    if (existing >= 0) this.systems.splice(existing, 0, loaded); else this.systems.push(loaded);
-    if (!this.loadOrder.includes(def.id)) this.loadOrder.push(def.id);
-    for (const [name, fn] of Object.entries(def.on)) this.on(name, loaded, fn as Handler);
-    const prev = this.currentSystem; this.currentSystem = loaded;
-    def.migrate(this.facade(loaded));
-    this.currentSystem = prev;
-    return loaded;
-  }
-  unloadSystem(id: string, forReload = false) {
-    const idx = this.systems.findIndex((s) => s.def.id === id); if (idx < 0) return;
-    const [removed] = this.systems.splice(idx, 1);
-    if (forReload) (this as unknown as { _saved?: Record<string, unknown> })._saved = removed.state;
-    for (const [name, list] of this.handlers) this.handlers.set(name, list.filter((h) => h.sys !== removed));
-    this.unregisterSystemTypes(id);
-    if (!forReload) this.loadOrder = this.loadOrder.filter((x) => x !== id);
-  }
-  reloadAll(defs: SystemDef[]) {
-    const order = [...this.loadOrder];
-    const states = new Map(this.systems.map((s) => [s.def.id, s.state]));
-    for (const id of [...order].reverse()) this.unloadSystem(id);
-    for (const id of order) { const d = defs.find((x) => x.id === id); if (!d) continue; this.loadSystem(d); const l = this.systems.find((s) => s.def.id === id); if (l && states.has(id)) l.state = states.get(id)!; }
-  }
-
-  tick() {
+  tick(): void {
     this.tickCount++;
-    // Clock advances only while daynight is loaded; daynight emits the events.
-    if (this.systems.some((s) => s.def.id === "daynight")) {
-      const prevHour = this.hour;
-      this.hour += (this.timeSpeed / TUNING.ticksPerGameHour);
+    this.effectsThisTick = { particles: 0, floats: 0 };
+    this.host.resetTick();
+    if (this.clockEnabled) {
+      const previousHour = this.hour;
+      this.hour += this.timeSpeed / TUNING.ticksPerGameHour;
       if (this.hour >= 24) this.hour -= 24;
-      // Day goes up at dawn: crossing the dawn start from below.
       const dawn = TUNING.phases.dawn;
-      if (prevHour < dawn && this.hour >= dawn && this.hour < dawn + 1) this.day++;
-      if (prevHour > this.hour) { /* wrapped midnight: nothing */ }
+      if (previousHour < dawn && this.hour >= dawn && this.hour < dawn + 1) this.day++;
     }
-    for (const s of [...this.systems]) { const prev = this.currentSystem; this.currentSystem = s; s.def.onTick(this.facade(s), 1 / 60); this.currentSystem = prev; }
     for (const rec of this.entities.values()) if (rec.slideT > 0) rec.slideT--;
-    for (const fx of this.fxEffects) { fx.life++; fx.x += fx.vx; fx.y += fx.vy; }
-    this.fxEffects = this.fxEffects.filter((f) => f.life < f.maxLife);
-    for (const tw of [...this.tweens]) { tw.t++; tw.onUpdate(tw.from + (tw.to - tw.from) * Math.min(1, tw.t / tw.ticks)); if (tw.t >= tw.ticks) { tw.onDone?.(); this.tweens.splice(this.tweens.indexOf(tw), 1); } }
+    for (const fx of this.fxEffects) {
+      fx.life++;
+      fx.x += fx.vx;
+      fx.y += fx.vy;
+    }
+    this.fxEffects = this.fxEffects.filter((fx) => fx.life < fx.maxLife);
     if (this.screenTint && ++this.screenTint.t >= this.screenTint.max) this.screenTint = null;
     if (this.banner && --this.banner.t <= 0) this.banner = null;
   }
 
+  /** Render interpolation position in tiles, for the renderer only. */
+  renderPos(rec: EntRec): Pos | null {
+    if (!rec.pos) return null;
+    if (rec.slideFrom && rec.slideTo && rec.slideT > 0) {
+      const k = 1 - rec.slideT / TUNING.slideTicks;
+      return {
+        x: rec.slideFrom.x + (rec.slideTo.x - rec.slideFrom.x) * k,
+        y: rec.slideFrom.y + (rec.slideTo.y - rec.slideFrom.y) * k,
+        area: rec.pos.area,
+      };
+    }
+    return { ...rec.pos };
+  }
+
   serialize(): string {
     return JSON.stringify({
-      width: this.width, height: this.height, tiles: this.tilesGrid, day: this.day, hour: this.hour, tickCount: this.tickCount, nextId: this.nextId,
-      entities: [...this.entities.values()].map((r) => ({ id: r.id, type: r.type, pos: r.pos, tags: [...r.tags], comps: [...r.comps.entries()] })),
-      systemState: Object.fromEntries(this.systems.map((s) => [s.def.id, s.state])),
-      loadOrder: this.loadOrder,
+      width: this.width,
+      height: this.height,
+      seed: this.seed,
+      areas: this.areaOrder.map((id) => ({ id, tiles: this.areas.get(id)!.tiles })),
+      currentAreaId: this.currentAreaId,
+      day: this.day,
+      hour: this.hour,
+      timeSpeed: this.timeSpeed,
+      clockEnabled: this.clockEnabled,
+      tickCount: this.tickCount,
+      nextId: this.nextId,
+      playerEverSpawned: this.playerEverSpawned,
+      entities: [...this.entities.values()].map((rec) => ({
+        id: rec.id,
+        type: rec.type,
+        pos: rec.pos,
+        tags: [...rec.tags],
+        comps: [...rec.comps.entries()],
+      })),
+      types: [...this.types.entries()],
+      systemState: [...this.systemState.entries()],
+      rngStreams: [...this.rngStreams.entries()].map(([id, stream]) => [id, { a: stream.a, calls: stream.calls }]),
+      ownership: {
+        types: [...this.typeOwner.entries()],
+        components: [...this.componentOwner.entries()],
+        entities: [...this.entityOwner.entries()],
+      },
     });
   }
-  deserialize(json: string) {
-    const d = JSON.parse(json) as ReturnType<Engine["serialize"]> & Record<string, unknown>;
-    const data = d as unknown as { tiles: string[][]; day: number; hour: number; tickCount: number; nextId: number; entities: { id: number; type: string; pos: Pos | null; tags: string[]; comps: [string, unknown][] }[]; systemState: Record<string, Record<string, unknown>>; loadOrder: string[] };
-    this.tilesGrid = data.tiles.map((r) => [...r]); this.day = data.day; this.hour = data.hour; this.tickCount = data.tickCount; this.nextId = data.nextId;
-    this.entities.clear(); this.occupancy.clear();
-    for (const e of data.entities) { const rec: EntRec = { id: e.id, type: e.type, pos: e.pos, tags: new Set(e.tags), comps: new Map(e.comps), alive: true, slideFrom: null, slideTo: null, slideT: 0 }; this.entities.set(rec.id, rec); this.rebuildOccupancyFor(rec); }
-    for (const s of this.systems) if (data.systemState[s.def.id]) s.state = data.systemState[s.def.id];
-    this.loadOrder = data.loadOrder ?? this.loadOrder;
+
+  deserialize(json: string): void {
+    const data = JSON.parse(json) as {
+      areas: { id: string; tiles: string[][] }[];
+      currentAreaId: string;
+      day: number;
+      hour: number;
+      timeSpeed: number;
+      clockEnabled: boolean;
+      tickCount: number;
+      nextId: number;
+      playerEverSpawned: boolean;
+      entities: { id: number; type: string; pos: Pos | null; tags: string[]; comps: [string, unknown][] }[];
+      types: [string, EntityType][];
+      systemState: [string, unknown][];
+      rngStreams: [string, RngStream][];
+      ownership: { types: [string, string][]; components: [string, string][]; entities: [number, string][] };
+    };
+    this.areas.clear();
+    this.areaOrder = [];
+    for (const area of data.areas) this.createAreaRecord(area.id, area.tiles);
+    this.currentAreaId = data.currentAreaId;
+    this.day = data.day;
+    this.hour = data.hour;
+    this.timeSpeed = data.timeSpeed;
+    this.clockEnabled = data.clockEnabled;
+    this.tickCount = data.tickCount;
+    this.nextId = data.nextId;
+    this.playerEverSpawned = data.playerEverSpawned;
+    this.entities.clear();
+    for (const entity of data.entities) {
+      const rec: EntRec = {
+        id: entity.id,
+        type: entity.type,
+        pos: entity.pos ? { ...entity.pos } : null,
+        tags: new Set(entity.tags),
+        comps: new Map(entity.comps),
+        slideFrom: null,
+        slideTo: null,
+        slideT: 0,
+      };
+      this.entities.set(rec.id, rec);
+    }
+    for (const rec of this.entities.values()) this.rebuildOccupancyFor(rec);
+    this.types = new Map(data.types);
+    this.systemState = new Map(data.systemState);
+    this.rngStreams = new Map(data.rngStreams.map(([id, stream]) => [id, { ...stream }]));
+    this.typeOwner = new Map(data.ownership.types);
+    this.componentOwner = new Map(data.ownership.components);
+    this.entityOwner = new Map(data.ownership.entities);
+    this.fxEffects = [];
+    this.screenTint = null;
+    this.banner = null;
+    this.hudSlots.clear();
+    this.overlay = null;
   }
-  snapshot(): string { return this.serialize(); }
-  restore(snap: string) { this.deserialize(snap); }
-  /** Render interpolation position in tiles (float), for the renderer only. */
-  renderPos(rec: { pos: Pos | null; slideFrom: Pos | null; slideTo: Pos | null; slideT: number }): Pos | null {
-    if (!rec.pos) return null;
-    if (rec.slideFrom && rec.slideTo && rec.slideT > 0) { const k = 1 - rec.slideT / TUNING.slideTicks; return { x: rec.slideFrom.x + (rec.slideTo.x - rec.slideFrom.x) * k, y: rec.slideFrom.y + (rec.slideTo.y - rec.slideFrom.y) * k }; }
-    return rec.pos;
+
+  snapshot(): string {
+    return this.serialize();
   }
-  recById(id: number) { return this.entities.get(id); }
+
+  restore(snapshot: string): void {
+    this.deserialize(snapshot);
+  }
 }

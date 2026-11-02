@@ -21,8 +21,11 @@ export function buildWorld(): Engine {
   grid[sy][3] = "stream_h_left"; for (let x = 4; x <= 7; x++) grid[sy][x] = "stream_h"; grid[sy][8] = "stream_h_right";
   const eng = new Engine(MAP_W, MAP_H, grid, TUNING.seed);
   registerWorldTypes(eng);
-  const w = eng.world();
-  const spawn = (t: string, x: number, y: number) => w.spawn(t, { x, y });
+  const spawn = (t: string, x: number, y: number) => {
+    const r = eng.host.call("world", { op: "spawn", type: t, x, y });
+    if (!r.ok) throw new Error(`map spawn ${t} at ${x},${y} failed: ${r.msg}`);
+    return r.r as number;
+  };
   // Border: dense clusters of varying depth so it reads as forest, not a ring.
   for (let i = 0; i < 8; i++) {
     const x = Math.min(26, i * 4 - (i % 2));
@@ -39,7 +42,8 @@ export function buildWorld(): Engine {
   spawn("log_fallen", 12, 8); spawn("log_fallen", 20, 12); spawn("crate", 17, 9);
   spawn("branch", 11, 10); spawn("branch", 18, 13); spawn("stone", 14, 11); spawn("stone", 21, 10);
   const player = spawn("player", 15, 11);
-  player.set("facing", "down");
+  const facing = eng.host.call("world", { op: "set", id: player, comp: "facing", value: "down" });
+  if (!facing.ok) throw new Error(`player facing failed: ${facing.msg}`);
   return eng;
 }
 /** Empty walkable arena used by every base-system test so map changes can't break them. */
@@ -50,6 +54,9 @@ export function buildArena(w = 12, h = 12): Engine {
   eng.registerType("test_item", { sprite: "branch", tags: ["item"] }, "test");
   eng.registerType("test_block", { sprite: "rock_gray_small", tags: ["solid"] }, "test");
   eng.registerType("test_pushable", { sprite: "crate", tags: ["pushable"] }, "test");
-  const p = eng.world().spawn("player", { x: 5, y: 5 }); p.set("facing", "down");
+  const spawn = eng.host.call("test", { op: "spawn", type: "player", x: 5, y: 5 });
+  if (!spawn.ok) throw new Error(`arena player failed: ${spawn.msg}`);
+  const facing = eng.host.call("test", { op: "set", id: spawn.r, comp: "facing", value: "down" });
+  if (!facing.ok) throw new Error(`arena facing failed: ${facing.msg}`);
   return eng;
 }

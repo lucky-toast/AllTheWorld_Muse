@@ -1,89 +1,95 @@
 // @ts-nocheck
 import { defineConfig } from "vite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { resolve, sep } from "node:path";
 
-// Dev-server persistence for accepted AI systems: data/systems/<id>.ts plus
-// data/systems.json (id, order, buildsOn, timestamp). Built copies fall back
-// to localStorage in the browser (see src/pipeline/persistence.ts).
-function systemsPlugin() {
-  const dataDir = join(process.cwd(), "data");
-  const sysDir = join(dataDir, "systems");
-  const manifestPath = join(dataDir, "systems.json");
-  const readManifest = () => { try { return JSON.parse(readFileSync(manifestPath, "utf-8")); } catch { return []; } };
-  const readBody = (req) => new Promise((res) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => res(b)); });
+const ID_RE = /^[a-z][a-z0-9_]{0,39}$/;
+export function isValidSystemId(id) {
+  return typeof id === "string" && ID_RE.test(id);
+}
+
+/** Resolve a file inside data/systems/<id>/, or return null if the id or path escapes. */
+export function resolveDataPath(dataDir, id, file) {
+  if (!isValidSystemId(id)) return null;
+  if (typeof file !== "string" || !file || file.includes("/") || file.includes("\\") || file.includes("\0")) return null;
+  const dataRoot = resolve(dataDir);
+  const systemDir = resolve(dataRoot, "systems", id);
+  const target = resolve(systemDir, file);
+  if (target !== systemDir && !target.startsWith(systemDir + sep)) return null;
+  if (!target.startsWith(dataRoot + sep)) return null;
+  return target;
+}
+
+function readBody(req) {
+  return new Promise((resolveBody, reject) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => resolveBody(body));
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res, status, value) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(value));
+}
+
+/** Storage/systems middleware shell. Only id validation and path checks exist in Phase 1. */
+export function systemsHandler(dataDir) {
+  const root = resolve(dataDir);
+  return async (req, res) => {
+    try {
+      const url = new URL(req.url || "/", "http://localhost");
+      const queryId = url.searchParams.get("id");
+      if (req.method === "GET") {
+        if (queryId !== null && resolveDataPath(root, queryId, "manifest.json") === null) {
+          return sendJson(res, 400, { error: "invalid system id" });
+        }
+        return sendJson(res, 200, { systems: [] });
+      }
+      if (req.method === "POST") {
+        let body = {};
+        const raw = await readBody(req);
+        if (raw) {
+          try { body = JSON.parse(raw); } catch { return sendJson(res, 400, { error: "invalid JSON" }); }
+        }
+        const id = body.id ?? queryId;
+        if (resolveDataPath(root, id, "manifest.json") === null) {
+          return sendJson(res, 400, { error: "invalid system id" });
+        }
+        return sendJson(res, 501, { error: "storage endpoints arrive in a later phase" });
+      }
+      return sendJson(res, 404, { error: "not found" });
+    } catch (error) {
+      return sendJson(res, 500, { error: String(error?.message ?? error) });
+    }
+  };
+}
+
+export function systemsPlugin(dataDir = resolve(process.cwd(), "data")) {
+  const handler = systemsHandler(dataDir);
   return {
-    name: "atw-systems",
+    name: "systems",
     configureServer(server) {
-      server.middlewares.use("/__systems", async (req, res) => {
-        res.setHeader("content-type", "application/json");
-        try {
-          if (req.method === "GET") {
-            const manifest = readManifest();
-            const systems = manifest.map((m) => ({ ...m, source: readFileSync(join(sysDir, m.id + ".ts"), "utf-8") }));
-            let world = null; try { world = readFileSync(join(dataDir, "world.json"), "utf-8"); } catch { /* none */ }
-            res.end(JSON.stringify({ systems, world }));
-          } else if (req.method === "POST" && req.url === "/save") {
-            const body = JSON.parse(await readBody(req));
-            mkdirSync(sysDir, { recursive: true });
-            writeFileSync(join(sysDir, body.id + ".ts"), body.source);
-            const manifest = readManifest().filter((m) => m.id !== body.id);
-            manifest.push({ id: body.id, order: manifest.length, buildsOn: body.buildsOn ?? [], timestamp: body.timestamp ?? new Date().toISOString() });
-            manifest.forEach((m, i) => (m.order = i));
-            writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
-            res.end(JSON.stringify({ ok: true }));
-          } else if (req.method === "POST" && req.url === "/world") {
-            const body = JSON.parse(await readBody(req));
-            mkdirSync(dataDir, { recursive: true });
-            writeFileSync(join(dataDir, "world.json"), body.world);
-            res.end(JSON.stringify({ ok: true }));
-          } else if (req.method === "POST" && req.url === "/fresh") {
-            mkdirSync(dataDir, { recursive: true });
-            if (existsSync(sysDir)) for (const f of readdirSync(sysDir)) rmSync(join(sysDir, f));
-            writeFileSync(manifestPath, "[]");
-            try { rmSync(join(dataDir, "world.json")); } catch { /* none */ }
-            res.end(JSON.stringify({ ok: true }));
-          } else { res.statusCode = 404; res.end(JSON.stringify({ error: "unknown route" })); }
-        } catch (e) { res.statusCode = 500; res.end(JSON.stringify({ error: String(e) })); }
-      });
+      server.middlewares.use("/__systems", handler);
     },
   };
 }
 
-// Journal (data/journal.json) and AI conversation log (data/ai-log.jsonl).
-function journalPlugin() {
-  const dataDir = join(process.cwd(), "data");
-  const readBody = (req) => new Promise((res) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => res(b)); });
+function assetHeaders() {
   return {
-    name: "atw-journal",
+    name: "asset-headers",
     configureServer(server) {
-      server.middlewares.use("/__journal", async (req, res) => {
-        res.setHeader("content-type", "application/json");
-        try {
-          const path = join(dataDir, "journal.json");
-          if (req.method === "GET") { try { res.end(readFileSync(path, "utf-8")); } catch { res.end("[]"); } }
-          else if (req.method === "POST" && req.url === "/append") {
-            const entry = JSON.parse(await readBody(req)); mkdirSync(dataDir, { recursive: true });
-            let all = []; try { all = JSON.parse(readFileSync(path, "utf-8")); } catch { /* first */ }
-            all.push(entry); writeFileSync(path, JSON.stringify(all, null, 1)); res.end(JSON.stringify({ ok: true }));
-          } else { res.statusCode = 404; res.end("{}"); }
-        } catch (e) { res.statusCode = 500; res.end(JSON.stringify({ error: String(e) })); }
-      });
-      server.middlewares.use("/__ai-log", async (req, res) => {
-        try {
-          const path = join(dataDir, "ai-log.jsonl");
-          if (req.method === "GET") { res.setHeader("content-type", "text/plain"); try { res.end(readFileSync(path, "utf-8")); } catch { res.end(""); } }
-          else if (req.method === "POST" && req.url === "/append") {
-            const body = JSON.parse(await readBody(req)); mkdirSync(dataDir, { recursive: true });
-            appendFileSync(path, body.line + "\n"); res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ ok: true }));
-          } else { res.statusCode = 404; res.end("{}"); }
-        } catch (e) { res.statusCode = 500; res.end(String(e)); }
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.startsWith("/assets/") || req.url?.startsWith("assets/")) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+        next();
       });
     },
   };
 }
 
 export default defineConfig({
-  plugins: [systemsPlugin(), journalPlugin()],
-  test: { include: ["tests/**/*.test.ts"] },
+  plugins: [systemsPlugin(resolve(process.cwd(), "data")), assetHeaders()],
 });
