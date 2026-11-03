@@ -86,14 +86,12 @@ A new system can retire a loaded AI system by listing it in `replaces`. It must 
 
 ### The AI tab
 
-The tab runs a wish through the Muse API (via the dev server) and shows what the game never does. It is read-only apart from the "Player wish" box and Start, and the "What changed" on/off setting.
+The tab runs a wish through the Muse API (via the dev server) and shows everything behind the scenes. It is read-only apart from the "Player wish" box and Start, and the "What changed" on/off setting.
 
 - The planner's message and reply: the plan, which appears nowhere in the game.
 - For each step, the designer's message for every attempt (the first try and any repairs), its lookup rounds (each tool call with a short summary of its result), its reply, and a row of stage boxes that light up as the pipeline runs.
 - Real token usage next to each message, such as `in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens`.
 - The AI log: every message and reply with an estimated token count, and a `usage:` note with the real counts after each reply.
-
-In the game the player sees the leaf transition and "The world feels different", and can open "What changed" (C).
 
 ### Reviewing test rounds
 
