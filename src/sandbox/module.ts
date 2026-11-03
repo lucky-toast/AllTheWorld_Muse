@@ -185,11 +185,34 @@ function opsNote(ops: Map<string, number>): string {
   return ` after ${total} SDK calls (${top}${ops.size > 5 ? ", ..." : ""}); each SDK call costs far more than plain code, so reuse what a call returned instead of asking again`;
 }
 
+// ======================= module memories =======================
+//
+// Every instance gets its own WebAssembly.Memory, and the browser reserves a large block of
+// address space for each one whatever its size (about 10 GB with guard regions). A tab can
+// only hold so many at once, counting every thread, and a memory is freed only when nothing
+// can reach it and that thread collects garbage. So worlds that are done release their
+// memories (Host.dispose), and the count below shows how many are held at once.
+
+/** Memories created and not yet released (disposed, replaced, or collected), and the most at once. */
+const memories = { live: 0, peak: 0 };
+/** One per memory: released once, whichever comes first (dispose, replacement, or collection). */
+interface MemoryToken { released: boolean }
+const releaseToken = (t: MemoryToken | null) => { if (t && !t.released) { t.released = true; memories.live--; } };
+const collected = typeof FinalizationRegistry === "undefined" ? null : new FinalizationRegistry<MemoryToken>(releaseToken);
+
+/** Module memories held right now in this thread, and the most held at once since resetMemoryPeak. */
+export function moduleMemories(): { live: number; peak: number } { return { ...memories }; }
+/** Start counting the peak again from what is held now. */
+export function resetMemoryPeak() { memories.peak = memories.live; }
+
 // ======================= one live instance =======================
 
 class Runner {
   private instance: WebAssembly.Instance | null = null;
   private memory: WebAssembly.Memory | null = null;
+  private memoryToken: MemoryToken | null = null;
+  /** Set by dispose: the world this runner belonged to is done, so it never makes a memory again. */
+  private disposed = false;
   private ex: Record<string, (...a: number[]) => number> = {};
   private fuel: WebAssembly.Global | null = null;
   /** The error of this runner's last trap. */
@@ -200,7 +223,14 @@ class Runner {
   /** A fresh instance with a fresh capped memory; its start function runs under fuel. */
   private ensure() {
     if (this.instance) return;
+    if (this.disposed) throw new Error(`${this.prep.systemId} was called after its world was released`);
+    // A trapped instance is replaced: its memory is let go now.
+    releaseToken(this.memoryToken); this.memoryToken = null; this.memory = null;
     const memory = new WebAssembly.Memory({ initial: this.prep.memory.initial, maximum: this.prep.memory.maximum });
+    const token: MemoryToken = { released: false };
+    memories.live++; if (memories.live > memories.peak) memories.peak = memories.live;
+    collected?.register(memory, token, token);
+    this.memoryToken = token;
     const instance = new WebAssembly.Instance(this.prep.module, { host: { call: (ptr: number, len: number) => this.hostCall(ptr, len) }, env: { memory } });
     this.memory = memory; this.instance = instance;
     this.ex = instance.exports as unknown as Record<string, (...a: number[]) => number>;
@@ -243,6 +273,14 @@ class Runner {
       }
       if (!threw && !frames.some((f) => f.runner === this)) this.collect();
     }
+  }
+
+  /** Let go of the instance and its memory for good: the world this module ran in is done. */
+  dispose() {
+    this.disposed = true;
+    if (this.memoryToken) collected?.unregister(this.memoryToken);
+    releaseToken(this.memoryToken);
+    this.memoryToken = null; this.instance = null; this.memory = null; this.fuel = null; this.ex = {};
   }
 
   /**
@@ -324,7 +362,7 @@ class Runner {
 /** A loaded AI system: a SystemDef the host loads like a base system, plus its fuel stats. */
 export interface AiSystemDef extends SystemDef { prepared: PreparedModule; stats: FuelStats }
 
-/** Wrap a prepared module as a system. Every create() (load, Shift+R) gets a fresh instance and memory. */
+/** Wrap a prepared module as a system. Every create() (load, Shift+R) gets a fresh instance and memory; dispose() releases them. */
 export function aiSystem(prep: PreparedModule): AiSystemDef {
   const stats: FuelStats = { total: 0n, calls: [] };
   const has = new Set(prep.exports);
@@ -347,6 +385,7 @@ export function aiSystem(prep: PreparedModule): AiSystemDef {
         if (name.startsWith("test_")) mod[name as `test_${string}`] = () => r.run(name, "test", (ex) => ex[name]());
         else if (name.startsWith("shot_")) mod[name as `shot_${string}`] = () => r.run(name, "shot", (ex) => ex[name]());
       }
+      mod.dispose = () => r.dispose();
       return mod;
     },
   };

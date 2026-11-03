@@ -21,6 +21,8 @@ export interface SystemModule {
   onTween?(id: number, value: number): void;
   /** Once, when the system loads into a world. Must be safe to run again. */
   migrate?(): void;
+  /** The world this module ran in is done: let go of what it holds (an AI module's instance and memory). Never called again after. */
+  dispose?(): void;
   /** `test_<name>` and `shot_<name>` exports. */
   [exportName: `test_${string}` | `shot_${string}`]: (() => void) | undefined;
 }

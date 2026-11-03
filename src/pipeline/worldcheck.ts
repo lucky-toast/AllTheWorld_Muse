@@ -56,23 +56,55 @@ export function rerunWorldCheck(world: string, loadedDefs: SystemDef[], candidat
   return worldCheck(() => worldCopy(world, loadedDefs, successors), [...BASE_SYSTEMS, ...loadedDefs], candidate, log, successors);
 }
 
-/** Stage 5. Returns its errors (empty when it passed); overlaps and near-limit calls go to `log`. */
+/**
+ * Stage 5. Returns its errors (empty when it passed); overlaps and near-limit calls go to `log`.
+ * Each world copy is released (Host.dispose) as soon as it's done, and the copy re-created from
+ * the saved world is only built after the first is released, so the two never hold memories at once.
+ */
 export function worldCheck(liveCopy: () => Host, others: SystemDef[], candidate: AiSystemDef, log: string[], successors?: Map<string, string>): PipelineError[] {
-  const id = idOf(candidate);
-  // Succession (spec 11): loading the candidate into the copy retires what it replaces, and the
-  // modules re-created from the saved world are the ones left after the swap.
-  const replaces = new Set((candidate.manifest as { replaces?: string[] }).replaces ?? []);
-  others = others.filter((d) => !replaces.has(idOf(d)));
   let w: Host;
   try { w = liveCopy(); } catch (e) { return [{ message: `the live world couldn't be copied: ${msgOf(e)}` }]; }
+  let first: { errors: PipelineError[]; saved: string | null; successors: Map<string, string> };
+  try { first = checkCopy(w, candidate, log); } finally { w.dispose(); }
+  if (first.saved === null) return first.errors;
+  return [...first.errors, ...checkRecreated(first.saved, others, candidate, new Map([...(successors ?? []), ...first.successors]))];
+}
+
+/** The modules can be re-created mid-run from the saved world and keep ticking. */
+function checkRecreated(saved: string, others: SystemDef[], candidate: AiSystemDef, successors: Map<string, string>): PipelineError[] {
+  const replaces = new Set((candidate.manifest as { replaces?: string[] }).replaces ?? []);
+  const errors: PipelineError[] = [];
+  let again: Host | null = null;
+  try {
+    again = hostWith(buildWorld(), [...others.filter((d) => !replaces.has(idOf(d))), candidate].map((def) => ({ def, migrate: false })), successors);
+    again.eng.restore(saved); again.interactions.refresh(true);
+    const g0 = again.faults.length;
+    for (let i = 0; i < LIMITS.worldCheckResumeTicks; i++) again.tick();
+    for (const f of again.faults.slice(g0)) errors.push({ message: `${faultText(f)} (after re-creating the modules from the saved world)` });
+  } catch (e) { errors.push({ message: `the modules couldn't be re-created from the saved world: ${msgOf(e)}` }); }
+  finally { again?.dispose(); }
+  return errors;
+}
+
+const faultText = (f: FaultEntry) => (f.msg.startsWith(`${f.system}.`) ? f.msg : `${f.system}.${f.kind}: ${f.msg}`);
+
+/**
+ * The World check on the copy `w`: load the candidate, tick, walk, pick up and drop, invariants,
+ * save and load. `saved` is the world as saved at the end, for the re-creation check, or null when
+ * the check stopped early. The caller releases `w`.
+ */
+function checkCopy(w: Host, candidate: AiSystemDef, log: string[]): { errors: PipelineError[]; saved: string | null; successors: Map<string, string> } {
+  const id = idOf(candidate);
   const eng = w.eng;
-  const faultText = (f: FaultEntry) => (f.msg.startsWith(`${f.system}.`) ? f.msg : `${f.system}.${f.kind}: ${f.msg}`);
+  // Succession (spec 11): loading the candidate into the copy retires what it replaces, and the
+  // modules re-created from the saved world are the ones left after the swap (checkRecreated).
+  const stop = (errors: PipelineError[]) => ({ errors, saved: null, successors: w.successors });
   try { w.load(candidate); }
-  catch (e) { return [{ message: `loading into the current world failed: ${msgOf(e)}` }]; }
+  catch (e) { return stop([{ message: `loading into the current world failed: ${msgOf(e)}` }]); }
   for (let i = 1; i <= LIMITS.worldCheckTicks; i++) {
     const f0 = w.faults.length;
     w.tick();
-    if (w.faults.length > f0) return w.faults.slice(f0).map((f) => ({ message: `${faultText(f)} (tick ${i} of ${LIMITS.worldCheckTicks} on a copy of the world; the game kept running)` }));
+    if (w.faults.length > f0) return stop(w.faults.slice(f0).map((f) => ({ message: `${faultText(f)} (tick ${i} of ${LIMITS.worldCheckTicks} on a copy of the world; the game kept running)` })));
   }
   const errors: PipelineError[] = [];
 
@@ -130,16 +162,7 @@ export function worldCheck(liveCopy: () => Host, others: SystemDef[], candidate:
     if (copy.serialize() !== saved) errors.push({ message: "the world doesn't come back the same after saving and loading it" });
   } catch (e) { errors.push({ message: `the world doesn't load back after saving: ${msgOf(e)}` }); }
 
-  // The modules can be re-created mid-run from the saved world and keep ticking.
-  try {
-    const again = hostWith(buildWorld(), [...others, candidate].map((def) => ({ def, migrate: false })), new Map([...(successors ?? []), ...w.successors]));
-    again.eng.restore(saved); again.interactions.refresh(true);
-    const g0 = again.faults.length;
-    for (let i = 0; i < LIMITS.worldCheckResumeTicks; i++) again.tick();
-    for (const f of again.faults.slice(g0)) errors.push({ message: `${faultText(f)} (after re-creating the modules from the saved world)` });
-  } catch (e) { errors.push({ message: `the modules couldn't be re-created from the saved world: ${msgOf(e)}` }); }
-
   for (const o of w.overlaps) log.push(`overlap: ${o.systems.join(" and ")} both wrote entity ${o.entity} while handling ${o.event} (tick ${o.tick})`);
   for (const n of w.nearLimits) if (n.system === id) log.push(`near limit: ${n.system} used ${n.used} of its ${n.max} ${n.limit} in one call (tick ${n.tick})`);
-  return errors;
+  return { errors, saved, successors: new Map(w.successors) };
 }

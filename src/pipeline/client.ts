@@ -58,16 +58,28 @@ const idFrom = (manifestJson: string): string | null => {
 
 export class Pipeline {
   private issued = new WeakSet<Report>();
-  /** A started worker kept between jobs (starting one loads the compiler, which takes seconds). */
+  /**
+   * A started worker waiting for the next job (starting one loads the compiler, which takes
+   * seconds). A worker that ran a check is never used again: see giveBack.
+   */
   private spare: WorkerLike | null = null;
   constructor(private opts: PipelineOptions) {}
   /** Start a worker ahead of the first job. */
   warm() { this.spare ??= this.opts.createWorker(); }
   private take(): WorkerLike { const w = this.spare ?? this.opts.createWorker(); this.spare = null; return w; }
-  /** A worker that finished its job cleanly is kept; one that was killed or failed is not. */
-  private giveBack(w: WorkerLike, clean: boolean) {
-    if (clean && !this.spare) { w.setHandler(() => {}); this.spare = w; }
-    else { try { w.terminate(); } catch { /* already gone */ } }
+  /**
+   * A worker that ran a check is ended, and a fresh spare starts in its place. A check builds many
+   * worlds, each holding module memories, and the browser only frees them when that worker
+   * collects garbage, which an idle worker may never do. They count against the whole tab, so a
+   * kept worker could leave the live game and the next Load without room for theirs. Ending it
+   * frees them all at once; the new spare loads the compiler while the game goes on.
+   * A compile job builds no worlds, so a worker that only compiled cleanly is kept as the spare.
+   * One that was killed or failed is never kept.
+   */
+  private giveBack(w: WorkerLike, clean: boolean, ranWorlds = true) {
+    if (clean && !ranWorlds && !this.spare) { w.setHandler(() => {}); this.spare = w; return; }
+    try { w.terminate(); } catch { /* already gone */ }
+    if (ranWorlds) this.warm();
   }
   private get limits() {
     return { compileMs: LIMITS.compileMs, stageMs: LIMITS.stageMs, testMs: LIMITS.testMs, testsStageMs: LIMITS.testsStageMs, ...this.opts.limits };
@@ -154,10 +166,10 @@ export class Pipeline {
   compile(manifest: unknown, source: string): Promise<Uint8Array<ArrayBuffer>> {
     return new Promise((resolve, reject) => {
       const worker = this.take();
-      const timer = setTimeout(() => { this.giveBack(worker, false); reject(new Error(`compiling took longer than ${this.limits.compileMs / 1000} s`)); }, this.limits.compileMs);
+      const timer = setTimeout(() => { this.giveBack(worker, false, false); reject(new Error(`compiling took longer than ${this.limits.compileMs / 1000} s`)); }, this.limits.compileMs);
       worker.setHandler((m) => {
         if (m.type !== "compiled" && m.type !== "error") return;
-        clearTimeout(timer); this.giveBack(worker, m.type === "compiled");
+        clearTimeout(timer); this.giveBack(worker, m.type === "compiled", false);
         if (m.type === "compiled" && m.ok) resolve(m.wasm);
         else reject(new Error(m.type === "compiled" ? m.message : m.message));
       });

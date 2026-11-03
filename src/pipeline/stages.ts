@@ -20,7 +20,7 @@ import { validateManifest, checkManifestContext, type Manifest, type Shot } from
 import { testNames, type SystemDef } from "../engine/systems";
 import { relatedSystems } from "./related";
 import { compileSystem, formatCompileError, MODULE_FILE } from "../sandbox/compile";
-import { aiSystem, prepareModule, ModuleError, type AiSystemDef } from "../sandbox/module";
+import { aiSystem, moduleMemories, prepareModule, resetMemoryPeak, ModuleError, type AiSystemDef } from "../sandbox/module";
 import { runShot } from "../sandbox/runners";
 import { entitiesOf, hostWith, worldCheck, worldCopy, type Entry } from "./worldcheck";
 import { LIMITS } from "../tuning";
@@ -47,7 +47,10 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
     const ms = Date.now() - stageStart; report.stageMs[report.stage] = ms;
     hooks.onStage?.({ stage: report.stage, status, ms });
   };
-  const fail = (errors: PipelineError[]): Report => { report.errors = errors; end("fail"); report.durationMs = Date.now() - t0; return report; };
+  // How many module memories this check holds at once (see moduleMemories in sandbox/module.ts).
+  resetMemoryPeak();
+  const memoryNote = () => { const m = moduleMemories(); report.log.push(`module memories: at most ${m.peak} held at once during this check, ${m.live} still held`); };
+  const fail = (errors: PipelineError[]): Report => { report.errors = errors; end("fail"); memoryNote(); report.durationMs = Date.now() - t0; return report; };
   const pass = () => end("pass");
   // Let the stage message leave before a long synchronous stage starts.
   const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -63,21 +66,31 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   catch (e) { return fail([{ message: `a loaded system couldn't be rebuilt for the check: ${msgOf(e)}` }]); }
   const successors = new Map(Object.entries(req.successors ?? {}));
   const liveCopy = () => worldCopy(req.world, loadedDefs, successors);
-  let ctxHost: Host;
-  try { ctxHost = liveCopy(); } catch (e) { return fail([{ message: `the live world couldn't be copied for the check: ${msgOf(e)}` }]); }
-  const inherited = ctxHost.inheritedEvents(raw as { replaces?: unknown; emits?: unknown });
-  const v = validateManifest(raw, { inherited });
-  if (!v.ok) return fail(v.errors.map((message) => ({ message })));
-  const manifest: Manifest = v.manifest;
-  const errs = checkManifestContext(manifest, {
-    loaded: new Set(ctxHost.systems.keys()),
-    aiLoaded: new Set([...ctxHost.systems.values()].filter((s) => !s.base).map((s) => s.id)),
-    events: new Set(ctxHost.registry.eventOwner.keys()),
-    types: new Set(ctxHost.eng.types.keys()),
-    successors,
-    manifests: new Map([...ctxHost.systems.values()].map((s) => [s.id, s.manifest])),
-  });
-  if (errs.length) return fail(errs.map((message) => ({ message })));
+  // The copy is only read here. It is released before the next await: an async function keeps its
+  // locals until it ends, and this copy would otherwise hold memories through every later stage.
+  let checked: { manifest: Manifest; errs: string[] } | { invalid: string[] };
+  {
+    let ctxHost: Host;
+    try { ctxHost = liveCopy(); } catch (e) { return fail([{ message: `the live world couldn't be copied for the check: ${msgOf(e)}` }]); }
+    try {
+      const inherited = ctxHost.inheritedEvents(raw as { replaces?: unknown; emits?: unknown });
+      const v = validateManifest(raw, { inherited });
+      checked = !v.ok ? { invalid: v.errors } : {
+        manifest: v.manifest,
+        errs: checkManifestContext(v.manifest, {
+          loaded: new Set(ctxHost.systems.keys()),
+          aiLoaded: new Set([...ctxHost.systems.values()].filter((s) => !s.base).map((s) => s.id)),
+          events: new Set(ctxHost.registry.eventOwner.keys()),
+          types: new Set(ctxHost.eng.types.keys()),
+          successors,
+          manifests: new Map([...ctxHost.systems.values()].map((s) => [s.id, s.manifest])),
+        }),
+      };
+    } finally { ctxHost.dispose(); }
+  }
+  if ("invalid" in checked) return fail(checked.invalid.map((message) => ({ message })));
+  const manifest: Manifest = checked.manifest;
+  if (checked.errs.length) return fail(checked.errs.map((message) => ({ message })));
   pass();
   // Succession (spec 11): from here on the replaced systems are gone. Their own tests are dropped,
   // everything else runs with the replacement instead, and the World check swaps them on a copy.
@@ -157,11 +170,13 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   const shotErrors: PipelineError[] = [];
   for (const shot of manifest.shots) {
     const run = runShot(candidate, shot.name, kept, after);
+    if (run.error || run.faults.length) run.host.dispose();
     if (run.error) { shotErrors.push({ message: `shot "${shot.name}": its setup failed: ${run.error}` }); continue; }
     if (run.faults.length) { shotErrors.push({ message: `shot "${shot.name}": ${run.faults.map((f) => f.msg).join("; ")}` }); continue; }
     let png: string | null = null;
     try { png = hooks.renderShot ? await hooks.renderShot(run.host, shot) : null; if (!png) report.log.push(`shot "${shot.name}" wasn't rendered here (no OffscreenCanvas)`); }
     catch (e) { report.log.push(`shot "${shot.name}" failed to render: ${msgOf(e)}`); }
+    finally { run.host.dispose(); }
     report.shots.push({ name: shot.name, png });
   }
   if (shotErrors.length) return fail(shotErrors);
@@ -169,14 +184,17 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
 
   report.ok = true;
   report.checked = { manifestJson: req.manifestJson, source: req.source, wasm, loaded: [...req.loadedIds] };
+  memoryNote();
   report.durationMs = Date.now() - t0;
   return report;
 }
 
 /** The test names `system` exports, read from a host built the way its tests run. */
 function namesOf(build: () => Engine, entries: Entry[], system: string, successors: Map<string, string>): string[] {
-  try { const h = hostWith(build(), entries, successors); const s = h.systems.get(system); return s ? testNames(s.module) : []; }
+  let h: Host | null = null;
+  try { h = hostWith(build(), entries, successors); const s = h.systems.get(system); return s ? testNames(s.module) : []; }
   catch { return []; }
+  finally { h?.dispose(); }
 }
 
 /** Run one test on a fresh host. Returns its error, or null when it passed. `ownFaults`: the system's own faults fail it. */
@@ -186,6 +204,11 @@ function runOne(build: () => Engine, entries: Entry[], system: string, name: str
   let host: Host;
   try { host = hostWith(build(), entries, successors); }
   catch (e) { return { message: `${test}: the world for the test couldn't be set up: ${msgOf(e)}`, test }; }
+  try { return testOutcome(host, system, name, test, ownFaults); } finally { host.dispose(); }
+}
+
+/** What one test on `host` came to: its error, or null when it passed. */
+function testOutcome(host: Host, system: string, name: string, test: string, ownFaults: boolean): PipelineError | null {
   const d0 = host.denials.length; const f0 = host.faults.length;
   const r = host.runTest(system, name);
   const faults = host.faults.slice(f0).filter((f) => f.system === system);
