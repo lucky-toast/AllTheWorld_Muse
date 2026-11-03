@@ -8,6 +8,7 @@ Vite, TypeScript, plain Canvas 2D (no game framework), Vitest. The design is [do
 
 ```sh
 npm install
+cp .env.example .env.local   # then set MUSE_API_KEY in .env.local
 npm run dev         # http://127.0.0.1:5173/
 npm test            # every test, including every fixture through the pipeline
 npm run typecheck
@@ -16,7 +17,7 @@ npm run build       # typecheck, then a static build in dist/
 
 On the first `npm run dev` load the screen stays dark for a few seconds while Vite prepares the modules and startup re-checks stored systems; the first frame draws once that finishes.
 
-Wishes need a Muse API key; see [Set up the Muse API](#set-up-the-muse-api).
+Wishes need a Muse API key (from the Model API dashboard, "API keys"). Put it in `.env.local` as `MUSE_API_KEY`; `MUSE_BASE_URL` is already set to the default in the copied file. `.env.local` is git-ignored. Restart `npm run dev` after changing it.
 
 ## How to play
 
@@ -118,13 +119,6 @@ Wishes go to the Meta Muse API through the dev server, with no clicks between st
 The size line next to each message adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens`. The map images go with each designer message. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.
 
 The plan and the messages show only in the AI tab. In the game the player sees the leaf transition and "The world feels different", and can open "What changed" (C) to read each update's title, summary, changes and journal. Each prompt is sent as two system messages, the first marked `cache: true`; the AI tab shows them joined, and the API gets them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; a `usage:` note with the real counts follows each reply, and a note per lookup round lists its calls.
-
-### Set up the Muse API
-
-1. Put your Model API key (from the Model API dashboard, "API keys") in a file named `.env.local` at the repo root: `MUSE_API_KEY=...`. The file is git-ignored. `MUSE_BASE_URL` is optional and defaults to `https://api.meta.ai/v1`.
-2. Restart `npm run dev`. The key stays in the dev server (`devserver/ai.ts`, mounted at `/__ai`); the browser never sees it, and it has no `VITE_` prefix, so it can't end up in a build. Without a key, Start is disabled and the tab says to set `MUSE_API_KEY` in `.env.local`.
-
-The planner uses Muse Spark (`muse-spark-1.3`) and the designer uses Muse Wonder (`muse-wonder-1.0`). Change the models, their output caps (`maxTokens`, which reasoning tokens count toward) and their reasoning effort in `AI_MODELS` in `src/tuning.ts`. A reply cut off at its cap is an error, not a repair round.
 
 ### Reviewing test rounds
 
