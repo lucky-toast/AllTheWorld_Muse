@@ -167,9 +167,7 @@ Maps of the current area and the newest areas, in daylight with a tile grid and 
 
 {{ENTITY_COUNTS}}
 
-## Sprite catalog entries for your task
-
-These are the sprites with the tags picked for this task, and the sprites already in the world:
+## Sprite catalog
 
 {{CATALOG}}
 

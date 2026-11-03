@@ -132,14 +132,14 @@ export function catalogText(): string {
 // tag index and names the tags each step needs; the designer then gets only those entries.
 
 /** Entries per tag, in catalog order. */
-const BY_TAG: Map<string, CatalogEntry[]> = (() => {
+export const BY_TAG: Map<string, CatalogEntry[]> = (() => {
   const m = new Map<string, CatalogEntry[]>();
   for (const s of CATALOG.sprites) for (const t of s.tags) { const a = m.get(t); if (a) a.push(s); else m.set(t, [s]); }
   return m;
 })();
 
 /** The variant group an entry belongs to (all members carry the same variants map), or its own id. */
-function groupKey(s: CatalogEntry): string {
+export function groupKey(s: CatalogEntry): string {
   return s.variants ? (s.variants.sheet ?? Object.values(s.variants).sort()[0]) : s.id;
 }
 

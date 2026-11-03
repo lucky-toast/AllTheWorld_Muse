@@ -440,7 +440,7 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has 
 | --- | --- |
 | `{{PILLARS}}` | `src/ai/pillars.md` |
 | `{{API}}` | The text of `src/sdk/index.ts` |
-| `{{CATALOG}}` | After the cache breakpoint: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. A step with no tags uses the tags and ids its text names. The designer gets no tag index. |
+| `{{CATALOG}}` | After the cache breakpoint. In API mode (a provider that takes tools): no entries; how to use the catalog tools (below), the planner's tags as hints, and the ids of the sprites already in the world. In manual mode: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. Either way, a step with no tags uses the tags and ids its text names. The designer gets no tag index. |
 | `{{SYSTEM_EXAMPLES}}` | Every manifest and module pair in `src/ai/examples/`, sorted by name, as a fenced `json` and a fenced `ts` block. Seed it with the campfire and chop fixtures until Toast writes the final three examples. These are never loaded into the world |
 | `{{BASE_SYSTEMS}}` | One system block per base system, in load order |
 | `{{AI_SYSTEMS}}` | One block per loaded, not-replaced AI system in load order, except the newest |
@@ -448,6 +448,8 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has 
 | `{{ENTITY_COUNTS}}` | `- type: n` per entity type, sorted by count descending, then by name, under one `area <id>:` line per area (current area first, then the rest in creation order) |
 | `{{TASK}}` | The planner step being built |
 | `{{STAGE}}`, `{{REPORT}}` | Repair message only |
+
+**Catalog tools.** In API mode every designer request carries three function tools (`src/ai/tools/`), always the same definitions in the same order so they stay in the cached prefix. `catalog_search` finds entries by tags (all of), `any_tags` (one of), words in the id, description or tags, kind and layer; it returns one short line per variant group, paged by `offset` and `limit` (default `CATALOG_SEARCH_LIMIT`, at most `CATALOG_SEARCH_MAX`), and searches a name that isn't a tag as a word. `catalog_get` returns the legend and the full catalog line for up to `CATALOG_GET_MAX_IDS` ids; unknown ids get the closest ids. `catalog_tags` lists tags with counts, optionally those containing a text. Results are cut at `TOOL_RESULT_MAX_CHARS`, and bad arguments get a message, never an error. A reply that calls tools gets one result per call and is sent again, until a reply calls none; that reply is the attempt's. Each tool round is one API call in the usage log and a note in the AI log. Rounds are counted per step: past `LOOKUP_ROUNDS_PER_STEP` every call gets "no more lookups" instead of a result, and an attempt still calling tools `LOOKUP_GRACE_ROUNDS` rounds later fails at the "Lookups" stage and gets the repair message.
 
 **System block.** Built from the manifest only, byte-identical every time for the same manifest. Write `(none)` for an empty list.
 

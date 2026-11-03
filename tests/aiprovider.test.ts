@@ -4,7 +4,9 @@ import { buildWorld } from "../src/world/map";
 import { Host } from "../src/engine/host";
 import { loadBaseSystems } from "../src/systems/base";
 import { runPlanner } from "../src/ai/planner";
-import { runStep } from "../src/ai/designer";
+import { LOOKUPS_USED_UP, runStep } from "../src/ai/designer";
+import { CATALOG_LEGEND } from "../src/ai/blocks";
+import { DESIGNER_TOOLS } from "../src/ai/tools";
 import { LEAD_USER_TEXT, ManualProvider, MuseProvider, SwitchProvider, replyMessage, toResponsesInput, usageText, type ChatMessage } from "../src/ai/provider";
 import { LIMITS } from "../src/tuning";
 
@@ -28,6 +30,14 @@ const outputFor = (text: string) => [
   { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text }] },
 ];
 const ok = (text: string, finishReason = "stop") => ({ body: { text, finishReason, output: outputFor(text), usage: { input: 100, cachedInput: 80, output: 20 } } });
+/** A reply that only calls tools: reasoning, a commentary message, then the calls. The proxy's text leaves commentary out. */
+const callsFor = (calls: [string, unknown][], round = 0) => [
+  { type: "reasoning", id: `rs_t${round}`, summary: [], encrypted_content: `enc(round ${round})` },
+  { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "looking it up." }] },
+  ...calls.map(([name, args], i) => ({ type: "function_call", id: `fc_${round}_${i}`, call_id: `call_${round}_${i}`, name, arguments: JSON.stringify(args), status: "completed" })),
+];
+const toolReply = (calls: [string, unknown][], round = 0) => ({ body: { text: "", finishReason: "stop", output: callsFor(calls, round), usage: { input: 100, cachedInput: 80, output: 20 } } });
+const neverPipeline = { checkSystem: () => { throw new Error("never"); }, loadChecked: () => { throw new Error("never"); } };
 const sys: ChatMessage[] = [{ role: "system", content: "cached part", cache: true }, { role: "system", content: "\n\nrest part" }];
 const png = { mediaType: "image/png" as const, data: "iVBORw0KGgo=" };
 
@@ -133,6 +143,100 @@ describe("MuseProvider", () => {
     const lead = sent[0].body.input[2].content as { type: string }[];
     expect(lead.map((p) => p.type)).toEqual(["input_image", "input_text"]);
     expect(sent[0].body.input.slice(0, 2).every((m) => m.role === "developer" && typeof m.content === "string")).toBe(true);
+  });
+});
+
+describe("tool calls", () => {
+  test("toResponsesInput maps a tool message to a function_call_output for its call", () => {
+    const out = toResponsesInput([...sys, { role: "assistant", content: "", output: callsFor([["catalog_tags", {}]]) }, { role: "tool", content: "12 tags", callId: "call_0_0" }]);
+    expect(out.at(-1)).toEqual({ type: "function_call_output", call_id: "call_0_0", output: "12 tags" });
+    expect(out.slice(3, -1)).toEqual(callsFor([["catalog_tags", {}]]));
+  });
+  test("MuseProvider sends the tools, reads the calls, and takes a reply with calls but no text", async () => {
+    const { f, sent } = fakeFetch([toolReply([["catalog_get", { ids: ["firepit"] }], ["catalog_tags", { match: "fish" }]]), { body: { text: "", finishReason: "stop", output: [], usage: null } }]);
+    const p = new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: f });
+    expect(p.supportsTools).toBe(true);
+    await expect(p.send(sys, { tools: DESIGNER_TOOLS })).resolves.toBe("");
+    expect(sent[0].body.tools).toEqual(DESIGNER_TOOLS);
+    expect(p.lastToolCalls).toEqual([
+      { callId: "call_0_0", name: "catalog_get", arguments: '{"ids":["firepit"]}' },
+      { callId: "call_0_1", name: "catalog_tags", arguments: '{"match":"fish"}' },
+    ]);
+    // No text and no calls is still an empty reply.
+    await expect(p.send(sys)).rejects.toThrow("the designer's reply was empty");
+    expect(sent[1].body.tools).toBeUndefined();
+    expect(p.lastToolCalls).toEqual([]);
+  });
+  test("SwitchProvider says whether the picked provider takes tools", () => {
+    const muse = new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: fakeFetch([]).f });
+    let useApi = false;
+    const sw = new SwitchProvider(() => (useApi ? muse : new ManualProvider()));
+    expect(sw.supportsTools).toBe(false);
+    useApi = true;
+    expect(sw.supportsTools).toBe(true);
+  });
+  test("the designer looks things up, gets the results, and its final reply is the attempt", async () => {
+    const { f, sent } = fakeFetch([
+      toolReply([["catalog_search", { tags: ["fishing"] }], ["catalog_get", { ids: ["firepit"] }]], 1),
+      toolReply([["catalog_get", { ids: ["camp_fire"] }]], 2),
+      ok("not three blocks"),
+      ...Array.from({ length: LIMITS.repairsPerStep }, (_, i) => ok(`unreadable ${i}`)),
+    ]);
+    const rounds: [number, number, string[]][] = []; const replies: [number, string][] = [];
+    const r = await runStep({
+      host: liveHost(), task: "a campfire", tags: ["fishing", "fire"], provider: new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: f }),
+      pipeline: neverPipeline,
+      hooks: { onToolRound: (a, n, calls) => rounds.push([a, n, calls.map((c) => c.name)]), onReply: (a, t) => replies.push([a, t]) },
+    });
+    expect(r.ok).toBe(false);
+    expect(rounds).toEqual([[0, 1, ["catalog_search", "catalog_get"]], [0, 2, ["catalog_get"]]]);
+    expect(replies[0]).toEqual([0, "not three blocks"]);
+    // Every request carries the tools; the prompt explains them and lists no entries.
+    for (const s of sent.slice(0, 3)) expect(s.body.tools).toEqual(DESIGNER_TOOLS);
+    const prompt = sent[0].body.input.slice(0, 2).map((m) => String(m.content)).join("");
+    expect(prompt).toContain("## Sprite catalog\n\nThe catalog has ");
+    expect(prompt).toContain("Tags the planner picked for this task: fishing, fire");
+    expect(prompt).not.toContain(CATALOG_LEGEND);
+    // Round 2's request: the first reply replayed, then one result per call, in order.
+    const second = sent[1].body.input;
+    expect(second.slice(3, 7)).toEqual(callsFor([["catalog_search", { tags: ["fishing"] }], ["catalog_get", { ids: ["firepit"] }]], 1));
+    expect(second.slice(7).map((m) => [m.type, m.call_id])).toEqual([["function_call_output", "call_1_0"], ["function_call_output", "call_1_1"]]);
+    expect(String(second[7].output)).toMatch(/^\d+ entr(y|ies) in \d+ groups? match/);
+    expect(String(second[8].output)).toContain("firepit — ");
+    const third = sent[2].body.input;
+    expect(JSON.stringify(third.slice(0, second.length))).toBe(JSON.stringify(second));
+    expect(String(third.at(-1)!.output)).toMatch(/^camp_fire: not in the catalog/m);
+    // The unreadable final reply gets the repair message, after the replayed reply.
+    expect(String(sent[3].body.input.at(-1)!.content)).toContain("**Reply format**");
+  });
+  test("past the lookup rounds calls get LOOKUPS_USED_UP, and an attempt still calling tools fails", async () => {
+    const max = LIMITS.LOOKUP_ROUNDS_PER_STEP + LIMITS.LOOKUP_GRACE_ROUNDS + 1;
+    const replies = [...Array.from({ length: max }, (_, i) => toolReply([["catalog_tags", {}]], i)), ...Array.from({ length: LIMITS.repairsPerStep }, (_, i) => ok(`unreadable ${i}`))];
+    const { f, sent } = fakeFetch(replies);
+    let limited = -1;
+    const r = await runStep({
+      host: liveHost(), task: "t", provider: new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: f }), pipeline: neverPipeline,
+      hooks: { onLookupLimit: (a) => { limited = a; } },
+    });
+    expect(r.ok).toBe(false);
+    expect(limited).toBe(0);
+    const outputs = (i: number) => sent[i].body.input.filter((m) => m.type === "function_call_output").map((m) => String(m.output));
+    expect(outputs(LIMITS.LOOKUP_ROUNDS_PER_STEP).at(-1)).toMatch(/^\d+ tags/);
+    expect(outputs(LIMITS.LOOKUP_ROUNDS_PER_STEP + 1).at(-1)).toBe(LOOKUPS_USED_UP);
+    // The request after the last tool round is the repair for attempt 0.
+    const repair = sent[max].body.input.at(-1)!;
+    expect(repair.role).toBe("user");
+    expect(String(repair.content)).toContain("**Lookups**");
+    expect(sent).toHaveLength(max + LIMITS.repairsPerStep);
+  });
+  test("a provider without tools gets the old catalog listing and no tools", async () => {
+    const manual = new ManualProvider();
+    const shownAll: string[] = [];
+    manual.onShow = (t) => { shownAll.push(t); queueMicrotask(() => manual.deliver("unreadable")); };
+    await runStep({ host: liveHost(), task: "a campfire", tags: ["firepit"], provider: manual, pipeline: neverPipeline });
+    const shown = shownAll[0];
+    expect(shown).toContain(CATALOG_LEGEND);
+    expect(shown).toContain("These are the sprites with the tags picked for this task");
   });
 });
 

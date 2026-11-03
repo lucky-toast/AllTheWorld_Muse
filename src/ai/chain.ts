@@ -108,6 +108,14 @@ export class WishChain {
             onReply: (a, text) => { log.add("reply", "designer", text, { wish, step: i + 1 }); this.recordCall(this.opts.designer, "designer", i + 1, a, wish); dh.onReply?.(a, text); },
             onReport: (a, rep) => { if (!rep.ok) rec.stepFailed(i + 1, rep.stage); if (!rep.ok) log.add("note", "designer", `attempt ${a + 1} failed at ${rep.stage}: ${rep.errors[0]?.message ?? ""}`, { wish, step: i + 1 }); dh.onReport?.(a, rep); },
             onParseFailed: (a, ps) => { rec.stepFailed(i + 1, "Reply format"); log.add("note", "designer", `attempt ${a + 1}: reply unreadable: ${ps.join("; ")}`, { wish, step: i + 1 }); dh.onParseFailed?.(a, ps); },
+            // A reply that called tools is its own API call: record it here (the attempt's last reply goes through onReply).
+            onToolRound: (a, round, calls) => {
+              this.recordCall(this.opts.designer, "designer", i + 1, a, wish);
+              log.add("note", "designer", `lookups, round ${round}: ${calls.map((c) => `${c.name} ${c.arguments} → ${c.result.length} chars`).join("; ")}`, { wish, step: i + 1 });
+              log.add("sent", "designer", calls.map((c) => c.result).join("\n\n"), { wish, step: i + 1 });
+              dh.onToolRound?.(a, round, calls);
+            },
+            onLookupLimit: (a) => { rec.stepFailed(i + 1, "Lookups"); log.add("note", "designer", `attempt ${a + 1}: still calling tools after the lookup limit`, { wish, step: i + 1 }); dh.onLookupLimit?.(a); },
           },
         });
         if (!r.ok) {

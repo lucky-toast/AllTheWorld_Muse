@@ -11,11 +11,12 @@
 //
 // Routes:
 //   GET   /status   { configured: boolean }
-//   POST  /chat     { role, model, max_tokens, reasoning_effort?, input }
+//   POST  /chat     { role, model, max_tokens, reasoning_effort?, input, tools? }
 //                   -> { text, finishReason, output, usage: { input, cachedInput, output, reasoning } }
 //                   or { error, status } with the API's message
 //   finishReason is "stop" for a completed response, "length" when max_output_tokens ran out,
-//   "content_filter" when the filter stopped it, or the API's own incomplete reason.
+//   "content_filter" when the filter stopped it, or the API's own incomplete reason. A reply that
+//   calls tools has function_call items in `output` (and often empty text); the browser runs them.
 //
 // The key is MUSE_API_KEY, read with Vite's loadEnv so a git-ignored .env.local works. It has no
 // VITE_ prefix, so it can never reach the client bundle. No response or log line includes it.
@@ -110,6 +111,7 @@ function validate(v: unknown): string | null {
   if (typeof b.model !== "string" || !b.model.trim()) return "model must be a non-empty string";
   if (!Number.isInteger(b.max_tokens) || (b.max_tokens as number) < 1) return "max_tokens must be a positive whole number";
   if (b.reasoning_effort !== undefined && typeof b.reasoning_effort !== "string") return "reasoning_effort must be a string";
+  if (b.tools !== undefined && (!Array.isArray(b.tools) || !b.tools.every((t) => t && typeof t === "object" && typeof (t as { type?: unknown }).type === "string"))) return "tools must be a list of tool objects";
   if (!Array.isArray(b.input) || !b.input.length) return "input must be a non-empty list";
   for (const it of b.input as unknown[]) {
     if (!it || typeof it !== "object" || Array.isArray(it)) return "each input item must be an object";
@@ -137,7 +139,7 @@ export async function handleAiRequest(method: string, url: string, body: Uint8Ar
   if (!key) return json(503, { error: NO_KEY_ERROR, status: 503 });
   if (!body?.length) return json(400, { error: "missing body", status: 400 });
   if (body.length > MAX_BODY) return json(413, { error: "body too large", status: 413 });
-  let req: { role: "planner" | "designer"; model: string; max_tokens: number; reasoning_effort?: string; input: unknown[] };
+  let req: { role: "planner" | "designer"; model: string; max_tokens: number; reasoning_effort?: string; input: unknown[]; tools?: unknown[] };
   try { req = JSON.parse(new TextDecoder().decode(body)); } catch { return json(400, { error: "the body isn't JSON", status: 400 }); }
   const problem = validate(req);
   if (problem) return json(400, { error: problem, status: 400 });
@@ -148,6 +150,7 @@ export async function handleAiRequest(method: string, url: string, body: Uint8Ar
   const upstream = JSON.stringify({
     model: req.model,
     input: req.input,
+    ...(req.tools?.length ? { tools: req.tools } : {}),
     max_output_tokens: req.max_tokens,
     ...(req.reasoning_effort ? { reasoning: { effort: req.reasoning_effort } } : {}),
     store: false,

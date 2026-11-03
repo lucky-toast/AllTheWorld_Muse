@@ -2,6 +2,7 @@
 // ManualProvider hands messages to a human; MuseProvider sends them to the Meta Muse API's
 // Responses endpoint through the dev server's /__ai proxy (devserver/ai.ts), which holds the key.
 // SwitchProvider picks one of them on each send, so the wish chain never changes.
+import type { ToolCall, ToolSpec } from "./tools";
 
 /** One image sent with a message, as base64 (no data: prefix). */
 export interface ChatImage { mediaType: "image/png"; data: string }
@@ -12,9 +13,13 @@ export interface ChatImage { mediaType: "image/png"; data: string }
  * `images` go with the message to providers that can send them; ManualProvider ignores them.
  * `output` is, on an assistant message, the raw Responses output items of that reply (reasoning,
  * with its encrypted content, and the message): replayed unchanged on the next send so the model's
- * reasoning carries over. Opaque; nothing reads inside it.
+ * reasoning carries over. Opaque; nothing reads inside it. A "tool" message is the result of one
+ * function call: `content` is the result text and `callId` the call it answers.
  */
-export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; cache?: boolean; images?: ChatImage[]; output?: unknown[] }
+export interface ChatMessage { role: "system" | "user" | "assistant" | "tool"; content: string; cache?: boolean; images?: ChatImage[]; output?: unknown[]; callId?: string }
+
+/** Per-send options. `tools` go only to providers that support them (supportsTools). */
+export interface SendOptions { tools?: readonly ToolSpec[] }
 
 /** Real token counts from an API reply. `output` includes `reasoning`, when the API reports it. */
 export interface AiUsage { input: number; cachedInput: number; output: number; reasoning?: number }
@@ -32,7 +37,12 @@ export interface AiCall {
 }
 
 export interface AiProvider {
-  send(messages: ChatMessage[]): Promise<string>;
+  /** Resolves with the reply text. With tools, a reply that only calls tools may have empty text: see lastToolCalls. */
+  send(messages: ChatMessage[], opts?: SendOptions): Promise<string>;
+  /** Whether send takes tools and can return tool calls (MuseProvider does; a person copying and pasting can't). */
+  readonly supportsTools?: boolean;
+  /** The function calls in the last successful reply, in order; empty when it called none. */
+  readonly lastToolCalls?: readonly ToolCall[];
   /** The last API call, when the provider makes them (ManualProvider doesn't). Set even when the send rejects. */
   readonly lastCall?: AiCall | null;
   /** The raw output items of the last successful reply, for providers that replay them (see ChatMessage.output). */
@@ -86,7 +96,7 @@ export type InputPart = { type: "input_text"; text: string } | { type: "input_im
 export type InputMessage =
   | { role: "developer" | "user"; content: string | InputPart[] }
   | { role: "assistant"; content: { type: "output_text"; text: string }[] };
-/** One Responses input item: a message we build, or an output item replayed as it came back. */
+/** One Responses input item: a message we build, a tool result, or an output item replayed as it came back. */
 export type ResponsesItem = InputMessage | Record<string, unknown>;
 
 /** The fixed user turn after the system messages, when the conversation starts without one. */
@@ -119,6 +129,7 @@ export function toResponsesInput(messages: ChatMessage[]): ResponsesItem[] {
       else out.push({ role: "assistant", content: [{ type: "output_text", text: m.content }] });
       continue;
     }
+    if (m.role === "tool") { out.push({ type: "function_call_output", call_id: m.callId ?? "", output: m.content }); continue; }
     const role = m.role === "system" ? "developer" : "user";
     const imgs = role === "user" ? [...pending, ...(m.images ?? [])] : [];
     if (role === "user") pending = [];
@@ -145,22 +156,25 @@ export class MuseProvider implements AiProvider {
   onReply: (text: string, usage: AiUsage | null) => void = () => {};
   lastCall: AiCall | null = null;
   lastOutput: unknown[] | null = null;
+  lastToolCalls: ToolCall[] = [];
+  readonly supportsTools = true;
   /** The usage of the last reply, if any. */
   get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 
   constructor(private opts: { role: AiRoleName; model: string; maxTokens: number; reasoningEffort?: ReasoningEffort; fetch?: typeof fetch; url?: string }) {}
 
-  async send(messages: ChatMessage[]): Promise<string> {
+  async send(messages: ChatMessage[], sendOpts: SendOptions = {}): Promise<string> {
     const { role, model, maxTokens, reasoningEffort } = this.opts;
     this.lastCall = null;
     this.lastOutput = null;
+    this.lastToolCalls = [];
     this.onShow(outgoingText(messages), messages);
     const t0 = Date.now();
     const fail = (msg: string, usage: AiUsage | null = null, finishReason: string | null = null): never => {
       this.lastCall = { model, usage, ms: Date.now() - t0, ok: false, finishReason, error: msg };
       throw new AiApiError(msg);
     };
-    const body = JSON.stringify({ role, model, max_tokens: maxTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), input: toResponsesInput(messages) });
+    const body = JSON.stringify({ role, model, max_tokens: maxTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), input: toResponsesInput(messages), ...(sendOpts.tools?.length ? { tools: sendOpts.tools } : {}) });
     const f = this.opts.fetch ?? globalThis.fetch.bind(globalThis);
     let res: Response;
     try { res = await f(this.opts.url ?? "/__ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body }); }
@@ -172,19 +186,34 @@ export class MuseProvider implements AiProvider {
     const finish = typeof data.finishReason === "string" ? data.finishReason : null;
     if (finish === "length") return fail(`the ${role}'s reply was cut off at max_tokens (${maxTokens})`, usage, finish);
     if (finish === "content_filter") return fail(`the ${role}'s reply was stopped by the API's content filter`, usage, finish);
-    if (typeof data.text !== "string" || !data.text.trim()) return fail(`the ${role}'s reply was empty`, usage, finish);
+    const output = Array.isArray(data.output) ? data.output : null;
+    const calls = toolCallsIn(output);
+    const text = typeof data.text === "string" ? data.text : "";
+    if (!text.trim() && !calls.length) return fail(`the ${role}'s reply was empty`, usage, finish);
     this.lastCall = { model, usage, ms: Date.now() - t0, ok: true, finishReason: finish };
-    this.lastOutput = Array.isArray(data.output) ? data.output : null;
-    this.onReply(data.text, usage);
-    return data.text;
+    this.lastOutput = output;
+    this.lastToolCalls = calls;
+    this.onReply(text, usage);
+    return text;
   }
+}
+
+/** The function_call items of a Responses output, in order. */
+export function toolCallsIn(output: unknown): ToolCall[] {
+  if (!Array.isArray(output)) return [];
+  return (output as { type?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown }[])
+    .filter((o) => o?.type === "function_call" && typeof o.call_id === "string" && typeof o.name === "string")
+    .map((o) => ({ callId: o.call_id as string, name: o.name as string, arguments: typeof o.arguments === "string" ? o.arguments : "" }));
 }
 
 /** Delegates each send to whichever provider pick() returns at that moment. */
 export class SwitchProvider implements AiProvider {
   private last: AiProvider | null = null;
   constructor(private pick: () => AiProvider) {}
-  send(messages: ChatMessage[]): Promise<string> { this.last = this.pick(); return this.last.send(messages); }
+  send(messages: ChatMessage[], opts?: SendOptions): Promise<string> { this.last = this.pick(); return this.last.send(messages, opts); }
+  /** Whether the provider a send would use now takes tools (the AI tab fixes the pick for a whole wish). */
+  get supportsTools(): boolean { return this.pick().supportsTools ?? false; }
+  get lastToolCalls(): readonly ToolCall[] { return this.last?.lastToolCalls ?? []; }
   get lastCall(): AiCall | null { return this.last?.lastCall ?? null; }
   get lastOutput(): unknown[] | null { return this.last?.lastOutput ?? null; }
   get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }

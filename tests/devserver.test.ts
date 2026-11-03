@@ -137,6 +137,16 @@ describe("dev server Muse API proxy (13.5)", () => {
       store: false, include: ["reasoning.encrypted_content"], prompt_cache_key: "atw-designer", stream: false,
     });
   });
+  test("tools are forwarded when given, and must be a list of tool objects", async () => {
+    const tools = [{ type: "function", name: "catalog_tags", description: "d", parameters: { type: "object", properties: {} } }];
+    const { f, calls } = fake([{ status: 200, body: completion }, { status: 200, body: completion }]);
+    expect((await handleAiRequest("POST", "/chat", enc({ ...good, tools }), deps(f))).status).toBe(200);
+    expect(JSON.parse(String(calls[0].init.body)).tools).toEqual(tools);
+    expect((await handleAiRequest("POST", "/chat", enc(good), deps(f))).status).toBe(200);
+    expect(JSON.parse(String(calls[1].init.body)).tools).toBeUndefined();
+    for (const bad of ["x", [1], [{ name: "no type" }]]) expect((await handleAiRequest("POST", "/chat", enc({ ...good, tools: bad }), deps(f))).status).toBe(400);
+    expect(calls).toHaveLength(2);
+  });
   test("no reasoning field without an effort; replayed output items are accepted as input", async () => {
     const { f, calls } = fake([{ status: 200, body: completion }]);
     const { reasoning_effort: _e, ...noEffort } = good;

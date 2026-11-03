@@ -7,7 +7,9 @@ import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
+import { CATALOG } from "../engine/catalog";
 import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
+import { DESIGNER_TOOLS, runTool, type ToolCall } from "./tools";
 import { examplesText } from "./examples";
 import { outgoingText, replyMessage, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
@@ -29,17 +31,45 @@ function fixedSlots(host: Host): Record<string, string> {
 }
 
 /**
- * The designer's system message for one task, split for caching. `tags` are the catalog tags or
- * entry ids the planner picked for the step; with none, the tags the task names are used.
+ * {{CATALOG}} when the designer can call the catalog tools: how to look things up, the planner's
+ * tags as hints, and the ids of the sprites already in the world. No entries.
  */
-export function buildPrompt(host: Host, task: string, tags: readonly string[] = []): BuiltPrompt {
+export function lookupCatalogText(picks: readonly string[], inWorld: readonly string[]): string {
+  return [
+    `The catalog has ${CATALOG.sprites.length.toLocaleString("en-US")} entries (sprites, terrain, sounds, music and fonts). They aren't listed here: look up what you need with the catalog tools.`,
+    "",
+    "- `catalog_search` finds entries by tags, by words in their id or description, by kind and by layer, one short line each.",
+    "- `catalog_get` gives the full entries for ids: size, footprint, door, anims, variants, becomes and faceset.",
+    "- `catalog_tags` lists the tags.",
+    "",
+    "Look up everything you need before you write your reply, in as few rounds as you can: put several calls in one reply. Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.",
+    "",
+    `Tags the planner picked for this task: ${picks.length ? picks.join(", ") : "(none)"}`,
+    "",
+    `Sprites already in the world: ${inWorld.length ? inWorld.join(", ") : "(none)"}`,
+  ].join("\n");
+}
+
+/**
+ * The designer's system message for one task, split for caching. `tags` are the catalog tags or
+ * entry ids the planner picked for the step; with none, the tags the task names are used. With
+ * `tools`, the catalog section says how to look entries up instead of listing them.
+ */
+export function buildPrompt(host: Host, task: string, tags: readonly string[] = [], opts: { tools?: boolean } = {}): BuiltPrompt {
+  const picks = tags.length ? tags : tagsInText(task);
+  const inWorld = worldSprites(host.eng);
   return buildSplit(section(DESIGNER_TEMPLATE, "System message"), {
     ...fixedSlots(host),
     ENTITY_COUNTS: entityCounts(host.eng),
-    CATALOG: stepCatalogText(tags.length ? tags : tagsInText(task), worldSprites(host.eng)),
+    CATALOG: opts.tools
+      ? lookupCatalogText(picks, inWorld)
+      : `These are the sprites with the tags picked for this task, and the sprites already in the world:\n\n${stepCatalogText(picks, inWorld)}`,
     TASK: task,
   });
 }
+
+/** The result every tool call gets once a step's lookup rounds are used up. */
+export const LOOKUPS_USED_UP = "No more lookups for this step: you have used them all. Write the system now with the entries you already have.";
 
 /** The repair message: the stage that failed and the report as readable text. */
 export function buildRepairMessage(stage: string, report: string): string {
@@ -90,8 +120,15 @@ export interface DesignerPipeline {
 export interface DesignerHooks {
   /** A message is about to be sent (attempt 0 is the first, 1 to 3 are repairs). */
   onAttempt?(attempt: number, text: string): void;
-  /** A reply came back for this attempt. */
+  /** A reply came back for this attempt: the last API call of the attempt, the one that didn't call tools. */
   onReply?(attempt: number, text: string): void;
+  /**
+   * A reply called tools (one API call; `round` counts the step's tool rounds from 1). `calls` are
+   * the calls with the result each got, which go back to the model in the next request.
+   */
+  onToolRound?(attempt: number, round: number, calls: (ToolCall & { result: string })[]): void;
+  /** The attempt kept calling tools past the step's lookup rounds and grace rounds, so it failed. */
+  onLookupLimit?(attempt: number): void;
   /** The reply couldn't be parsed. */
   onParseFailed?(attempt: number, problems: string[]): void;
   /** The pipeline ran on this attempt and gave this report (failed or loaded). */
@@ -107,6 +144,12 @@ export type StepResult =
  * Run one planner step: send the prompt, then parse, check and load the reply. A reply that
  * doesn't parse, or fails any stage, gets the repair message; after LIMITS.repairsPerStep repairs
  * the step is dropped.
+ *
+ * When the provider takes tools, every request carries the catalog tools and the prompt says to
+ * use them. A reply that calls tools gets their results and is sent again, until a reply calls
+ * none; that reply is the attempt's. Lookups are counted per step: past
+ * LIMITS.LOOKUP_ROUNDS_PER_STEP each call gets LOOKUPS_USED_UP instead of a result, and an attempt
+ * still calling tools LIMITS.LOOKUP_GRACE_ROUNDS rounds later fails like an unreadable reply.
  */
 export async function runStep(opts: {
   host: Host; provider: AiProvider; pipeline: DesignerPipeline; task: string; hooks?: DesignerHooks;
@@ -121,17 +164,38 @@ export async function runStep(opts: {
   mapImages?(): Promise<ChatImage[]>;
 }): Promise<StepResult> {
   const { host, provider, pipeline, task, hooks = {} } = opts;
-  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags));
+  const tools = provider.supportsTools ? DESIGNER_TOOLS : undefined;
+  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags, { tools: !!tools }));
+  let rounds = 0;
   const images = opts.mapImages ? await opts.mapImages() : [];
   if (images.length) messages[1].images = images;
   let lastReason = "";
   for (let attempt = 0; attempt <= LIMITS.repairsPerStep; attempt++) {
     hooks.onAttempt?.(attempt, outgoingText(messages));
-    const reply = await provider.send(messages.map((m) => ({ ...m })));
-    hooks.onReply?.(attempt, reply);
-    messages.push(replyMessage(provider, reply));
-    const parsed = parseDesignerReply(reply);
+    let reply = ""; let overLimit = false;
+    for (;;) {
+      reply = await provider.send(messages.map((m) => ({ ...m })), tools ? { tools } : undefined);
+      messages.push(replyMessage(provider, reply));
+      const calls = tools ? provider.lastToolCalls ?? [] : [];
+      if (!calls.length) break;
+      rounds++;
+      const done = rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP;
+      const results = calls.map((c) => ({ ...c, result: done ? LOOKUPS_USED_UP : runTool(c) }));
+      for (const r of results) messages.push({ role: "tool", content: r.result, callId: r.callId });
+      hooks.onToolRound?.(attempt, rounds, results);
+      if (rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP + LIMITS.LOOKUP_GRACE_ROUNDS) { overLimit = true; break; }
+    }
     let stage: string; let report: string;
+    if (overLimit) {
+      hooks.onLookupLimit?.(attempt);
+      stage = "Lookups";
+      report = `- you kept calling the catalog tools after this step's ${LIMITS.LOOKUP_ROUNDS_PER_STEP} lookup rounds were used up. Don't call them again: reply with the three blocks, using the entries you already have.`;
+      lastReason = `failed at ${stage}`;
+      if (attempt < LIMITS.repairsPerStep) messages.push({ role: "user", content: buildRepairMessage(stage, report) });
+      continue;
+    }
+    hooks.onReply?.(attempt, reply);
+    const parsed = parseDesignerReply(reply);
     if (!parsed.ok) {
       hooks.onParseFailed?.(attempt, parsed.problems);
       stage = "Reply format"; report = parsed.problems.map((p) => `- ${p}`).join("\n");
