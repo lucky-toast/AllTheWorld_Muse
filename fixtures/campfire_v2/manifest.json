@@ -20,9 +20,5 @@
     "campfire.lit": { "fire": "entity", "pos": "pos" },
     "campfire.dying": { "fire": "entity" },
     "campfire.out": { "fire": "entity", "pos": "pos" }
-  },
-  "shots": [
-    { "name": "lit_at_night", "ticks": 30, "focus": { "x": 16, "y": 9 }, "time": "night" },
-    { "name": "ash_ring", "ticks": 5, "focus": { "x": 16, "y": 9 } }
-  ]
+  }
 }

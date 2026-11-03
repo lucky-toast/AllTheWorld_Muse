@@ -1,6 +1,6 @@
 // Pipeline types (spec 12). A Report is what checkSystem returns and loadChecked takes.
 
-export const STAGES = ["Manifest", "Compile", "Module", "Tests", "World check", "Shots", "Load"] as const;
+export const STAGES = ["Manifest", "Compile", "Module", "Tests", "World check", "Load"] as const;
 export type Stage = (typeof STAGES)[number];
 
 /** One problem a stage found. Fields beyond `message` appear where they apply. */
@@ -23,9 +23,6 @@ export interface PipelineError {
   entities?: { id: number; type: string; pos: { x: number; y: number; area: string } | null; components: Record<string, unknown> }[];
 }
 
-/** One shot: a PNG data URL, or null when rendering wasn't possible (logged, never blocks). */
-export interface ShotImage { name: string; png: string | null }
-
 /** What a passed check carries to Load (never shown to the model). */
 export interface Checked {
   manifestJson: string;
@@ -38,13 +35,12 @@ export interface Checked {
 
 export interface Report {
   ok: boolean;
-  /** The stage that failed, or the last stage reached ("Shots" after a passed check, "Load" after a load). */
+  /** The stage that failed, or the last stage reached ("World check" after a passed check, "Load" after a load). */
   stage: Stage;
   systemId: string | null;
   errors: PipelineError[];
-  shots: ShotImage[];
   durationMs: number;
-  /** Things worth knowing that don't fail a stage: overlapping writes, near-limit calls, render failures. */
+  /** Things worth knowing that don't fail a stage: overlapping writes, near-limit calls. */
   log: string[];
   /** Milliseconds each finished stage took. */
   stageMs: Partial<Record<Stage, number>>;
@@ -77,7 +73,7 @@ export interface StageEvent { stage: Stage; status: StageStatus; ms?: number }
 
 /** Messages between the client and the pipeline worker. */
 export type ToWorker =
-  | { type: "check"; req: CheckRequest; baseUrl: string }
+  | { type: "check"; req: CheckRequest }
   | { type: "compile"; manifest: unknown; source: string };
 export type FromWorker =
   | { type: "ready" }

@@ -1,13 +1,13 @@
 // The worker side of the pipeline protocol, shared by the real Web Worker (worker.ts) and
 // the in-process stand-in Node tests use (inprocess.ts), so both run the same code.
-import { runCheck, type CheckHooks } from "./stages";
+import { runCheck } from "./stages";
 import { compileSystem, formatCompileError } from "../sandbox/compile";
 import type { FromWorker, ToWorker } from "./types";
 
-export async function handleMessage(msg: ToWorker, post: (m: FromWorker) => void, renderShot?: CheckHooks["renderShot"]): Promise<void> {
+export async function handleMessage(msg: ToWorker, post: (m: FromWorker) => void): Promise<void> {
   try {
     if (msg.type === "check") {
-      const report = await runCheck(msg.req, { onStage: (event) => post({ type: "stage", event }), onTest: (name) => post({ type: "test", name }), renderShot });
+      const report = await runCheck(msg.req, { onStage: (event) => post({ type: "stage", event }), onTest: (name) => post({ type: "test", name }) });
       post({ type: "done", report });
     } else if (msg.type === "compile") {
       const r = await compileSystem(msg.manifest, msg.source);

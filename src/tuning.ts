@@ -56,11 +56,6 @@ export const TUNING = {
   transitionFade: 0.88,
   // Banner shown after a system loads live.
   loadBanner: "The world feels different",
-  // Size of a pipeline shot: tiles around the focus (about 9x7) ...
-  shotTilesW: 9,
-  shotTilesH: 7,
-  // ... and its zoom.
-  shotZoom: 3,
   // Size of every area in tiles (the clearing and every area systems create).
   areaW: 30,
   areaH: 20,
@@ -73,7 +68,7 @@ export const LIMITS = {
   // Fuel per other live call (perform, onEvent, onTimer, onInput, onTween, nested emits included):
   // they run now and then, so they may take longer. About 15 ms. Trap, rollback, strike.
   fuelEvent: 200_000_000,
-  // Fuel per migrate, test or shot. Check fails.
+  // Fuel per migrate or test. Check fails.
   fuelCheck: 500_000_000,
   // Memory per module in bytes (16 MB). Allocation fails, trap, rollback, strike.
   memoryBytes: 16 * 1024 * 1024,

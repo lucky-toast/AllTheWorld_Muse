@@ -13,11 +13,8 @@ export const NATIVE_W = 480, NATIVE_H = MAP_PX_H + HUD_H;
 type AnyImage = { width: number; height: number };
 const images = new Map<string, AnyImage>();
 /** A sheet the renderer hasn't seen yet starts loading the first time it's drawn; it draws nothing until it arrives. */
-let imageProvider: (file: string) => AnyImage | undefined = (f) => images.get(f) ?? startSheet(f);
-let canvasFactory: (w: number, h: number) => { width: number; height: number; getContext: (t: string) => unknown } =
-  (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c as never; };
-/** Worker rendering: supply ImageBitmaps and an OffscreenCanvas factory. */
-export function setRenderBackend(provider: (file: string) => AnyImage | undefined, factory: typeof canvasFactory) { imageProvider = provider; canvasFactory = factory; }
+function sheet(f: string): AnyImage | undefined { return images.get(f) ?? startSheet(f); }
+function canvasFactory(w: number, h: number) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 
 /** Sprites drawn outside any area (the top bar's book and leaves, the load transition, the Sprites tab's grass). */
 const UI_SPRITES = ["book", "fx_leaf", "grass"];
@@ -52,16 +49,6 @@ export function loadSheets(files: Iterable<string>): Promise<void> {
   for (const f of files) { if (!images.has(f)) startSheet(f); const p = pending.get(f); if (p) waits.push(p); }
   return Promise.all(waits).then(() => {});
 }
-/**
- * Worker rendering: ImageBitmaps for `files`, added to `map`. Fetches only the sheets the map
- * doesn't hold yet, so each shot loads just what its world draws that the last shot didn't.
- */
-export async function loadSheetBitmaps(baseUrl: string, files: Iterable<string>, map: Map<string, AnyImage>): Promise<void> {
-  await Promise.all([...files].filter((f) => !map.has(f)).map(async (f) => {
-    try { const r = await fetch(baseUrl + sheetUrl(f)); const b = await r.blob(); map.set(f, await createImageBitmap(b)); } catch { /* missing sheet draws nothing */ }
-  }));
-}
-function sheet(file: string) { return imageProvider(file); }
 function imgW(img: AnyImage): number { return (img as HTMLImageElement).naturalWidth || img.width; }
 function imgH(img: AnyImage): number { return (img as HTMLImageElement).naturalHeight || img.height; }
 

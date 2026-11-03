@@ -39,7 +39,7 @@ The base game is a 30x20 forest clearing with day and night. You can walk, push 
 | `src/engine/` | World state, the one dispatcher (`host.ts`: every read and write by every system goes through `host.call`), manifests, the registry, events, the E and Q resolver (`interactions.ts`), input and focus, the fixed-step loop and the renderer |
 | `src/systems/base/` | The trusted base systems: `movement`, `carry`, `push`, `daynight`. They use the same manifest format and the same dispatcher as AI systems |
 | `src/sdk/` | The AssemblyScript library compiled into every AI system. `index.ts` is the reference the designer sees; `README.md` documents the ABI |
-| `src/sandbox/` | Compile (asc 0.28.20, fixed settings), the module loader and the fuel meter (a binary rewriter), and the test and shot runners |
+| `src/sandbox/` | Compile (asc 0.28.20, fixed settings), the module loader and the fuel meter (a binary rewriter), and the test runners |
 | `src/pipeline/` | `checkSystem`, `loadChecked` and `submitSystem`, the stages (run in a Web Worker under a watchdog), live Load and Undo, startup, autosave and storage |
 | `src/ai/` | The planner, the designer, the prompt templates and the cache split, the wish chain, the journal and AI log, `ManualProvider`, the "What changed" panel and the example systems shown to the designer |
 | `src/dev/` | The dev panel: Sprites, Pipeline and AI tabs |
@@ -51,7 +51,7 @@ An AI system can only call `host.call` and use its own memory. Each call into it
 
 ## The pipeline
 
-`submitSystem(manifestJson, source)` runs these stages in order and stops at the first failure. Stages 1 to 6 run in a Web Worker on a copy of the world; the live game is untouched until Load.
+`submitSystem(manifestJson, source)` runs these stages in order and stops at the first failure. Stages 1 to 5 run in a Web Worker on a copy of the world; the live game is untouched until Load.
 
 | # | Stage | Passes when |
 | --- | --- | --- |
@@ -60,8 +60,7 @@ An AI system can only call `host.call` and use its own memory. Each call into it
 | 3 | Module | The loader accepts it: valid WebAssembly, imports exactly `host.call` and `env.memory`, exports that cover the manifest, and the fuel meter understands every opcode |
 | 4 | Tests | The system's own `test_*` exports pass on a fresh copy of the real map, then every loaded system's tests still pass with it loaded |
 | 5 | World check | It loads into a copy of the live world and runs 300 ticks without a trap; the player can still walk, pick up and drop; invariants hold; the world round-trips through save and load; and the module can be re-created mid-run |
-| 6 | Shots | Each declared shot is rendered for the log. A render failure is logged and doesn't block. Shots are never sent to a model |
-| 7 | Load | The leaf transition plays, the world is snapshotted, the system is added and its `migrate` runs, it is saved, and the player sees "The world feels different". Undo in the dev panel reverses the most recent load |
+| 6 | Load | The leaf transition plays, the world is snapshotted, the system is added and its `migrate` runs, it is saved, and the player sees "The world feels different". Undo in the dev panel reverses the most recent load |
 
 A failure produces a Report. The designer gets it back as the repair message, which names the stage and the problem (for example `entities.dragon: sprite "dragon_huge" isn't in the catalog`).
 
@@ -135,7 +134,7 @@ At startup the base systems load, then every stored AI system in order (skipping
 
 - **Placement guards.** `spawn`, `place` and `tile.stamp` move a blocked placement to the nearest spot where the whole footprint fits, unless the request passes `exact: true`, in which case it is denied. Nothing can be placed onto the player's tile, and a crate spawned there lands beside the player. `space.find` (closest free w x h block) and `tile.stamp` (a block of tiles at once, `null` cells left alone) were added for this.
 - **Load re-runs the World check** on the live world. If the world changed since the check and it now fails, the Load is refused and the designer gets a World check repair message, which counts as one of its repairs.
-- **Map images.** The designer also gets a `{{MAP_IMAGE}}` slot: daylight maps with a tile grid and coordinates of the current area and the newest ones, at most 4 (`MAP_IMAGE_MAX_AREAS`), offered as "Download maps" in the AI tab. These are maps, not pipeline shots; shots still never go to a model.
+- **Map images.** The designer also gets a `{{MAP_IMAGE}}` slot: daylight maps with a tile grid and coordinates of the current area and the newest ones, at most 4 (`MAP_IMAGE_MAX_AREAS`), offered as "Download maps" in the AI tab.
 - **Re-creation in the World check** runs the re-created module for 60 more ticks (`worldCheckResumeTicks`).
 - **Host-call limit outside a call.** The 100,000 host calls per invocation also apply per system per tick for anything not inside an invocation.
 - **Extra request limits** for things the spec left open: names in requests at most 64 characters, the overlay at most 6 lines, one `fx.particles` request at most 32 particles, a HUD slot at most 30 characters wide, `sim.walk` at most 100 steps, module abort messages cut at 4,096 characters. All are in `src/tuning.ts`.
