@@ -8,16 +8,14 @@ Vite, TypeScript, plain Canvas 2D (no game framework), Vitest. The design is [do
 
 ```sh
 npm install
-cp .env.example .env.local   # then set MUSE_API_KEY in .env.local
-npm run dev         # http://127.0.0.1:5173/
-npm test            # every test, including every fixture through the pipeline
+cp .env.example .env.local  # then set MUSE_API_KEY in .env.local
+npm run dev         		# http://127.0.0.1:5173/
+npm test            		# every test, including every fixture through the pipeline
 npm run typecheck
-npm run build       # typecheck, then a static build in dist/
+npm run build       		# typecheck, then a static build in dist/
 ```
 
 On the first `npm run dev` load the screen stays dark for a few seconds while Vite prepares the modules and startup re-checks stored systems; the first frame draws once that finishes.
-
-Wishes need a Muse API key (from the Model API dashboard, "API keys"). Put it in `.env.local` as `MUSE_API_KEY`; `MUSE_BASE_URL` is already set to the default in the copied file. `.env.local` is git-ignored. Restart `npm run dev` after changing it.
 
 ## How to play
 
