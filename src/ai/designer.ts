@@ -8,7 +8,9 @@ import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
 import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
-import { DESIGNER_TOOLS, runTool, type ToolCall } from "./tools";
+import { DESIGNER_TOOLS, LOOKUPS_USED_UP, runTool, type ToolCall } from "./tools";
+
+export { LOOKUPS_USED_UP };
 import { examplesText } from "./examples";
 import { outgoingText, replyMessage, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
@@ -35,7 +37,7 @@ function fixedSlots(host: Host): Record<string, string> {
  */
 export function lookupCatalogText(picks: readonly string[], inWorld: readonly string[]): string {
   return [
-    "The catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.",
+    "The catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. Check every entity type you spawn, give or target with `entity_types`, unless your manifest declares it. After a failed check you can look things up again.",
     "",
     `Tags the planner picked for this task: ${picks.length ? picks.join(", ") : "(none)"}`,
     "",
@@ -60,9 +62,6 @@ export function buildPrompt(host: Host, task: string, tags: readonly string[] = 
     TASK: task,
   });
 }
-
-/** The result every tool call gets once a step's lookup rounds are used up. */
-export const LOOKUPS_USED_UP = "No more lookups for this step: you have used them all. Write the system now with the entries you already have.";
 
 /** The repair message: the stage that failed and the report as readable text. */
 export function buildRepairMessage(stage: string, report: string): string {
@@ -173,7 +172,7 @@ export async function runStep(opts: {
       if (!calls.length) break;
       rounds++;
       const done = rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP;
-      const results = calls.map((c) => ({ ...c, result: done ? LOOKUPS_USED_UP : runTool(c) }));
+      const results = calls.map((c) => ({ ...c, result: done ? LOOKUPS_USED_UP : runTool(c, { eng: host.eng }) }));
       for (const r of results) messages.push({ role: "tool", content: r.result, callId: r.callId });
       hooks.onToolRound?.(attempt, rounds, results);
       if (rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP + LIMITS.LOOKUP_GRACE_ROUNDS) { overLimit = true; break; }

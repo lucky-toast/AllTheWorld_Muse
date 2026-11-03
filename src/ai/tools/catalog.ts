@@ -36,7 +36,9 @@ export function closest(q: string, pool: Iterable<string>, n = 5): string[] {
   const scored: [string, number][] = [];
   for (const name of pool) {
     const nl = lower(name);
-    const shared = nl.split(/[^a-z0-9]+/).filter((w) => qWords.has(w)).length;
+    const nWords = nl.split(/[^a-z0-9]+/).filter(Boolean);
+    // A shared word, or one word the start of the other ("logg" and "log_fallen").
+    const shared = nWords.filter((w) => qWords.has(w) || (w.length >= 3 && [...qWords].some((q) => q.length >= 3 && (q.startsWith(w) || w.startsWith(q))))).length;
     const stem = ql.slice(0, Math.max(4, ql.length - 2));
     const contains = nl.includes(ql) || ql.includes(nl) || (stem.length >= 4 && nl.startsWith(stem)) ? 1 : 0;
     const d = distance(ql, nl);

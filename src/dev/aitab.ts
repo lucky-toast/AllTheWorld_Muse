@@ -13,6 +13,7 @@ import { ManualProvider, MuseProvider, usageText, type AiProvider, type AiUsage 
 import { aiMode, setAiMode, type AiMode } from "../ai/mode";
 import { estTokens } from "../ai/template";
 import { changedEnabled, setChangedEnabled } from "../ai/changed";
+import { resultSummary } from "../ai/tools";
 import { AI_MODELS, LIMITS } from "../tuning";
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
@@ -34,6 +35,9 @@ function exchange(provider: ManualProvider, opts: { cls: string; status: (t: str
   row.append(copy);
   if (opts.maps) { const maps = button("Download maps"); maps.addEventListener("click", opts.maps); row.append(maps); }
   const size = el("span", "ai-len", ""); row.append(size);
+  // API mode: one line per lookup round (the designer's tool calls), filled in as they happen.
+  const lookups = el("div", "ai-lookups");
+  let shown = false;
   const reply = el("textarea", "ai-text ai-reply"); reply.rows = 5; reply.placeholder = "Paste the AI's reply here";
   const submit = button("Submit", "ai-submit");
   submit.addEventListener("click", () => {
@@ -43,10 +47,13 @@ function exchange(provider: ManualProvider, opts: { cls: string; status: (t: str
     provider.deliver(reply.value);
   });
   const result = el("div", "ai-result", "");
-  root.append(msg, row, reply, submit, result);
+  root.append(msg, row, lookups, reply, submit, result);
   return {
     root, result,
+    /** Whether show() has filled this box: tool rounds send again, and must not replace its message. */
+    get shown() { return shown; },
     show(text: string, api = false) {
+      shown = true;
       msg.value = text; msg.scrollTop = 0; size.textContent = sizeText(text); reply.value = "";
       reply.readOnly = api; submit.hidden = api; submit.disabled = api;
       reply.placeholder = api ? "The reply appears here when the API answers" : "Paste the AI's reply here";
@@ -57,6 +64,8 @@ function exchange(provider: ManualProvider, opts: { cls: string; status: (t: str
       if (usage) size.textContent = `${sizeText(msg.value)} · ${usageText(usage)}`;
     },
     done() { submit.disabled = true; reply.readOnly = true; },
+    /** Add one lookup round's line. */
+    lookup(text: string) { lookups.append(el("div", "", text)); },
   };
 }
 
@@ -109,8 +118,9 @@ export class AiTab {
     this.musePlanner.onReply = (text, usage) => this.plannerBox.fill(text, usage);
     b.append(el("div", "devsec", "Plan (shown here only)"), this.planEl, this.stepsEl);
     this.manualDesigner.onShow = (text) => this.nextDesignerBox?.show(text);
-    this.museDesigner.onShow = (text) => { this.nextDesignerBox?.show(text, true); this.say("Waiting for the designer (API)…"); };
-    this.museDesigner.onReply = (text, usage) => this.nextDesignerBox?.fill(text, usage);
+    // A lookup round sends again: the box keeps the attempt's message, and the round shows as a line (onToolRound).
+    this.museDesigner.onShow = (text) => { if (!this.nextDesignerBox?.shown) this.nextDesignerBox?.show(text, true); this.say("Waiting for the designer (API)…"); };
+    this.museDesigner.onReply = (text, usage) => { if (!this.museDesigner.lastToolCalls.length) this.nextDesignerBox?.fill(text, usage); };
     b.append(el("div", "devsec", "AI log"), this.logEl);
     opts.log.onAppend = () => this.drawLog();
     this.drawLog();
@@ -228,6 +238,13 @@ export class AiTab {
         this.nextDesignerBox = x;
       },
       onReply: (attempt) => boxes.get(attempt)?.done(),
+      onToolRound: (attempt, round, calls) => {
+        const usage = this.museDesigner.lastUsage;
+        const args = (a: string) => (a.length > 80 ? `${a.slice(0, 79)}…` : a);
+        boxes.get(attempt)?.lookup([`Lookups, round ${round}${usage ? ` · ${usageText(usage)}` : ""}`, ...calls.map((c) => `  ${c.name} ${args(c.arguments)} → ${resultSummary(c.name, c.result)}`)].join("\n"));
+        this.say(`Step ${i + 1}: the designer looked things up (round ${round}). Waiting for its reply…`);
+      },
+      onLookupLimit: (attempt) => { const x = boxes.get(attempt); if (x) x.result.textContent = `Still looking things up after the step's ${LIMITS.LOOKUP_ROUNDS_PER_STEP} lookup rounds, so this attempt failed.`; },
       onParseFailed: (attempt, problems) => { const x = boxes.get(attempt); if (x) x.result.textContent = `The reply couldn't be read: ${problems.join("; ")}`; },
       onStage: (attempt, e: StageEvent) => {
         const bx = rows.get(attempt)?.get(e.stage); if (!bx) return;

@@ -42,6 +42,9 @@ canvas#game { image-rendering: pixelated; display: block; }
 .ai-step { border-top: 1px solid #5a6b42; margin-top: 8px; }
 .ai-attempt { font-size: 10px; margin-top: 6px; opacity: 0.85; }
 .ai-result, .ai-ok, .ai-dropped { font-size: 10px; margin: 3px 0; white-space: pre-wrap; }
+.ai-lookups { font-size: 10px; margin: 3px 0; white-space: pre-wrap; font-family: monospace; opacity: 0.85; }
+.ai-lookups:empty { display: none; }
+.ai-lookups > div + div { margin-top: 2px; }
 .ai-ok { color: #8fd07a; } .ai-dropped { color: #e88a7a; }
 .ai-log { max-height: 200px; }
 /* "What changed" panel */

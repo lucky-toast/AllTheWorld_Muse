@@ -196,6 +196,7 @@ describe("tool calls", () => {
     const prompt = sent[0].body.input.slice(0, 2).map((m) => String(m.content)).join("");
     expect(prompt).toContain("## Sprite catalog\n\nThe catalog isn't listed here: look up what you need with the catalog tools");
     expect(prompt).toContain("Tags the planner picked for this task: fishing, fire");
+    expect(prompt).toContain("Check every entity type you spawn, give or target with `entity_types`");
     expect(prompt).not.toContain(CATALOG_LEGEND);
     // Round 2's request: the first reply replayed, then one result per call, in order.
     const second = sent[1].body.input;

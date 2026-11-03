@@ -1,12 +1,19 @@
-// The designer's catalog tools (tool calling): search, get and tags over the real catalog, their
-// limits, the messages bad arguments get, and the tool definitions sent to the API.
+// The designer's tools (tool calling): catalog search, get and tags over the real catalog, the
+// world's entity types, their limits, the messages bad arguments get, the summaries the AI tab
+// shows, and the tool definitions sent to the API.
 import { CATALOG, catalogFind } from "../src/engine/catalog";
 import { CATALOG_LEGEND, catalogLine } from "../src/ai/blocks";
 import { catalogGetText, catalogSearch, catalogTags, closest, shortLine } from "../src/ai/tools/catalog";
-import { DESIGNER_TOOLS, runTool } from "../src/ai/tools";
+import { DESIGNER_TOOLS, LOOKUPS_USED_UP, resultSummary, runTool } from "../src/ai/tools";
+import { entityTypesText } from "../src/ai/tools/world";
+import { buildWorld } from "../src/world/map";
+import { Host } from "../src/engine/host";
+import { loadBaseSystems } from "../src/systems/base";
 import { LIMITS } from "../src/tuning";
 
-const call = (name: string, args: unknown) => runTool({ name, arguments: JSON.stringify(args) });
+function liveHost() { const host = new Host(buildWorld()); loadBaseSystems(host); return host; }
+const ctx = { eng: liveHost().eng };
+const call = (name: string, args: unknown) => runTool({ name, arguments: JSON.stringify(args) }, ctx);
 const grouped = CATALOG.sprites.find((s) => s.variants && Object.keys(s.variants).length > 2)!;
 
 describe("catalog_search", () => {
@@ -98,9 +105,48 @@ describe("catalog_tags and closest", () => {
   });
 });
 
+describe("entity_types", () => {
+  test("lists every registered type with its sprite, tags, owner and count in the world", () => {
+    const { eng } = liveHost();
+    const text = entityTypesText(eng, {});
+    expect(text.split("\n")[0]).toBe(`${eng.types.size} registered entity types:`);
+    const logs = [...eng.entities.values()].filter((r) => r.type === "log_fallen").length;
+    const t = eng.types.get("log_fallen")!;
+    expect(text).toContain(`- log_fallen — sprite ${t.sprite} · tags [${t.tags.join(", ")}] · from the base map · ${logs} in the world`);
+    // Alphabetical.
+    const names = text.split("\n").slice(1).map((l) => l.slice(2).split(" — ")[0]);
+    expect(names).toEqual([...names].sort());
+  });
+  test("match narrows by name or sprite, tag by tag; no match names the closest types", () => {
+    const { eng } = liveHost();
+    expect(entityTypesText(eng, { match: "log" })).toMatch(/^\d+ registered entity types? matching "log":\n- log_fallen — /);
+    const items = entityTypesText(eng, { tag: "item" });
+    for (const line of items.split("\n").slice(1)) expect(line).toMatch(/tags \[[^\]]*\bitem\b/);
+    expect(entityTypesText(eng, { match: "logg" })).toMatch(/^No registered entity type matching "logg"\. Closest types: .*log_fallen/);
+    expect(entityTypesText(eng, { match: 3 })).toBe("match must be a string.");
+  });
+  test("a type a loaded system registered says which system", () => {
+    const host = liveHost();
+    host.eng.registerType("nut", { sprite: "nut", tags: ["item"] }, "squirrel");
+    expect(entityTypesText(host.eng, { match: "nut" })).toContain("- nut — sprite nut · tags [item] · from system squirrel · 0 in the world");
+  });
+});
+
+describe("resultSummary", () => {
+  test("says in a few words what each result held", () => {
+    expect(resultSummary("catalog_search", call("catalog_search", { text: "campfire" }))).toBe("1 entry");
+    expect(resultSummary("catalog_search", call("catalog_search", { tags: ["fish"] }))).toMatch(/^\d+ entries$/);
+    expect(resultSummary("catalog_search", call("catalog_search", {}))).toBe("Give at least one of tags, any_tags or text.");
+    expect(resultSummary("catalog_get", call("catalog_get", { ids: ["firepit", "branch", "camp_fire"] }))).toBe("2 found, 1 not in the catalog");
+    expect(resultSummary("catalog_tags", call("catalog_tags", { match: "fish" }))).toBe("1 tag");
+    expect(resultSummary("entity_types", call("entity_types", { match: "log" }))).toMatch(/^\d+ types?$/);
+    expect(resultSummary("catalog_get", LOOKUPS_USED_UP)).toBe("no more lookups");
+  });
+});
+
 describe("tool definitions and runTool", () => {
-  test("three function tools in a fixed order, each with an object schema the API takes", () => {
-    expect(DESIGNER_TOOLS.map((t) => t.name)).toEqual(["catalog_search", "catalog_get", "catalog_tags"]);
+  test("four function tools in a fixed order, each with an object schema the API takes", () => {
+    expect(DESIGNER_TOOLS.map((t) => t.name)).toEqual(["catalog_search", "catalog_get", "catalog_tags", "entity_types"]);
     for (const t of DESIGNER_TOOLS) {
       expect(t.type).toBe("function");
       expect(t.name).toMatch(/^[a-zA-Z0-9_-]+$/);
@@ -112,9 +158,10 @@ describe("tool definitions and runTool", () => {
   });
   test("runTool runs a call from its JSON arguments, and answers a bad call with a message", () => {
     expect(call("catalog_get", { ids: ["firepit"] })).toContain("firepit — ");
-    expect(runTool({ name: "catalog_tags", arguments: "" })).toMatch(/^\d+ tags/);
-    expect(call("catalog_burn", {})).toBe('There is no tool named "catalog_burn". The tools are catalog_search, catalog_get, catalog_tags.');
-    expect(runTool({ name: "catalog_get", arguments: "{ids: [" })).toMatch(/^The arguments aren't valid JSON/);
-    expect(runTool({ name: "catalog_get", arguments: "[1]" })).toBe("The arguments must be one JSON object.");
+    expect(runTool({ name: "catalog_tags", arguments: "" }, ctx)).toMatch(/^\d+ tags/);
+    expect(call("entity_types", { match: "log" })).toContain("log_fallen");
+    expect(call("catalog_burn", {})).toBe('There is no tool named "catalog_burn". The tools are catalog_search, catalog_get, catalog_tags, entity_types.');
+    expect(runTool({ name: "catalog_get", arguments: "{ids: [" }, ctx)).toMatch(/^The arguments aren't valid JSON/);
+    expect(runTool({ name: "catalog_get", arguments: "[1]" }, ctx)).toBe("The arguments must be one JSON object.");
   });
 });

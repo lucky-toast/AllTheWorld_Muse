@@ -9,6 +9,7 @@ import type { StageEvent } from "../pipeline/types";
 import { runStep, type DesignerHooks, type DesignerPipeline } from "./designer";
 import type { AiLog, Journal } from "./journal";
 import { cleanWish, runPlanner } from "./planner";
+import { resultSummary } from "./tools";
 import { AiApiError, usageText, type AiProvider, type ChatImage } from "./provider";
 import { WishRecorder, type StatsSink, type WishLine } from "./stats";
 
@@ -111,7 +112,7 @@ export class WishChain {
             // A reply that called tools is its own API call: record it here (the attempt's last reply goes through onReply).
             onToolRound: (a, round, calls) => {
               this.recordCall(this.opts.designer, "designer", i + 1, a, wish);
-              log.add("note", "designer", `lookups, round ${round}: ${calls.map((c) => `${c.name} ${c.arguments} → ${c.result.length} chars`).join("; ")}`, { wish, step: i + 1 });
+              log.add("note", "designer", `lookups, round ${round}: ${calls.map((c) => `${c.name} ${c.arguments} → ${resultSummary(c.name, c.result)}`).join("; ")}`, { wish, step: i + 1 });
               log.add("sent", "designer", calls.map((c) => c.result).join("\n\n"), { wish, step: i + 1 });
               dh.onToolRound?.(a, round, calls);
             },
