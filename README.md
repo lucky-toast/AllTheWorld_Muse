@@ -86,16 +86,14 @@ A new system can retire a loaded AI system by listing it in `replaces`. It must 
 
 ### The AI tab
 
-Wishes go to the Meta Muse API through the dev server, with no clicks between steps:
+The tab runs a wish through the Muse API (via the dev server) and shows what the game never does. It is read-only apart from the "Player wish" box and Start, and the "What changed" on/off setting.
 
-1. Type a wish in "Player wish" and press Start, or use the in-game wish box. The wish is cleaned (letters, digits and simple punctuation, at most 400 characters).
-2. The planner's message and reply appear. The reply is one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`; at most 4 steps are kept, and an unreadable reply gets one re-ask.
-3. For each step in order, the designer's message appears. The designer looks up the catalog and the world's entity types with tools before replying; each lookup round shows as a line under the message, listing every call with a short summary of its result. Its reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) fills in, and the attempt row lights the stage boxes as the pipeline runs.
-4. A failed attempt gets the repair message, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
+- The planner's message and reply: the plan, which appears nowhere in the game.
+- For each step, the designer's message for every attempt (the first try and any repairs), its lookup rounds (each tool call with a short summary of its result), its reply, and a row of stage boxes that light up as the pipeline runs.
+- Real token usage next to each message, such as `in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens`.
+- The AI log: every message and reply with an estimated token count, and a `usage:` note with the real counts after each reply.
 
-The size line next to each message adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens`. The map images go with each designer message. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.
-
-The plan and the messages show only in the AI tab. In the game the player sees the leaf transition and "The world feels different", and can open "What changed" (C) to read each update's title, summary, changes and journal. Each prompt is sent as two system messages, the first marked `cache: true`; the AI tab shows them joined, and the API gets them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; a `usage:` note with the real counts follows each reply, and a note per lookup round lists its calls.
+In the game the player sees the leaf transition and "The world feels different", and can open "What changed" (C).
 
 ### Reviewing test rounds
 
