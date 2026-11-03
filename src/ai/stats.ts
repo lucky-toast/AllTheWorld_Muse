@@ -19,11 +19,11 @@ const noTokens = (): Tokens => ({ requests: 0, input: 0, cachedInput: 0, output:
 /** Cached share of the input, in whole percent (0 when there was no input). */
 export const cachedPct = (t: { input: number; cachedInput: number }) => (t.input ? Math.round((t.cachedInput / t.input) * 100) : 0);
 
-/** One line of ai-usage.jsonl. `step` is 1-based; null for the planner. `attempt` 0 is the first send. */
+/** One line of ai-usage.jsonl. `step` is 1-based; null for the planner. `attempt` 0 is the first send. `reasoning` is part of `output`. */
 export interface UsageLine {
   timestamp: string; wishId: string; wish: string; role: "planner" | "designer"; step: number | null; attempt: number;
   model: string; ok: boolean; finishReason: string | null; error?: string; ms: number;
-  input: number; cachedInput: number; output: number; cachedPct: number;
+  input: number; cachedInput: number; output: number; reasoning: number; cachedPct: number;
 }
 
 /** One step of a wish. `failures` are attempts that didn't load (unreadable reply or a failed stage). */
@@ -72,7 +72,7 @@ export class WishRecorder {
     const line: UsageLine = {
       timestamp: this.now().toISOString(), wishId: this.wishId, wish: this.wish, role, step, attempt,
       model: c.model, ok: c.ok, finishReason: c.finishReason, ...(c.error ? { error: c.error } : {}), ms: c.ms,
-      input: u.input, cachedInput: u.cachedInput, output: u.output, cachedPct: cachedPct(u),
+      input: u.input, cachedInput: u.cachedInput, output: u.output, reasoning: u.reasoning ?? 0, cachedPct: cachedPct(u),
     };
     this.write("ai-usage.jsonl", line);
   }

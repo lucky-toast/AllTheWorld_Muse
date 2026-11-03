@@ -9,7 +9,7 @@ import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
 import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
 import { examplesText } from "./examples";
-import { outgoingText, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
+import { outgoingText, replyMessage, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
@@ -129,7 +129,7 @@ export async function runStep(opts: {
     hooks.onAttempt?.(attempt, outgoingText(messages));
     const reply = await provider.send(messages.map((m) => ({ ...m })));
     hooks.onReply?.(attempt, reply);
-    messages.push({ role: "assistant", content: reply });
+    messages.push(replyMessage(provider, reply));
     const parsed = parseDesignerReply(reply);
     let stage: string; let report: string;
     if (!parsed.ok) {

@@ -1,7 +1,7 @@
 // The seam between the planner and designer loops and any AI backend (spec 13.3, 13.5).
-// ManualProvider hands messages to a human; MuseProvider sends them to the Meta Muse API
-// through the dev server's /__ai proxy (devserver/ai.ts), which holds the key. SwitchProvider
-// picks one of them on each send, so the wish chain never changes.
+// ManualProvider hands messages to a human; MuseProvider sends them to the Meta Muse API's
+// Responses endpoint through the dev server's /__ai proxy (devserver/ai.ts), which holds the key.
+// SwitchProvider picks one of them on each send, so the wish chain never changes.
 
 /** One image sent with a message, as base64 (no data: prefix). */
 export interface ChatImage { mediaType: "image/png"; data: string }
@@ -10,11 +10,14 @@ export interface ChatImage { mediaType: "image/png"; data: string }
  * One chat message in an AI conversation. `cache: true` marks the end of the part a provider
  * may cache (the planner and designer send their prompt as two system messages, the first cached).
  * `images` go with the message to providers that can send them; ManualProvider ignores them.
+ * `output` is, on an assistant message, the raw Responses output items of that reply (reasoning,
+ * with its encrypted content, and the message): replayed unchanged on the next send so the model's
+ * reasoning carries over. Opaque; nothing reads inside it.
  */
-export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; cache?: boolean; images?: ChatImage[] }
+export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; cache?: boolean; images?: ChatImage[]; output?: unknown[] }
 
-/** Real token counts from an API reply. `output` includes reasoning tokens. */
-export interface AiUsage { input: number; cachedInput: number; output: number }
+/** Real token counts from an API reply. `output` includes `reasoning`, when the API reports it. */
+export interface AiUsage { input: number; cachedInput: number; output: number; reasoning?: number }
 
 /** One API call, as the provider saw it: for the usage log (src/ai/stats.ts). */
 export interface AiCall {
@@ -32,6 +35,14 @@ export interface AiProvider {
   send(messages: ChatMessage[]): Promise<string>;
   /** The last API call, when the provider makes them (ManualProvider doesn't). Set even when the send rejects. */
   readonly lastCall?: AiCall | null;
+  /** The raw output items of the last successful reply, for providers that replay them (see ChatMessage.output). */
+  readonly lastOutput?: unknown[] | null;
+}
+
+/** The assistant message for a reply `provider` just gave: its text, plus its output items to replay when it has them. */
+export function replyMessage(provider: AiProvider, reply: string): ChatMessage {
+  const output = provider.lastOutput;
+  return output?.length ? { role: "assistant", content: reply, output } : { role: "assistant", content: reply };
 }
 
 /** The text a person pastes into an AI chat for this send: every message after the last reply, joined. */
@@ -41,10 +52,10 @@ export function outgoingText(messages: ChatMessage[]): string {
   return messages.slice(i).map((m) => m.content).join("");
 }
 
-/** Usage as one line: "in 12,345 (cached 11,000) · out 2,100 tokens". */
+/** Usage as one line: "in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens". */
 export function usageText(u: AiUsage): string {
   const n = (v: number) => v.toLocaleString("en-US");
-  return `in ${n(u.input)} (cached ${n(u.cachedInput)}) · out ${n(u.output)} tokens`;
+  return `in ${n(u.input)} (cached ${n(u.cachedInput)}) · out ${n(u.output)}${u.reasoning ? ` (reasoning ${n(u.reasoning)})` : ""} tokens`;
 }
 
 /**
@@ -69,38 +80,50 @@ export class ManualProvider implements AiProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Chat Completions (the Muse API's OpenAI-compatible shape)
+// Responses API input (the Muse API's stateless Responses shape)
 // ---------------------------------------------------------------------------
-export type ChatPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
-export interface ChatCompletionsMessage { role: "system" | "user" | "assistant"; content: string | ChatPart[] }
+export type InputPart = { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
+export type InputMessage =
+  | { role: "developer" | "user"; content: string | InputPart[] }
+  | { role: "assistant"; content: { type: "output_text"; text: string }[] };
+/** One Responses input item: a message we build, or an output item replayed as it came back. */
+export type ResponsesItem = InputMessage | Record<string, unknown>;
 
 /** The fixed user turn after the system messages, when the conversation starts without one. */
 export const LEAD_USER_TEXT = "Follow the instructions above and reply.";
-const imagePart = (img: ChatImage): ChatPart => ({ type: "image_url", image_url: { url: `data:${img.mediaType};base64,${img.data}` } });
+const imagePart = (img: ChatImage): InputPart => ({ type: "input_image", image_url: `data:${img.mediaType};base64,${img.data}` });
 
 /**
- * Map our messages to Chat Completions messages. The leading system messages stay as they are,
- * in order, so the cached prefix is byte-stable. Images only go in user messages, so the system
- * messages' images move into a fixed leading user turn (added when the conversation has none
- * before its first reply); the rest map one to one, a user message's own images first.
+ * Map our messages to Responses input items. The leading system messages become developer items,
+ * in order and unchanged, so the cached prefix is byte-stable. Images only go in user items, so
+ * the system messages' images move into a fixed leading user turn (added when the conversation has
+ * none before its first reply). An assistant message with `output` items replays them unchanged
+ * (that is how its reasoning carries over); one without (a manual reply) becomes an output_text
+ * message. The rest map one to one, a user message's own images first.
  */
-export function toChatCompletions(messages: ChatMessage[]): ChatCompletionsMessage[] {
-  const out: ChatCompletionsMessage[] = [];
+export function toResponsesInput(messages: ChatMessage[]): ResponsesItem[] {
+  const out: ResponsesItem[] = [];
   const images: ChatImage[] = [];
   let i = 0;
   for (; i < messages.length && messages[i].role === "system"; i++) {
-    out.push({ role: "system", content: messages[i].content });
+    out.push({ role: "developer", content: messages[i].content });
     images.push(...(messages[i].images ?? []));
   }
   // A conversation that already starts with a user turn (none of ours do) takes the images there.
   let pending = images;
-  if (messages[i]?.role !== "user") { out.push({ role: "user", content: [...images.map(imagePart), { type: "text", text: LEAD_USER_TEXT }] }); pending = []; }
+  if (messages[i]?.role !== "user") { out.push({ role: "user", content: [...images.map(imagePart), { type: "input_text", text: LEAD_USER_TEXT }] }); pending = []; }
   for (; i < messages.length; i++) {
     const m = messages[i];
-    const imgs = m.role === "user" ? [...pending, ...(m.images ?? [])] : [];
-    if (m.role === "user") pending = [];
-    if (imgs.length) out.push({ role: "user", content: [...imgs.map(imagePart), { type: "text", text: m.content }] });
-    else out.push({ role: m.role, content: m.content });
+    if (m.role === "assistant") {
+      if (m.output?.length) out.push(...(m.output as Record<string, unknown>[]));
+      else out.push({ role: "assistant", content: [{ type: "output_text", text: m.content }] });
+      continue;
+    }
+    const role = m.role === "system" ? "developer" : "user";
+    const imgs = role === "user" ? [...pending, ...(m.images ?? [])] : [];
+    if (role === "user") pending = [];
+    if (imgs.length) out.push({ role, content: [...imgs.map(imagePart), { type: "input_text", text: m.content }] });
+    else out.push({ role, content: m.content });
   }
   return out;
 }
@@ -112,7 +135,8 @@ export type AiRoleName = "planner" | "designer";
 export class AiApiError extends Error { override name = "AiApiError"; }
 
 /**
- * Muse provider: POSTs the messages to /__ai/chat and resolves with the reply text. A non-2xx
+ * Muse provider: POSTs the messages, as Responses input items, to /__ai/chat and resolves with
+ * the reply text; the reply's output items are kept in lastOutput for replay. A non-2xx
  * answer or a reply cut off at max_tokens rejects with a readable message, so a truncated reply
  * never burns a repair round. onShow fires before sending and onReply after, like the manual UI.
  */
@@ -120,6 +144,7 @@ export class MuseProvider implements AiProvider {
   onShow: (text: string, messages: ChatMessage[]) => void = () => {};
   onReply: (text: string, usage: AiUsage | null) => void = () => {};
   lastCall: AiCall | null = null;
+  lastOutput: unknown[] | null = null;
   /** The usage of the last reply, if any. */
   get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 
@@ -128,18 +153,19 @@ export class MuseProvider implements AiProvider {
   async send(messages: ChatMessage[]): Promise<string> {
     const { role, model, maxTokens, reasoningEffort } = this.opts;
     this.lastCall = null;
+    this.lastOutput = null;
     this.onShow(outgoingText(messages), messages);
     const t0 = Date.now();
     const fail = (msg: string, usage: AiUsage | null = null, finishReason: string | null = null): never => {
       this.lastCall = { model, usage, ms: Date.now() - t0, ok: false, finishReason, error: msg };
       throw new AiApiError(msg);
     };
-    const body = JSON.stringify({ role, model, max_tokens: maxTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), messages: toChatCompletions(messages) });
+    const body = JSON.stringify({ role, model, max_tokens: maxTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), input: toResponsesInput(messages) });
     const f = this.opts.fetch ?? globalThis.fetch.bind(globalThis);
     let res: Response;
     try { res = await f(this.opts.url ?? "/__ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body }); }
     catch (e) { return fail(`the ${role} request couldn't reach the dev server (${e instanceof Error ? e.message : String(e)})`); }
-    let data: { text?: unknown; finishReason?: unknown; usage?: AiUsage; error?: unknown } = {};
+    let data: { text?: unknown; finishReason?: unknown; output?: unknown; usage?: AiUsage; error?: unknown } = {};
     try { data = await res.json(); } catch { /* handled below */ }
     if (!res.ok) return fail(`the ${role} request failed (${res.status}): ${typeof data.error === "string" ? data.error : res.statusText || "no message"}`);
     const usage = data.usage ?? null;
@@ -148,6 +174,7 @@ export class MuseProvider implements AiProvider {
     if (finish === "content_filter") return fail(`the ${role}'s reply was stopped by the API's content filter`, usage, finish);
     if (typeof data.text !== "string" || !data.text.trim()) return fail(`the ${role}'s reply was empty`, usage, finish);
     this.lastCall = { model, usage, ms: Date.now() - t0, ok: true, finishReason: finish };
+    this.lastOutput = Array.isArray(data.output) ? data.output : null;
     this.onReply(data.text, usage);
     return data.text;
   }
@@ -159,5 +186,6 @@ export class SwitchProvider implements AiProvider {
   constructor(private pick: () => AiProvider) {}
   send(messages: ChatMessage[]): Promise<string> { this.last = this.pick(); return this.last.send(messages); }
   get lastCall(): AiCall | null { return this.last?.lastCall ?? null; }
+  get lastOutput(): unknown[] | null { return this.last?.lastOutput ?? null; }
   get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 }

@@ -5,3 +5,4 @@ dist/
 .tmp/
 data/
 .env*.local
+probe-responses.out.json
