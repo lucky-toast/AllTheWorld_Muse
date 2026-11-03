@@ -49,7 +49,7 @@ An AI system can only call `host.call` and use its own memory. Each call into it
 
 ## Storage
 
-Under `npm run dev`, saved systems, the world, the journal, the AI log and the AI stats live in `data/` (git-ignored). In a built copy they live in the browser's `localStorage`, with compiled modules cached in IndexedDB. "Start fresh" in the Pipeline tab deletes the saved systems, the world, the journal and the AI log, and reloads with only the base game; the two AI stats files are kept.
+Under `npm run dev`, saved systems, the world, the journal, the AI log and the AI stats live in `data/` (git-ignored). In a built copy they live in the browser's `localStorage`, with compiled modules cached in IndexedDB.
 
 ## Dev
 
@@ -67,7 +67,7 @@ URL aids: `?dev=1` opens the dev panel, `?time=night|dusk|dawn|day` jumps the cl
 
 ### The pipeline
 
-The Pipeline tab has one button per fixture and shows the six stages below as they run, with the report, the loaded and skipped systems, Undo and Start fresh.
+The Pipeline tab has one button per fixture and shows the six stages below as they run, with the report, the loaded and skipped systems, Undo and Start fresh. Start fresh deletes the saved systems, the world, the journal and the AI log, and reloads with only the base game; the two AI stats files are kept.
 
 `submitSystem(manifestJson, source)` runs these stages in order and stops at the first failure. Stages 1 to 5 run in a Web Worker on a copy of the world; the live game is untouched until Load.
 
