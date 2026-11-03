@@ -119,26 +119,3 @@ The dev server checks every id against `^[a-z][a-z0-9_]{0,39}$` and answers 400 
 In a built copy, manifests, sources, the world, the journal and the AI log live in `localStorage` (`atw.systems`, `atw.world`, `atw.journal`, `atw.aiLog`, plus `atw.aiUsage` and `atw.aiWishes` for the stats), and compiled modules are cached in IndexedDB (`atw`), keyed by source hash and recompiled from source when missing.
 
 At startup the base systems load, then every stored AI system in order (skipping replaced ones), each through the Module stage again so a tampered binary is still validated and metered. A system that fails is skipped with everything that builds on it, and the dev panel lists it. "Start fresh" in the Pipeline tab deletes everything saved and reloads with only the base game.
-
-## Decisions the original kickoff didn't specify (kept)
-
-- Footprints extend upward from `pos` (the bottom-left tile), matching bottom-left sprite anchoring.
-- The clock advances only while `daynight` is loaded; the day count goes up when the clock crosses dawn (05:00).
-- Phase hours: dawn 05-07, day 07-17, dusk 17-20, night 20-05. A full day is 144 real seconds at 1x.
-- If a window is smaller than the native 480x348, the canvas scales fractionally below 1x instead of cropping (whole-number scale otherwise).
-- The pack copy in `public/assets/` has no `Ui/Font/NormalFont.ttf`, so the HUD tries that path and falls back to monospace; digit cells are fixed-width either way.
-
-## Decisions the spec didn't cover
-
-- **Placement guards.** `spawn`, `place` and `tile.stamp` move a blocked placement to the nearest spot where the whole footprint fits, unless the request passes `exact: true`, in which case it is denied. Nothing can be placed onto the player's tile, and a crate spawned there lands beside the player. `space.find` (closest free w x h block) and `tile.stamp` (a block of tiles at once, `null` cells left alone) were added for this.
-- **Load re-runs the World check** on the live world. If the world changed since the check and it now fails, the Load is refused and the designer gets a World check repair message, which counts as one of its repairs.
-- **Map images.** The designer also gets a `{{MAP_IMAGE}}` slot: daylight maps with a tile grid and coordinates of the current area and the newest ones, at most 4 (`MAP_IMAGE_MAX_AREAS`), offered as "Download maps" in the AI tab.
-- **Re-creation in the World check** runs the re-created module for 60 more ticks (`worldCheckResumeTicks`).
-- **Host-call limit outside a call.** The 100,000 host calls per invocation also apply per system per tick for anything not inside an invocation.
-- **Extra request limits** for things the spec left open: names in requests at most 64 characters, the overlay at most 6 lines, one `fx.particles` request at most 32 particles, a HUD slot at most 30 characters wide, `sim.walk` at most 100 steps, module abort messages cut at 4,096 characters. All are in `src/tuning.ts`.
-- **Fuel is shared down an emit.** A reactor reached through `emit` runs on the emitter's fuel, and a trap in the reactor rolls back the emitter's whole call; the strike goes to the system that trapped.
-- **Traps during tests** fail the test instead of counting as strikes.
-- **Fixture entity names.** The campfire fixture registers its pit as the entity type `campfire` (drawn with the `firepit` sprite) and its flame as `campfire_flame`.
-- **Two extra fixtures** for succession: `campfire_v2` (replaces `campfire`: a wider, brighter fire that burns longer on later days) and `fireside_cat` (builds on `campfire`). `campfire` keeps a count of fires lit in its state for the hand-over.
-- **Module start.** The binary has no start section; the host calls the exported `__atw_start` once, under fuel, right after instantiating, so the module's top-level code is metered too.
-- **Cold start.** On the first `npm run dev` load the screen stays dark for a few seconds while Vite prepares the modules and startup re-checks stored systems; the first frame draws once that finishes.
