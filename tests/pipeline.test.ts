@@ -54,6 +54,8 @@ const TABLE: { fixture: string; stage: string; ok: boolean; message?: RegExp; af
   { fixture: "campfire_v2", stage: "Load", ok: true, after: ["campfire"] },
   { fixture: "fireside_cat", stage: "Load", ok: true, after: ["campfire"] },
   { fixture: "chop", stage: "Load", ok: true },
+  { fixture: "cottage", stage: "Load", ok: true },
+  { fixture: "fishing", stage: "Load", ok: true },
   { fixture: "bad_manifest", stage: "Manifest", ok: false, message: /entities\.dragon: sprite "dragon_huge" isn't in the catalog/ },
   { fixture: "bad_prefix", stage: "Manifest", ok: false, message: /emits: "fire\.lit" must start with "bad_prefix\."/ },
   { fixture: "bad_types", stage: "Compile", ok: false, message: /^module\.ts:2:\d+ .*summonDragon/ },

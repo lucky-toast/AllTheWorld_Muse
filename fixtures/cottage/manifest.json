@@ -1,0 +1,31 @@
+{
+  "id": "cottage",
+  "why": "A little wooden cottage stands in the clearing: go in through its door to a furnished room, and walk out over the doorway.",
+  "buildsOn": ["movement"],
+  "replaces": [],
+  "entities": {
+    "cottage": { "sprite": "house_wood_gable", "tags": ["solid", "building", "house", "cottage"] },
+    "cottage_bed": { "sprite": "bed_green", "tags": ["solid", "furniture", "bed", "cottage_furniture"] },
+    "cottage_lamp": { "sprite": "oil_lamp", "tags": ["solid", "furniture", "lamp", "cottage_furniture"] },
+    "cottage_window": { "sprite": "window_small_frame", "tags": ["solid", "wall-decor", "cottage_furniture"] },
+    "cottage_shelf": { "sprite": "bookshelf_wide", "tags": ["solid", "furniture", "cottage_furniture"] },
+    "cottage_drawers": { "sprite": "drawers", "tags": ["solid", "furniture", "cottage_furniture"] },
+    "cottage_plant": { "sprite": "plant_potted", "tags": ["solid", "furniture", "plant", "cottage_furniture"] },
+    "cottage_table": { "sprite": "table_pot", "tags": ["solid", "furniture", "table", "cottage_furniture"] },
+    "cottage_stool": { "sprite": "stool_wood", "tags": ["solid", "furniture", "cottage_furniture"] }
+  },
+  "components": {
+    "inside": "string: id of the cottage's inside area, on the cottage",
+    "insideDoor": "pos: the doorway tile inside, where stepping leads back out, on the cottage",
+    "houseOf": "number: id of the cottage a piece of furniture belongs to, on the furniture"
+  },
+  "interactions": [
+    { "verb": "enter", "label": "Go inside", "target": "cottage" }
+  ],
+  "reactions": ["player.moved"],
+  "emits": {
+    "cottage.built": { "house": "entity", "pos": "pos", "inside": "string" },
+    "cottage.entered": { "house": "entity", "inside": "string" },
+    "cottage.left": { "house": "entity", "pos": "pos" }
+  }
+}

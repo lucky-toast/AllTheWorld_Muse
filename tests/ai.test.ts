@@ -236,19 +236,21 @@ describe("blocks", () => {
 // Examples
 // ---------------------------------------------------------------------------
 describe("example systems", () => {
-  test("are the campfire and chop fixtures, sorted by name; the prompt gets campfire only, as json and ts blocks", () => {
-    expect(EXAMPLES.map((e) => e.name)).toEqual(["campfire", "chop"]);
+  test("are fixtures too, sorted by name; the prompt gets the ones in PROMPT_EXAMPLES, as json and ts blocks", () => {
+    expect(EXAMPLES.map((e) => e.name)).toEqual(["campfire", "chop", "cottage", "fishing"]);
     for (const e of EXAMPLES) {
       expect(e.manifest.replace(/\r\n?/g, "\n")).toBe(read(`fixtures/${e.name}/manifest.json`));
       expect(e.source.replace(/\r\n?/g, "\n")).toBe(read(`fixtures/${e.name}/module.ts`));
     }
-    expect(PROMPT_EXAMPLES).toEqual(["campfire"]);
+    expect(PROMPT_EXAMPLES).toEqual(["campfire", "cottage", "fishing"]);
     const t = examplesText();
     expect(t.startsWith("```json\n{\n  \"id\": \"campfire\"")).toBe(true);
+    expect(t.indexOf('"id": "cottage"')).toBeGreaterThan(t.indexOf('"id": "campfire"'));
+    expect(t.indexOf('"id": "fishing"')).toBeGreaterThan(t.indexOf('"id": "cottage"'));
     expect(t).not.toContain('"id": "chop"');
-    expect(t.match(/^```ts$/gm)?.length).toBe(1);
+    expect(t.match(/^```ts$/gm)?.length).toBe(3);
     // Every example still renders when asked for.
-    expect(examplesText(EXAMPLES).match(/^```ts$/gm)?.length).toBe(2);
+    expect(examplesText(EXAMPLES).match(/^```ts$/gm)?.length).toBe(4);
   });
 
   test("are never loaded into the engine", () => {

@@ -14,10 +14,13 @@ export const EXAMPLES: Example[] = Object.keys(MANIFESTS).map((p) => {
 const eol = (s: string) => s.replace(/\r\n?/g, "\n").trim();
 
 /**
- * The examples the designer sees, by name. Each is about 6k to 11k characters of every prompt, so
- * only campfire goes for now: it shows the most (timers, anims, emitted events, components, tests).
+ * The examples the designer sees, by name, each about 10k to 14k characters of every prompt:
+ * campfire (reacting to events, timers, anims, tweens, light), cottage (a building with a room in
+ * its own area: doors, travel in and out, placing furniture, migrate that is safe to run again)
+ * and fishing (a mini-game that takes the controls: focus, onInput, the overlay panel, a round kept
+ * in saved state). chop stays on disk as a fixture.
  */
-export const PROMPT_EXAMPLES: readonly string[] = ["campfire"];
+export const PROMPT_EXAMPLES: readonly string[] = ["campfire", "cottage", "fishing"];
 
 export function examplesText(examples: Example[] = EXAMPLES.filter((e) => PROMPT_EXAMPLES.includes(e.name))): string {
   return examples.map((e) => "```json\n" + eol(e.manifest) + "\n```\n\n```ts\n" + eol(e.source) + "\n```").join("\n\n");
