@@ -32,6 +32,8 @@ The base game is a 30x20 forest clearing with day and night. You can walk, push 
 
 ## Architecture
 
+![The model's reply is split: the manifest stays data, the module runs in a sandbox and reaches the game only through host.call](docs/architecture.svg)
+
 | Folder | What lives there |
 | --- | --- |
 | `src/engine/` | World state, the one dispatcher (`host.ts`: every read and write by every system goes through `host.call`), manifests, the registry, events, the E and Q resolver (`interactions.ts`), input and focus, the fixed-step loop and the renderer |
