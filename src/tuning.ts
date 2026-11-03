@@ -123,8 +123,8 @@ export const LIMITS = {
   repairsPerStep: 3,
   // Most steps the planner may return. Extra steps dropped with a warning.
   PLAN_MAX_STEPS: 4,
-  // Longest cleaned wish. Wish cut.
-  WISH_MAX_CHARS: 100,
+  // Longest wish. The wish box stops typing here, and the cleaner cuts at the same length.
+  WISH_MAX_CHARS: 400,
   // Example ids per tag in the catalog tag index the planner and designer see.
   TAG_INDEX_EXAMPLES: 5,
   // Most tags or entry ids the planner may pick for one step. Extra picks dropped with a warning.

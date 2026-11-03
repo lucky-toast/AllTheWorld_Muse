@@ -4,10 +4,10 @@
 // the text and none to the game (attachKeyboard ignores keys typed into an input). Enter sends
 // the wish, Escape or clicking away closes it and keeps the draft. Screen-only: no sim state.
 import { MAP_PX_H, HUD_H, NATIVE_W } from "./render";
+import { LIMITS } from "../tuning";
 
 /** The letter shown on the key cap and the key code that opens the box. */
 export const WISH_KEY = { letter: "F", code: "KeyF" } as const;
-export const WISH_MAX = 400;
 
 const CELL = 5;
 const BG = "#202812", FIELD = "#141a0e", EDGE = "#5a6b42", CAP = "#3a4a24", CAP_HI = "#6f8450";
@@ -53,7 +53,7 @@ export class WishBox {
 
   constructor(private opts: WishBoxOpts, parent: HTMLElement = document.body) {
     const i = document.createElement("input");
-    i.type = "text"; i.maxLength = WISH_MAX; i.className = "wishinput"; i.autocomplete = "off"; i.spellcheck = false;
+    i.type = "text"; i.maxLength = LIMITS.WISH_MAX_CHARS; i.className = "wishinput"; i.autocomplete = "off"; i.spellcheck = false;
     i.setAttribute("aria-label", "Your wish");
     i.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -127,8 +127,8 @@ export class WishBox {
     ctx.fillStyle = hint ? RUST : DIM;
     const line = hint ?? "Enter: make the wish    Esc: close (keeps the text)";
     fixedText(ctx, line.slice(0, Math.floor((FIELD_W - 6) / CELL)), tx, y0 + 25);
-    if (!hint && v.length > WISH_MAX - 60) {
-      const left = `${v.length}/${WISH_MAX}`; ctx.fillStyle = v.length >= WISH_MAX ? RUST : DIM;
+    if (!hint && v.length > LIMITS.WISH_MAX_CHARS - 60) {
+      const left = `${v.length}/${LIMITS.WISH_MAX_CHARS}`; ctx.fillStyle = v.length >= LIMITS.WISH_MAX_CHARS ? RUST : DIM;
       fixedText(ctx, left, NATIVE_W - 6 - left.length * CELL - 3, y0 + 25);
     }
   }
