@@ -7,7 +7,7 @@ import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
-import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
+import { entityCounts, systemSlots, tagsInText, worldSprites } from "./blocks";
 import { DESIGNER_TOOLS, LOOKUPS_USED_UP, runTool, type ToolCall } from "./tools";
 
 export { LOOKUPS_USED_UP };
@@ -17,7 +17,7 @@ import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltProm
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
 export const PILLARS = normalizeEol(pillarsRaw).trim();
-/** The maps go as images (src/ai/mapimage.ts): attached by hand with Download maps, or sent with the message in API mode. */
+/** The maps go as images with the designer's message (src/ai/mapimage.ts). */
 export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
 /** The slots that only change when a system loads, or never. */
@@ -32,33 +32,18 @@ function fixedSlots(host: Host): Record<string, string> {
 }
 
 /**
- * {{CATALOG}} when the designer can call the catalog tools: how to look things up, the planner's
- * tags as hints, and the ids of the sprites already in the world. No entries.
- */
-export function lookupCatalogText(picks: readonly string[], inWorld: readonly string[]): string {
-  return [
-    "The catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. Check every entity type you spawn, give or target with `entity_types`, unless your manifest declares it. After a failed check you can look things up again.",
-    "",
-    `Tags the planner picked for this task: ${picks.length ? picks.join(", ") : "(none)"}`,
-    "",
-    `Sprites already in the world: ${inWorld.length ? inWorld.join(", ") : "(none)"}`,
-  ].join("\n");
-}
-
-/**
  * The designer's system message for one task, split for caching. `tags` are the catalog tags or
- * entry ids the planner picked for the step; with none, the tags the task names are used. With
- * `tools`, the catalog section says how to look entries up instead of listing them.
+ * entry ids the planner picked for the step; with none, the tags the task names are used. They go
+ * in as hints: the designer looks entries up with the catalog tools.
  */
-export function buildPrompt(host: Host, task: string, tags: readonly string[] = [], opts: { tools?: boolean } = {}): BuiltPrompt {
+export function buildPrompt(host: Host, task: string, tags: readonly string[] = []): BuiltPrompt {
   const picks = tags.length ? tags : tagsInText(task);
   const inWorld = worldSprites(host.eng);
   return buildSplit(section(DESIGNER_TEMPLATE, "System message"), {
     ...fixedSlots(host),
     ENTITY_COUNTS: entityCounts(host.eng),
-    CATALOG: opts.tools
-      ? lookupCatalogText(picks, inWorld)
-      : `These are the sprites with the tags picked for this task, and the sprites already in the world:\n\n${stepCatalogText(picks, inWorld)}`,
+    PICKED_TAGS: picks.length ? picks.join(", ") : "(none)",
+    WORLD_SPRITES: inWorld.length ? inWorld.join(", ") : "(none)",
     TASK: task,
   });
 }
@@ -137,9 +122,9 @@ export type StepResult =
  * doesn't parse, or fails any stage, gets the repair message; after LIMITS.repairsPerStep repairs
  * the step is dropped.
  *
- * When the provider takes tools, every request carries the catalog tools and the prompt says to
- * use them. A reply that calls tools gets their results and is sent again, until a reply calls
- * none; that reply is the attempt's. Lookups are counted per step: past
+ * Every request carries the designer's tools (src/ai/tools). A reply that calls tools gets their
+ * results and is sent again, until a reply calls none; that reply is the attempt's. Lookups are
+ * counted per step: past
  * LIMITS.LOOKUP_ROUNDS_PER_STEP each call gets LOOKUPS_USED_UP instead of a result, and an attempt
  * still calling tools LIMITS.LOOKUP_GRACE_ROUNDS rounds later fails like an unreadable reply.
  */
@@ -156,8 +141,8 @@ export async function runStep(opts: {
   mapImages?(): Promise<ChatImage[]>;
 }): Promise<StepResult> {
   const { host, provider, pipeline, task, hooks = {} } = opts;
-  const tools = provider.supportsTools ? DESIGNER_TOOLS : undefined;
-  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags, { tools: !!tools }));
+  const tools = DESIGNER_TOOLS;
+  const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags));
   let rounds = 0;
   const images = opts.mapImages ? await opts.mapImages() : [];
   if (images.length) messages[1].images = images;
@@ -166,9 +151,9 @@ export async function runStep(opts: {
     hooks.onAttempt?.(attempt, outgoingText(messages));
     let reply = ""; let overLimit = false;
     for (;;) {
-      reply = await provider.send(messages.map((m) => ({ ...m })), tools ? { tools } : undefined);
+      reply = await provider.send(messages.map((m) => ({ ...m })), { tools });
       messages.push(replyMessage(provider, reply));
-      const calls = tools ? provider.lastToolCalls ?? [] : [];
+      const calls = provider.lastToolCalls ?? [];
       if (!calls.length) break;
       rounds++;
       const done = rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP;

@@ -1,7 +1,6 @@
-// The seam between the planner and designer loops and any AI backend (spec 13.3, 13.5).
-// ManualProvider hands messages to a human; MuseProvider sends them to the Meta Muse API's
-// Responses endpoint through the dev server's /__ai proxy (devserver/ai.ts), which holds the key.
-// SwitchProvider picks one of them on each send, so the wish chain never changes.
+// The seam between the planner and designer loops and the AI backend (spec 13.3, 13.5).
+// MuseProvider sends messages to the Meta Muse API's Responses endpoint through the dev server's
+// /__ai proxy (devserver/ai.ts), which holds the key. Tests use scripted providers in its place.
 import type { ToolCall, ToolSpec } from "./tools";
 
 /** One image sent with a message, as base64 (no data: prefix). */
@@ -10,7 +9,7 @@ export interface ChatImage { mediaType: "image/png"; data: string }
 /**
  * One chat message in an AI conversation. `cache: true` marks the end of the part a provider
  * may cache (the planner and designer send their prompt as two system messages, the first cached).
- * `images` go with the message to providers that can send them; ManualProvider ignores them.
+ * `images` go with the message (the designer's maps).
  * `output` is, on an assistant message, the raw Responses output items of that reply (reasoning,
  * with its encrypted content, and the message): replayed unchanged on the next send so the model's
  * reasoning carries over. Opaque; nothing reads inside it. A "tool" message is the result of one
@@ -18,7 +17,7 @@ export interface ChatImage { mediaType: "image/png"; data: string }
  */
 export interface ChatMessage { role: "system" | "user" | "assistant" | "tool"; content: string; cache?: boolean; images?: ChatImage[]; output?: unknown[]; callId?: string }
 
-/** Per-send options. `tools` go only to providers that support them (supportsTools). */
+/** Per-send options: the tools the model may call. */
 export interface SendOptions { tools?: readonly ToolSpec[] }
 
 /** Real token counts from an API reply. `output` includes `reasoning`, when the API reports it. */
@@ -39,11 +38,9 @@ export interface AiCall {
 export interface AiProvider {
   /** Resolves with the reply text. With tools, a reply that only calls tools may have empty text: see lastToolCalls. */
   send(messages: ChatMessage[], opts?: SendOptions): Promise<string>;
-  /** Whether send takes tools and can return tool calls (MuseProvider does; a person copying and pasting can't). */
-  readonly supportsTools?: boolean;
   /** The function calls in the last successful reply, in order; empty when it called none. */
   readonly lastToolCalls?: readonly ToolCall[];
-  /** The last API call, when the provider makes them (ManualProvider doesn't). Set even when the send rejects. */
+  /** The last API call, when the provider makes them (scripted test providers may not). Set even when the send rejects. */
   readonly lastCall?: AiCall | null;
   /** The raw output items of the last successful reply, for providers that replay them (see ChatMessage.output). */
   readonly lastOutput?: unknown[] | null;
@@ -55,7 +52,7 @@ export function replyMessage(provider: AiProvider, reply: string): ChatMessage {
   return output?.length ? { role: "assistant", content: reply, output } : { role: "assistant", content: reply };
 }
 
-/** The text a person pastes into an AI chat for this send: every message after the last reply, joined. */
+/** The new text of this send, for the AI tab and log: every message after the last reply, joined. */
 export function outgoingText(messages: ChatMessage[]): string {
   let i = messages.length;
   while (i > 0 && messages[i - 1].role !== "assistant") i--;
@@ -66,27 +63,6 @@ export function outgoingText(messages: ChatMessage[]): string {
 export function usageText(u: AiUsage): string {
   const n = (v: number) => v.toLocaleString("en-US");
   return `in ${n(u.input)} (cached ${n(u.cachedInput)}) · out ${n(u.output)}${u.reasoning ? ` (reasoning ${n(u.reasoning)})` : ""} tokens`;
-}
-
-/**
- * Manual provider: hands each outgoing message to the UI (which shows it for the human to copy
- * into an AI chat) and waits until the human pastes the AI's reply back. The two system messages
- * of a prompt are joined, so the manual flow shows one text.
- */
-export class ManualProvider implements AiProvider {
-  onShow: (text: string, messages: ChatMessage[]) => void = () => {};
-  private resolver: ((reply: string) => void) | null = null;
-
-  send(messages: ChatMessage[]): Promise<string> {
-    this.onShow(outgoingText(messages), messages);
-    return new Promise<string>((resolve) => { this.resolver = resolve; });
-  }
-  /** Called by the UI when the human submits the pasted reply. */
-  deliver(reply: string) {
-    const r = this.resolver; this.resolver = null;
-    if (r) r(reply);
-  }
-  get waiting(): boolean { return this.resolver !== null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +84,7 @@ const imagePart = (img: ChatImage): InputPart => ({ type: "input_image", image_u
  * in order and unchanged, so the cached prefix is byte-stable. Images only go in user items, so
  * the system messages' images move into a fixed leading user turn (added when the conversation has
  * none before its first reply). An assistant message with `output` items replays them unchanged
- * (that is how its reasoning carries over); one without (a manual reply) becomes an output_text
+ * (that is how its reasoning carries over); one without (a scripted test reply) becomes an output_text
  * message. The rest map one to one, a user message's own images first.
  */
 export function toResponsesInput(messages: ChatMessage[]): ResponsesItem[] {
@@ -149,7 +125,7 @@ export class AiApiError extends Error { override name = "AiApiError"; }
  * Muse provider: POSTs the messages, as Responses input items, to /__ai/chat and resolves with
  * the reply text; the reply's output items are kept in lastOutput for replay. A non-2xx
  * answer or a reply cut off at max_tokens rejects with a readable message, so a truncated reply
- * never burns a repair round. onShow fires before sending and onReply after, like the manual UI.
+ * never burns a repair round. onShow fires before sending and onReply after, for the AI tab.
  */
 export class MuseProvider implements AiProvider {
   onShow: (text: string, messages: ChatMessage[]) => void = () => {};
@@ -157,7 +133,6 @@ export class MuseProvider implements AiProvider {
   lastCall: AiCall | null = null;
   lastOutput: unknown[] | null = null;
   lastToolCalls: ToolCall[] = [];
-  readonly supportsTools = true;
   /** The usage of the last reply, if any. */
   get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 
@@ -204,17 +179,4 @@ export function toolCallsIn(output: unknown): ToolCall[] {
   return (output as { type?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown }[])
     .filter((o) => o?.type === "function_call" && typeof o.call_id === "string" && typeof o.name === "string")
     .map((o) => ({ callId: o.call_id as string, name: o.name as string, arguments: typeof o.arguments === "string" ? o.arguments : "" }));
-}
-
-/** Delegates each send to whichever provider pick() returns at that moment. */
-export class SwitchProvider implements AiProvider {
-  private last: AiProvider | null = null;
-  constructor(private pick: () => AiProvider) {}
-  send(messages: ChatMessage[], opts?: SendOptions): Promise<string> { this.last = this.pick(); return this.last.send(messages, opts); }
-  /** Whether the provider a send would use now takes tools (the AI tab fixes the pick for a whole wish). */
-  get supportsTools(): boolean { return this.pick().supportsTools ?? false; }
-  get lastToolCalls(): readonly ToolCall[] { return this.last?.lastToolCalls ?? []; }
-  get lastCall(): AiCall | null { return this.last?.lastCall ?? null; }
-  get lastOutput(): unknown[] | null { return this.last?.lastOutput ?? null; }
-  get lastUsage(): AiUsage | null { return this.lastCall?.usage ?? null; }
 }

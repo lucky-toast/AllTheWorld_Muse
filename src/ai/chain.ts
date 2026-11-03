@@ -65,7 +65,7 @@ export class WishChain {
       const rec = this.rec;
       if (r.status !== "busy" && r.status !== "empty" && rec) {
         const line = rec.finish(r.status, r.message, r.loaded);
-        if (line.mode === "api") log.add("note", "chain", `wish total: ${line.tokens.requests} requests · ${usageText(line.tokens)}`, { wish: rec.wish });
+        if (line.tokens.requests) log.add("note", "chain", `wish total: ${line.tokens.requests} requests · ${usageText(line.tokens)}`, { wish: rec.wish });
         hooks.onStats?.(line);
       }
       hooks.onStatus?.(r.message); if (r.status !== "busy") hooks.onDone?.(r); return r;

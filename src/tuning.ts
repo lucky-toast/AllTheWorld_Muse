@@ -132,8 +132,6 @@ export const LIMITS = {
   WISH_MAX_CHARS: 100,
   // Example ids per tag in the catalog tag index the planner and designer see.
   TAG_INDEX_EXAMPLES: 5,
-  // Longest per-step catalog (the entries for the step's tags) in the designer prompt. Entries past it are left out.
-  STEP_CATALOG_MAX_CHARS: 60000,
   // Most tags or entry ids the planner may pick for one step. Extra picks dropped with a warning.
   STEP_MAX_TAGS: 8,
   // Tool rounds (replies that call tools) per designer step, across its repairs. Past it, tool calls

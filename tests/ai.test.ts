@@ -9,10 +9,10 @@ import { LiveLoader } from "../src/pipeline/live";
 import { LocalStore, type ModuleCache } from "../src/pipeline/store";
 import { buildPrompt, buildRepairMessage, parseDesignerReply, DESIGNER_TEMPLATE } from "../src/ai/designer";
 import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "../src/ai/planner";
-import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, stepCatalogText, tagIndexText, groundTagsText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
+import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, tagIndexText, groundTagsText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
 import { EXAMPLES, examplesText } from "../src/ai/examples";
-import { AiApiError, ManualProvider, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
+import { AiApiError, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
 import type { StatsFile, UsageLine, WishLine } from "../src/ai/stats";
 import { WishChain } from "../src/ai/chain";
 import { AiLog, Journal } from "../src/ai/journal";
@@ -50,7 +50,7 @@ describe("companion files", () => {
   test("the designer prompt is designer.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPrompt(host, "Let the player skip stones on the pond.");
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "CATALOG", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PILLARS", "SYSTEM_EXAMPLES", "TASK"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PICKED_TAGS", "PILLARS", "SYSTEM_EXAMPLES", "TASK", "WORLD_SPRITES"]);
     const tpl = docSection("src/ai/prompts/designer.md", "System message");
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
@@ -110,17 +110,12 @@ describe("companion files", () => {
     expect(buildRepairMessage("Tests", "x")).not.toContain("{{");
   });
 
-  test("the prompt goes out as two system messages, the first cached; ManualProvider shows them joined", async () => {
+  test("the prompt goes out as two system messages, the first cached; the AI tab shows them joined", async () => {
     const host = liveHost();
     const p = buildPrompt(host, "a task");
     const msgs = promptMessages(p);
     expect(msgs.map((m) => [m.role, m.cache === true])).toEqual([["system", true], ["system", false]]);
-    const mp = new ManualProvider(); let shown = "";
-    mp.onShow = (t) => { shown = t; };
-    const reply = mp.send(msgs);
-    expect(shown).toBe(p.cached + p.rest);
-    expect(mp.waiting).toBe(true);
-    mp.deliver("ok"); await expect(reply).resolves.toBe("ok");
+    expect(outgoingText(msgs)).toBe(p.cached + p.rest);
     // After a reply, only the new message is shown (a repair).
     expect(outgoingText([...msgs, { role: "assistant", content: "r" }, { role: "user", content: "fix it" }])).toBe("fix it");
   });
@@ -492,7 +487,7 @@ describe("wish chain", () => {
     const wishes = g.stats["ai-wishes.jsonl"].map((l) => JSON.parse(l) as WishLine);
     expect(wishes).toHaveLength(1);
     const w = wishes[0];
-    expect(w).toMatchObject({ mode: "api", status: "done", plannerAttempts: 1, stepsPlanned: 2, stepsLoaded: 2, designerFailures: 2, loaded: ["chop", "campfire"] });
+    expect(w).toMatchObject({ status: "done", plannerAttempts: 1, stepsPlanned: 2, stepsLoaded: 2, designerFailures: 2, loaded: ["chop", "campfire"] });
     expect(w.steps.map((s) => [s.step, s.attempts, s.failures, s.failedAt, s.systemId])).toEqual([[1, 3, 2, ["Reply format", "Manifest"], "chop"], [2, 1, 0, [], "campfire"]]);
     expect(w.steps[0].tokens).toEqual({ requests: 3, input: 15000, cachedInput: 12000, output: 3000 });
     expect(w.planner).toEqual({ requests: 1, input: 1000, cachedInput: 0, output: 100 });
@@ -512,13 +507,13 @@ describe("wish chain", () => {
     const u = JSON.parse(g.stats["ai-usage.jsonl"][0]) as UsageLine;
     expect(u).toMatchObject({ role: "designer", step: 1, attempt: 0, ok: false, finishReason: "length", output: 32000 });
     const w = JSON.parse(g.stats["ai-wishes.jsonl"][0]) as WishLine;
-    expect(w).toMatchObject({ mode: "api", status: "error", stepsPlanned: 1, stepsLoaded: 0 });
+    expect(w).toMatchObject({ status: "error", stepsPlanned: 1, stepsLoaded: 0 });
     expect(w.tokens.output).toBe(32000);
     const m = chainGame([plan()], []);
     await m.chain.run("nothing");
     await m.chain.statsFlushed();
     expect(m.stats["ai-usage.jsonl"]).toHaveLength(0);
-    expect(JSON.parse(m.stats["ai-wishes.jsonl"][0])).toMatchObject({ mode: "manual", status: "nothing", stepsPlanned: 0, tokens: { requests: 0, input: 0, cachedInput: 0, output: 0 } });
+    expect(JSON.parse(m.stats["ai-wishes.jsonl"][0])).toMatchObject({ status: "nothing", stepsPlanned: 0, tokens: { requests: 0, input: 0, cachedInput: 0, output: 0 } });
   }, 120_000);
 
   test("a planner send that rejects ends the chain with error and loads nothing", async () => {
@@ -545,14 +540,16 @@ describe("wish chain", () => {
 
   test("one wish at a time: a second is refused with a status message", async () => {
     const host = liveHost();
-    const planner = new ManualProvider();
+    // A planner whose reply waits until the test sends it.
+    let deliver: (reply: string) => void = () => {};
+    const planner: AiProvider = { send: () => new Promise<string>((r) => { deliver = r; }) };
     const statuses: string[] = [];
     const chain = new WishChain({ host, planner, designer: new Scripted([]), pipeline: { checkSystem: () => { throw new Error("x"); }, loadChecked: () => { throw new Error("x"); } }, journal: new Journal(memStore()), log: new AiLog(memStore()), hooks: { onStatus: (s) => statuses.push(s) } });
     const first = chain.run("a pond");
     const second = await chain.run("a kite");
     expect(second.status).toBe("busy");
     expect(statuses.at(-1)).toMatch(/already being built/);
-    planner.deliver(plan());
+    deliver(plan());
     expect((await first).status).toBe("nothing");
   });
 });
@@ -573,46 +570,41 @@ test('there is no director: no file in src/ mentions "director"', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalog in the prompts: the tag index and the per-step catalog
+// Catalog in the prompts: the planner's tag index and the designer's hints
 // ---------------------------------------------------------------------------
 describe("catalog in the prompts", () => {
-  test("neither prompt carries the whole catalog", () => {
+  test("neither prompt carries the whole catalog, and the designer's carries no entries", () => {
     const host = liveHost();
     const full = catalogText().length;
     expect(buildPlannerPrompt(host, "a wish").slots.CATALOG_TAGS.length).toBeLessThan(full / 20);
     const d = buildPrompt(host, "Cook a fish on a fire.", ["fishing", "fire"]);
-    expect(d.slots.CATALOG.length).toBeLessThanOrEqual(LIMITS.STEP_CATALOG_MAX_CHARS + 300);
+    expect(d.cached + d.rest).not.toContain(CATALOG_LEGEND);
+    for (const id of catalogFind("fishing")) expect(d.cached + d.rest).not.toContain(`${id} — `);
   });
 
-  test("the per-step catalog sits after the cache breakpoint, so the cached part doesn't change with the task", () => {
+  test("the lookup instructions are cached; only the hints sit after the cache breakpoint", () => {
     const host = liveHost();
     const a = buildPrompt(host, "a fishing rod", ["fishing"]);
     const b = buildPrompt(host, "a treehouse", ["tree"]);
     expect(a.cached).toBe(b.cached);
+    expect(a.cached).toContain("## Looking things up");
     expect(a.rest).not.toBe(b.rest);
+    expect(a.rest).toContain("Tags the planner picked for this task: fishing\n");
   });
 
-  test("the per-step catalog has the picked tags' entries, ids named directly, and the world's sprites", () => {
+  test("the designer gets the picked tags and ids, and the world's sprites, as hints", () => {
     const host = liveHost();
-    const fish = catalogFind("fishing");
     const someId = catalogFind("tree")[0];
-    const text = stepCatalogText(["fishing", someId], worldSprites(host.eng));
-    for (const id of fish) expect(text).toContain(`${id} — `);
-    expect(text).toContain(`${someId} — `);
-    for (const id of worldSprites(host.eng).filter((s) => catalogGet(s))) expect(text).toContain(`${id} — `);
-    expect(text.split("\n")[0]).toBe(CATALOG_LEGEND);
-  });
-
-  test("a broad tag is cut to the budget with a note", () => {
-    const text = stepCatalogText(["npc"]);
-    expect(text.length).toBeLessThanOrEqual(LIMITS.STEP_CATALOG_MAX_CHARS + 300);
-    expect(text).toMatch(/more entries tagged npc left out/);
+    const d = buildPrompt(host, "t", ["fishing", someId]);
+    expect(d.slots.PICKED_TAGS).toBe(`fishing, ${someId}`);
+    expect(d.slots.WORLD_SPRITES.split(", ").sort()).toEqual([...worldSprites(host.eng)].sort());
+    expect(buildPrompt(host, "t", []).slots.PICKED_TAGS).toBe("(none)");
   });
 
   test("a step with no tags falls back to the tags its text names", () => {
     expect(tagsInText("Let the player go fishing and cook over a fire")).toEqual(expect.arrayContaining(["fishing", "fire"]));
     const d = buildPrompt(liveHost(), "Let the player go fishing and cook over a fire");
-    expect(d.slots.CATALOG).toContain(`${catalogFind("fishing")[0]} — `);
+    expect(d.slots.PICKED_TAGS.split(", ")).toEqual(expect.arrayContaining(["fishing", "fire"]));
   });
 
   test("the tag index lists every tag with its count", () => {
@@ -654,6 +646,6 @@ describe("catalog in the prompts", () => {
     const g = chainGame(["```json\n" + JSON.stringify({ steps: [{ task: "cook a fish", tags: ["fishing"] }] }) + "\n```"], ["not a reply", "no", "no", "no"]);
     await g.chain.run("cook fish");
     const sent = g.designer.sent[0].map((m) => m.content).join("");
-    expect(sent).toContain(`${catalogFind("fishing")[0]} — `);
+    expect(sent).toContain("Tags the planner picked for this task: fishing\n");
   });
 });

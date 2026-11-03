@@ -35,7 +35,7 @@ There are four ways your code runs:
 
 **Leave room for later systems.** Keep numbers a later system might tune (waits, windows, speeds) in components, not in code. Emit an event at each moment others might care about, not only at the end. Use tags for states such as wary, ripe or lit.
 
-**Entity types vs sprite ids.** A sprite id (tree_pink, nut) is just art in the catalog. An entity type is a name registered by the base map, by a loaded system, or by your own manifest's entities. Every place you name an entity type — spawn, simGive, an interaction's target or held — must use a registered entity type. Naming a sprite id that is not also a registered type counts as unregistered, even if the sprite exists. To use a sprite as a spawnable thing, declare it first, e.g. "entities": { "nut": { "sprite": "nut", ... } }, then spawn "nut". When in doubt, only use types listed under "entity types added" or present in the entity counts for the current map.
+**Entity types vs sprite ids.** A sprite id (tree_pink, nut) is just art in the catalog. An entity type is a name registered by the base map, by a loaded system, or by your own manifest's entities. Every place you name an entity type — spawn, simGive, an interaction's target or held — must use a registered entity type. Naming a sprite id that is not also a registered type counts as unregistered, even if the sprite exists. To use a sprite as a spawnable thing, declare it first, e.g. "entities": { "nut": { "sprite": "nut", ... } }, then spawn "nut". Check every entity type you spawn, give or target with `entity_types`, unless your manifest declares it.
 
 ## AssemblyScript
 
@@ -137,6 +137,10 @@ Your system goes through these stages in order. It stops at the first failure, a
 
 You get up to 3 repairs.
 
+## Looking things up
+
+The sprite catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.
+
 
 
 ## Reply format
@@ -167,9 +171,11 @@ Maps of the current area and the newest areas, in daylight with a tile grid and 
 
 {{ENTITY_COUNTS}}
 
-## Sprite catalog
+## Catalog hints
 
-{{CATALOG}}
+Tags the planner picked for this task: {{PICKED_TAGS}}
+
+Sprites already in the world: {{WORLD_SPRITES}}
 
 ## Your task
 

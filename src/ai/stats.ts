@@ -7,8 +7,8 @@
 //                         designer failures before each system loaded, and token totals for
 //                         the whole wish, from the wish going in to its last system loading
 //
-// `npm run ai-report` prints a summary of both. Requests sent by hand (Dev panel mode) have no
-// real token counts, so their wishes show mode "manual" and zero tokens.
+// `npm run ai-report` prints a summary of both. Lines written before manual mode was removed may
+// carry mode "manual" and zero tokens; the report counts those apart.
 import type { AiCall } from "./provider";
 
 export type StatsFile = "ai-usage.jsonl" | "ai-wishes.jsonl";
@@ -32,7 +32,7 @@ export interface StepStats { step: number; task: string; attempts: number; failu
 /** One line of ai-wishes.jsonl. */
 export interface WishLine {
   wishId: string; wish: string; startedAt: string; finishedAt: string; durationMs: number;
-  mode: "api" | "manual"; status: string; message: string;
+  status: string; message: string;
   plannerAttempts: number; stepsPlanned: number; stepsLoaded: number; designerFailures: number;
   loaded: string[]; steps: StepStats[];
   planner: Tokens; designer: Tokens; tokens: Tokens;
@@ -90,7 +90,7 @@ export class WishRecorder {
     const tokens = this.totals();
     const line: WishLine = {
       wishId: this.wishId, wish: this.wish, startedAt: this.started.toISOString(), finishedAt: end.toISOString(), durationMs: end.getTime() - this.started.getTime(),
-      mode: tokens.requests ? "api" : "manual", status, message,
+      status, message,
       plannerAttempts: this.plannerAttempts, stepsPlanned: this.stepsPlanned, stepsLoaded: loaded.length,
       designerFailures: this.steps.reduce((n, s) => n + (s?.failures ?? 0), 0),
       loaded: [...loaded], steps: this.steps.filter(Boolean),

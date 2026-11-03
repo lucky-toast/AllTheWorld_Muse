@@ -1,5 +1,5 @@
 // The Muse API provider (spec 13.5): the Responses input mapping, MuseProvider against a fake
-// /__ai/chat, SwitchProvider, and the planner's re-ask and the designer's repairs sent through it.
+// /__ai/chat, the designer's lookup loop, and the planner's re-ask and the designer's repairs sent through it.
 import { buildWorld } from "../src/world/map";
 import { Host } from "../src/engine/host";
 import { loadBaseSystems } from "../src/systems/base";
@@ -7,7 +7,7 @@ import { runPlanner } from "../src/ai/planner";
 import { LOOKUPS_USED_UP, runStep } from "../src/ai/designer";
 import { CATALOG_LEGEND } from "../src/ai/blocks";
 import { DESIGNER_TOOLS } from "../src/ai/tools";
-import { LEAD_USER_TEXT, ManualProvider, MuseProvider, SwitchProvider, replyMessage, toResponsesInput, usageText, type ChatMessage } from "../src/ai/provider";
+import { LEAD_USER_TEXT, MuseProvider, replyMessage, toResponsesInput, usageText, type ChatMessage } from "../src/ai/provider";
 import { LIMITS } from "../src/tuning";
 
 function liveHost() { const host = new Host(buildWorld()); loadBaseSystems(host); host.interactions.refresh(true); return host; }
@@ -68,7 +68,7 @@ describe("toResponsesInput", () => {
   });
   test("replyMessage keeps the output items of the provider's last reply, when it has them", () => {
     expect(replyMessage({ send: async () => "", lastOutput: outputFor("x") }, "x")).toEqual({ role: "assistant", content: "x", output: outputFor("x") });
-    expect(replyMessage(new ManualProvider(), "x")).toEqual({ role: "assistant", content: "x" });
+    expect(replyMessage({ send: async () => "" }, "x")).toEqual({ role: "assistant", content: "x" });
     expect(replyMessage({ send: async () => "", lastOutput: [] }, "x")).toEqual({ role: "assistant", content: "x" });
   });
   test("usageText shows reasoning tokens when the API reports them", () => {
@@ -155,7 +155,6 @@ describe("tool calls", () => {
   test("MuseProvider sends the tools, reads the calls, and takes a reply with calls but no text", async () => {
     const { f, sent } = fakeFetch([toolReply([["catalog_get", { ids: ["firepit"] }], ["catalog_tags", { match: "fish" }]]), { body: { text: "", finishReason: "stop", output: [], usage: null } }]);
     const p = new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: f });
-    expect(p.supportsTools).toBe(true);
     await expect(p.send(sys, { tools: DESIGNER_TOOLS })).resolves.toBe("");
     expect(sent[0].body.tools).toEqual(DESIGNER_TOOLS);
     expect(p.lastToolCalls).toEqual([
@@ -166,14 +165,6 @@ describe("tool calls", () => {
     await expect(p.send(sys)).rejects.toThrow("the designer's reply was empty");
     expect(sent[1].body.tools).toBeUndefined();
     expect(p.lastToolCalls).toEqual([]);
-  });
-  test("SwitchProvider says whether the picked provider takes tools", () => {
-    const muse = new MuseProvider({ role: "designer", model: "m", maxTokens: 10, fetch: fakeFetch([]).f });
-    let useApi = false;
-    const sw = new SwitchProvider(() => (useApi ? muse : new ManualProvider()));
-    expect(sw.supportsTools).toBe(false);
-    useApi = true;
-    expect(sw.supportsTools).toBe(true);
   });
   test("the designer looks things up, gets the results, and its final reply is the attempt", async () => {
     const { f, sent } = fakeFetch([
@@ -194,7 +185,7 @@ describe("tool calls", () => {
     // Every request carries the tools; the prompt explains them and lists no entries.
     for (const s of sent.slice(0, 3)) expect(s.body.tools).toEqual(DESIGNER_TOOLS);
     const prompt = sent[0].body.input.slice(0, 2).map((m) => String(m.content)).join("");
-    expect(prompt).toContain("## Sprite catalog\n\nThe catalog isn't listed here: look up what you need with the catalog tools");
+    expect(prompt).toContain("## Looking things up\n\nThe sprite catalog isn't listed here: look up what you need with the catalog tools");
     expect(prompt).toContain("Tags the planner picked for this task: fishing, fire");
     expect(prompt).toContain("Check every entity type you spawn, give or target with `entity_types`");
     expect(prompt).not.toContain(CATALOG_LEGEND);
@@ -229,32 +220,5 @@ describe("tool calls", () => {
     expect(repair.role).toBe("user");
     expect(String(repair.content)).toContain("**Lookups**");
     expect(sent).toHaveLength(max + LIMITS.repairsPerStep);
-  });
-  test("a provider without tools gets the old catalog listing and no tools", async () => {
-    const manual = new ManualProvider();
-    const shownAll: string[] = [];
-    manual.onShow = (t) => { shownAll.push(t); queueMicrotask(() => manual.deliver("unreadable")); };
-    await runStep({ host: liveHost(), task: "a campfire", tags: ["firepit"], provider: manual, pipeline: neverPipeline });
-    const shown = shownAll[0];
-    expect(shown).toContain(CATALOG_LEGEND);
-    expect(shown).toContain("These are the sprites with the tags picked for this task");
-  });
-});
-
-describe("SwitchProvider", () => {
-  test("uses whichever provider pick() returns at send time", async () => {
-    const manual = new ManualProvider();
-    const { f } = fakeFetch([ok("from api")]);
-    const muse = new MuseProvider({ role: "planner", model: "m", maxTokens: 10, fetch: f });
-    let useApi = false;
-    const sw = new SwitchProvider(() => (useApi ? muse : manual));
-    const first = sw.send(sys);
-    expect(manual.waiting).toBe(true);
-    manual.deliver("from manual");
-    await expect(first).resolves.toBe("from manual");
-    expect(sw.lastUsage).toBeNull();
-    useApi = true;
-    await expect(sw.send(sys)).resolves.toBe("from api");
-    expect(sw.lastUsage).toEqual({ input: 100, cachedInput: 80, output: 20 });
   });
 });
