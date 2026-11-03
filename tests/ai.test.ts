@@ -199,6 +199,15 @@ describe("blocks", () => {
     expect(again.ok && systemBlock(again.manifest)).toBe(block);
   });
 
+  test("an interaction without held shows no held: no placeholder word that reads like a value", () => {
+    const v = validateManifest({ id: "pet", why: "Pet things.", interactions: [{ verb: "pet", label: "Pet", target: "#animal" }, { verb: "wave", label: "Wave", target: "held", held: "none" }] });
+    if (!v.ok) throw new Error(v.errors.join());
+    const lines = systemBlock(v.manifest).split("\n");
+    expect(lines).toContain('  - pet "Pet" on #animal');
+    expect(lines).toContain('  - wave "Wave" on held, held none');
+    expect(systemBlock(v.manifest)).not.toMatch(/anything/);
+  });
+
   test("entity and terrain counts are sorted by count, then name, under one line per area", () => {
     const host = liveHost();
     const eng = host.eng;

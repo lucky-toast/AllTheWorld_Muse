@@ -253,7 +253,10 @@ export function lastError(): string { return failure(); }
 
 // ---- reads ----
 
-/** Ids of every entity with this tag or component, ascending (at most 5,000; see queryTruncated). */
+/** Ids of every entity with this tag or component, ascending (at most 5,000; see queryTruncated).
+ *  Not an entity type: query("stump_big") finds nothing unless something carries a "stump_big" tag.
+ *  To find entities of a type, query the most specific tag that type carries (entity_types lists
+ *  each type's tags) and keep the ids where typeOf(id) is that type. */
 export function query(tagOrComponent: string): i32[] {
   return request(op("query").str("with", tagOrComponent)).get("ids").ints();
 }

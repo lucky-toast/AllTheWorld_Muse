@@ -458,7 +458,7 @@ why: <why>
 buildsOn: [<ids>]
 replaces: [<ids>]
 interactions:
-  - <verb> "<label>" on <target>, held <held or "anything">
+  - <verb> "<label>" on <target>[, held <held>]   (", held" only when the manifest sets it)
 reactions: [<event names>]
 emits:
   - <event>: <payload shape as compact JSON>

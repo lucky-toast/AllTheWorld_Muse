@@ -20,7 +20,8 @@ export function systemBlock(m: Manifest): string {
     `buildsOn: ${list(m.buildsOn)}`,
     `replaces: ${list(m.replaces)}`,
     "interactions:",
-    ...sub(m.interactions.map((it) => `  - ${it.verb} "${it.label}" on ${it.target}, held ${it.held ?? "anything"}`)),
+    // `held` shows only when the manifest sets it, as it is written there: a placeholder word for "any" got copied into manifests.
+    ...sub(m.interactions.map((it) => `  - ${it.verb} "${it.label}" on ${it.target}${it.held === undefined ? "" : `, held ${it.held}`}`)),
     `reactions: ${list(m.reactions)}`,
     "emits:",
     ...sub(Object.entries(m.emits).map(([name, shape]) => `  - ${name}: ${JSON.stringify(shape)}`)),
