@@ -272,7 +272,7 @@ An AssemblyScript library compiled into every module, so it runs inside the sand
 - Helpers built from requests: `player()`, `facing()`, `facedTile()`, `isFree(x, y, selfId)`, `footprintFree(id, x, y)`, `giveToPlayer(id)`.
 - The export glue and the `abort`, `trace` and `seed` replacements (section 10.1).
 
-`src/sdk/index.ts` is what the designer prompt shows as `{{API}}`, so it must read as a clean reference: one-line doc comment on every exported helper, nothing internal at the top level. Document the exact ABI in `src/sdk/README.md`.
+`src/sdk/index.ts` is what the designer prompt shows as `{{API}}`, with bodies left out, so it must read as a clean reference: one-line doc comment on every exported helper, nothing internal at the top level, and a doc comment directly above the declaration it describes. Document the exact ABI in `src/sdk/README.md`.
 
 ---
 
@@ -439,10 +439,10 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has 
 | Slot | Content |
 | --- | --- |
 | `{{PILLARS}}` | `src/ai/pillars.md` |
-| `{{API}}` | The text of `src/sdk/index.ts` |
+| `{{API}}` | `src/sdk/index.ts` as a reference (`devserver/sdkref.ts`, imported as `?sdkref`): every export's signature and doc comment, the file's header and section notes; function, method, accessor and constructor bodies, imports, private and `_`-named members, and non-exported declarations left out. Built from the file by a Vite plugin, so it can't drift. |
 | `{{PICKED_TAGS}}` | After the cache breakpoint: the step's planner tags or entry ids, comma-separated, as hints for the designer's lookups; `(none)` without any. A step with no tags uses the tags and ids its text names. |
 | `{{WORLD_SPRITES}}` | After the cache breakpoint: the ids of the sprites already in the world (entity sprites and map terrain). |
-| `{{SYSTEM_EXAMPLES}}` | Every manifest and module pair in `src/ai/examples/`, sorted by name, as a fenced `json` and a fenced `ts` block. Seed it with the campfire and chop fixtures until Toast writes the final three examples. These are never loaded into the world |
+| `{{SYSTEM_EXAMPLES}}` | The manifest and module pairs in `src/ai/examples/` named in `PROMPT_EXAMPLES` (campfire only for now), as a fenced `json` and a fenced `ts` block each. The campfire and chop fixtures seed the folder until Toast writes the final three examples. These are never loaded into the world |
 | `{{BASE_SYSTEMS}}` | One system block per base system, in load order |
 | `{{AI_SYSTEMS}}` | One block per loaded, not-replaced AI system in load order, except the newest |
 | `{{NEWEST_AI_SYSTEM}}` | The newest AI system's block, or an empty string |

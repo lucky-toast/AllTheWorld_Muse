@@ -2,7 +2,7 @@
 // three-block reply, and runs one planner step through the pipeline with up to 3 repairs.
 import templateRaw from "./prompts/designer.md?raw";
 import pillarsRaw from "./pillars.md?raw";
-import apiRaw from "../sdk/index.ts?raw";
+import apiRef from "../sdk/index.ts?sdkref";
 import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
@@ -24,7 +24,7 @@ export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 function fixedSlots(host: Host): Record<string, string> {
   return {
     PILLARS,
-    API: normalizeEol(apiRaw).trim(),
+    API: normalizeEol(apiRef).trim(),
     MAP_IMAGE: MAP_IMAGE_NOTE,
     SYSTEM_EXAMPLES: examplesText(),
     ...systemSlots(host),

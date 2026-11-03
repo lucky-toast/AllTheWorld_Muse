@@ -11,7 +11,7 @@ import { buildPrompt, buildRepairMessage, parseDesignerReply, DESIGNER_TEMPLATE 
 import { buildPlannerPrompt, cleanWish, parsePlannerReply, runPlanner } from "../src/ai/planner";
 import { systemBlock, entityCounts, terrainCounts, playerText, catalogText, catalogLine, tagIndexText, groundTagsText, tagsInText, worldSprites, CATALOG_LEGEND } from "../src/ai/blocks";
 import { CATALOG, catalogFind, catalogGet } from "../src/engine/catalog";
-import { EXAMPLES, examplesText } from "../src/ai/examples";
+import { EXAMPLES, PROMPT_EXAMPLES, examplesText } from "../src/ai/examples";
 import { AiApiError, outgoingText, type AiCall, type AiProvider, type AiUsage, type ChatMessage } from "../src/ai/provider";
 import type { StatsFile, UsageLine, WishLine } from "../src/ai/stats";
 import { WishChain } from "../src/ai/chain";
@@ -20,6 +20,7 @@ import { promptMessages } from "../src/ai/template";
 import { validateManifest } from "../src/engine/manifest";
 import { LIMITS } from "../src/tuning";
 import { testSystem } from "./helpers";
+import { sdkReference } from "../devserver/sdkref";
 
 const read = (p: string) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
 const MARKER = /^<!-- CACHE BREAKPOINT.*-->\n/m;
@@ -55,7 +56,7 @@ describe("companion files", () => {
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
     expect(p.slots.PILLARS).toBe(read("src/ai/pillars.md").trim());
-    expect(p.slots.API).toBe(read("src/sdk/index.ts").trim());
+    expect(p.slots.API).toBe(sdkReference(read("src/sdk/index.ts")).trim());
     expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
   });
 
@@ -227,16 +228,19 @@ describe("blocks", () => {
 // Examples
 // ---------------------------------------------------------------------------
 describe("example systems", () => {
-  test("are the campfire and chop fixtures, sorted by name, as json and ts blocks", () => {
+  test("are the campfire and chop fixtures, sorted by name; the prompt gets campfire only, as json and ts blocks", () => {
     expect(EXAMPLES.map((e) => e.name)).toEqual(["campfire", "chop"]);
     for (const e of EXAMPLES) {
       expect(e.manifest.replace(/\r\n?/g, "\n")).toBe(read(`fixtures/${e.name}/manifest.json`));
       expect(e.source.replace(/\r\n?/g, "\n")).toBe(read(`fixtures/${e.name}/module.ts`));
     }
+    expect(PROMPT_EXAMPLES).toEqual(["campfire"]);
     const t = examplesText();
     expect(t.startsWith("```json\n{\n  \"id\": \"campfire\"")).toBe(true);
-    expect(t.indexOf('"id": "chop"')).toBeGreaterThan(t.indexOf('"id": "campfire"'));
-    expect(t.match(/^```ts$/gm)?.length).toBe(2);
+    expect(t).not.toContain('"id": "chop"');
+    expect(t.match(/^```ts$/gm)?.length).toBe(1);
+    // Every example still renders when asked for.
+    expect(examplesText(EXAMPLES).match(/^```ts$/gm)?.length).toBe(2);
   });
 
   test("are never loaded into the engine", () => {
