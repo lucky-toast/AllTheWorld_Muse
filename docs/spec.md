@@ -46,7 +46,7 @@ Toast owns the wording of all three. Don't reword them. If a slot or instruction
 | `src/catalog.json` (106 sprites) | Unchanged. Nothing outside it is ever drawn |
 | `src/world/map.ts`, `src/world/types.ts` | Same layout, same types, same seed. Port the calls to the new engine. The map must look identical |
 | `src/tuning.ts` feel values | Same values (walk pace, slide, tap-to-turn, phases, lighting, player light, banner). Add the new limits from section 15 |
-| `src/engine/render.ts` | Port sprite drawing, y-sorting, lighting, HUD and sprites tab. Add the E prompt and the overlay |
+| `src/engine/render.ts` | Port sprite drawing, y-sorting, lighting and HUD. Add the E prompt and the overlay |
 | `src/engine/input.ts` tap/hold timing | Same feel. The routing changes (section 7) |
 | `src/engine/catalog.ts` | Unchanged apart from imports |
 | `index.html`, `src/style.css` | Reuse |
@@ -507,7 +507,6 @@ Planner and designer each have their own provider, so they use different models:
 
 Backtick toggles it. It swallows game input while open and sits to the right of the map.
 
-- **Sprites tab:** every catalog sprite at 4x on a grass tile with its outline, playing its first anim (the old `renderSpritesTab`).
 - **Pipeline tab:** one button per fixture, a row of 6 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
 - **AI tab:** a "Player wish" box and Start, and a "What changed" on/off setting. Start is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. Then the planner's message and its reply; then for each step and attempt the designer's message, its lookup rounds (each call with a short summary of its result, and the round's token usage), its reply and a row of stage boxes. Everything is read-only, and the real token usage shows next to each message's size. The in-game wish box takes the same path. The plan shows here only.
 
