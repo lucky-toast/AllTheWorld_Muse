@@ -194,7 +194,7 @@ describe("tool calls", () => {
     // Every request carries the tools; the prompt explains them and lists no entries.
     for (const s of sent.slice(0, 3)) expect(s.body.tools).toEqual(DESIGNER_TOOLS);
     const prompt = sent[0].body.input.slice(0, 2).map((m) => String(m.content)).join("");
-    expect(prompt).toContain("## Sprite catalog\n\nThe catalog has ");
+    expect(prompt).toContain("## Sprite catalog\n\nThe catalog isn't listed here: look up what you need with the catalog tools");
     expect(prompt).toContain("Tags the planner picked for this task: fishing, fire");
     expect(prompt).not.toContain(CATALOG_LEGEND);
     // Round 2's request: the first reply replayed, then one result per call, in order.

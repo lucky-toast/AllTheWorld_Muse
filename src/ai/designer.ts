@@ -7,7 +7,6 @@ import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
-import { CATALOG } from "../engine/catalog";
 import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
 import { DESIGNER_TOOLS, runTool, type ToolCall } from "./tools";
 import { examplesText } from "./examples";
@@ -36,13 +35,7 @@ function fixedSlots(host: Host): Record<string, string> {
  */
 export function lookupCatalogText(picks: readonly string[], inWorld: readonly string[]): string {
   return [
-    `The catalog has ${CATALOG.sprites.length.toLocaleString("en-US")} entries (sprites, terrain, sounds, music and fonts). They aren't listed here: look up what you need with the catalog tools.`,
-    "",
-    "- `catalog_search` finds entries by tags, by words in their id or description, by kind and by layer, one short line each.",
-    "- `catalog_get` gives the full entries for ids: size, footprint, door, anims, variants, becomes and faceset.",
-    "- `catalog_tags` lists the tags.",
-    "",
-    "Look up everything you need before you write your reply, in as few rounds as you can: put several calls in one reply. Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.",
+    "The catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.",
     "",
     `Tags the planner picked for this task: ${picks.length ? picks.join(", ") : "(none)"}`,
     "",
