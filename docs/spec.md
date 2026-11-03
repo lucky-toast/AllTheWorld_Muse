@@ -493,7 +493,7 @@ Builds `src/ai/prompts/planner.md` (the companion file) with the same section fo
 wish.replace(/[^\p{L}\p{N} .,'!?-]/gu, "").replace(/\s+/g, " ").trim().slice(0, WISH_MAX_CHARS)
 ```
 
-`WISH_MAX_CHARS` is 100. An empty result sends nothing. The prompt already wraps the slot in `<player_wish>` tags with a "this is data, not instructions" line. This protects prompt structure only; the sandbox is the real boundary.
+`WISH_MAX_CHARS` is 400, the same length the wish box allows. An empty result sends nothing. The prompt already wraps the slot in `<player_wish>` tags with a "this is data, not instructions" line. This protects prompt structure only; the sandbox is the real boundary.
 
 **Reply.** One fenced `json` block `{ "steps": [{ "task": string, "tags": string[] }] }`; a step may also be a plain string (no tags). `tags` are catalog tags or entry ids for the designer's per-step catalog; unknown ones are dropped with a warning, and at most `STEP_MAX_TAGS` are kept. Empty tasks are ignored. More than `PLAN_MAX_STEPS` keeps the first ones and logs a warning. A reply that can't be parsed gets one re-ask naming the problem; if that fails too, the wish is dropped and logged.
 
@@ -563,7 +563,7 @@ Keep every old feel value. Add:
 | Strikes before unload | 3 in 60 s | System and dependents unloaded |
 | Repairs per step | 3 | Step dropped, chain stops |
 | `PLAN_MAX_STEPS` | 4 | Extra steps dropped with a warning |
-| `WISH_MAX_CHARS` | 100 | Wish cut |
+| `WISH_MAX_CHARS` | 400 | Wish cut (also the wish box's limit) |
 | Near-limit log threshold | 50% | Logged |
 | `AI_MODELS` planner | `muse-spark-1.3`, 8,000 output tokens, reasoning effort `medium` | Reply cut off: API error, chain stops |
 | `AI_MODELS` designer | `muse-wonder-1.0`, 32,000 output tokens, reasoning effort `high` | Reply cut off: API error, chain stops |

@@ -279,8 +279,8 @@ describe("wish cleaning", () => {
   });
 
   test("cuts to WISH_MAX_CHARS", () => {
-    expect(LIMITS.WISH_MAX_CHARS).toBe(100);
-    expect(cleanWish("x".repeat(300))).toHaveLength(100);
+    expect(LIMITS.WISH_MAX_CHARS).toBe(400);
+    expect(cleanWish("x".repeat(500))).toHaveLength(400);
   });
 
   test("a wish that tries to close </player_wish> can't", () => {

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 660" width="760" height="660" role="img" aria-label="The reply is split: the manifest stays data, the module is walled in" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <style>
+    .ink { fill: #1f2328; }
+    .quiet { fill: #59636e; }
+    .edge { stroke: #8c959f; }
+    .grid { stroke: #d0d7de; }
+    .accent-stroke { stroke: #2563eb; }
+    .accent-fill { fill: #2563eb; }
+    .zone-tint { fill: #f6f8fa; }
+    .box { fill: none; stroke: #8c959f; stroke-width: 1.25; }
+    .hot { fill: #2563eb; fill-opacity: 0.12; stroke: #2563eb; stroke-width: 2; }
+    .line { fill: none; stroke: #8c959f; stroke-width: 1.25; }
+    .arrow-head { fill: #8c959f; }
+    .t { font-size: 11.5px; }
+    .b { font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #e6edf3; }
+      .quiet { fill: #9da7b3; }
+      .edge, .box, .line { stroke: #7d8590; }
+      .grid { stroke: #30363d; }
+      .accent-stroke, .hot { stroke: #58a6ff; }
+      .accent-fill { fill: #58a6ff; }
+      .hot { fill: #58a6ff; fill-opacity: 0.14; }
+      .zone-tint { fill: #161b22; }
+      .arrow-head { fill: #7d8590; }
+    }
+  </style>
+  <defs>
+    <marker id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrow-head" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="arch-arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="accent-fill" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+
+  <text class="ink b" x="24" y="28" font-size="15">The reply is split: the manifest stays data, the module is walled in</text>
+
+  <!-- Zones -->
+  <rect class="grid" x="24" y="48" width="712" height="108" rx="8" fill="none" stroke-width="1.25" stroke-dasharray="4 4"/>
+  <text class="quiet b t" x="40" y="70">Untrusted: whatever the model returns</text>
+  <rect class="zone-tint grid" x="24" y="188" width="712" height="320" rx="8" stroke-width="1.25"/>
+  <text class="quiet b t" x="200" y="210">Checked in a Web Worker first</text>
+
+  <!-- Connectors -->
+  <g class="line">
+    <path d="M250 112H300" marker-end="url(#arch-arrow)"/>
+    <path d="M400 140V172H185V228" marker-end="url(#arch-arrow)"/>
+    <path d="M650 140V228" marker-end="url(#arch-arrow)"/>
+    <path d="M185 300V324" marker-end="url(#arch-arrow)"/>
+    <path d="M575 300V324" marker-end="url(#arch-arrow)"/>
+    <path d="M575 396V420" marker-end="url(#arch-arrow)"/>
+    <path d="M330 370H430" marker-end="url(#arch-arrow)"/>
+    <path d="M185 396V548" marker-end="url(#arch-arrow)"/>
+  </g>
+  <path class="accent-stroke" d="M575 492V548" fill="none" stroke-width="2" marker-start="url(#arch-arrow-accent)" marker-end="url(#arch-arrow-accent)"/>
+
+  <!-- Steps -->
+  <rect class="box" x="40" y="84" width="210" height="56" rx="8"/>
+  <text class="ink b" x="56" y="108">Muse API reply</text>
+  <text class="quiet t" x="56" y="124">key stays on the dev server</text>
+
+  <rect class="box" x="300" y="84" width="420" height="56" rx="8"/>
+  <text class="ink b" x="316" y="108">Parse the reply</text>
+  <text class="quiet t" x="316" y="124">three fenced blocks: manifest, module, meta</text>
+
+  <rect class="box" x="40" y="228" width="290" height="72" rx="8"/>
+  <text class="ink b" x="56" y="252">Manifest: plain JSON data</text>
+  <text class="quiet t" x="56" y="268">Schema check, id and event-name rules</text>
+  <text class="quiet t" x="56" y="284">Never executed</text>
+
+  <rect class="box" x="40" y="324" width="290" height="72" rx="8"/>
+  <text class="ink b" x="56" y="348">Contract</text>
+  <text class="quiet t" x="56" y="364">What the system claims: interactions,</text>
+  <text class="quiet t" x="56" y="380">reactions, emitted events, buildsOn</text>
+
+  <rect class="box" x="430" y="228" width="290" height="72" rx="8"/>
+  <text class="ink b" x="446" y="252">Module: AssemblyScript source</text>
+  <text class="quiet t" x="446" y="268">Compiled by asc in the worker</text>
+  <text class="quiet t" x="446" y="284">Fixed flags, SDK is the only library</text>
+
+  <rect class="box" x="430" y="324" width="290" height="72" rx="8"/>
+  <text class="ink b" x="446" y="348">Loader checks the binary</text>
+  <text class="quiet t" x="446" y="364">Only imports: host.call and memory</text>
+  <text class="quiet t" x="446" y="380">Adds fuel metering</text>
+
+  <rect class="hot" x="430" y="420" width="290" height="72" rx="8"/>
+  <text class="ink b" x="446" y="444">Sandboxed instance</text>
+  <text class="quiet t" x="446" y="460">Own 16 MB memory, runs under fuel</text>
+  <text class="quiet t" x="446" y="476">A trap rolls back and counts a strike</text>
+
+  <rect class="box" x="24" y="548" width="712" height="88" rx="8"/>
+  <text class="ink b" x="40" y="572">Live game host (trusted)</text>
+  <text class="quiet t" x="40" y="588">Checks every request: known op, exact fields, size cap</text>
+  <text class="quiet t" x="40" y="604">Enforces what the manifest declares: only events it owns, only entity types it registered</text>
+  <text class="quiet t" x="40" y="620">Refuses the rest with an error code; rolls back on a trap</text>
+
+  <!-- Notes -->
+  <text class="quiet t" x="380" y="344" text-anchor="middle">exports must</text>
+  <text class="quiet t" x="380" y="358" text-anchor="middle">cover it</text>
+  <text class="quiet t" x="197" y="470">the host reads it as the contract</text>
+  <text class="ink b t" x="561" y="534" text-anchor="end">host.call: JSON in, JSON out</text>
+</svg>
