@@ -88,7 +88,7 @@
   <rect class="box" x="24" y="548" width="712" height="88" rx="8"/>
   <text class="ink b" x="40" y="572">Live game host (trusted)</text>
   <text class="quiet t" x="40" y="588">Checks every request: known op, exact fields, size cap</text>
-  <text class="quiet t" x="40" y="604">Enforces the manifest: a system can only emit events it owns</text>
+  <text class="quiet t" x="40" y="604">Enforces what the manifest declares: only events it owns, only entity types it registered</text>
   <text class="quiet t" x="40" y="620">Refuses the rest with an error code; rolls back on a trap</text>
 
   <!-- Notes -->
