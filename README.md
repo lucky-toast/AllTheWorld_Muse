@@ -42,7 +42,7 @@ The base game is a 30x20 forest clearing with day and night. You can walk, push 
 | `src/sandbox/` | Compile (asc 0.28.20, fixed settings), the module loader and the fuel meter (a binary rewriter), and the test runners |
 | `src/pipeline/` | `checkSystem`, `loadChecked` and `submitSystem`, the stages (run in a Web Worker under a watchdog), live Load and Undo, startup, autosave and storage |
 | `src/ai/` | The planner, the designer, the prompt templates and the cache split, the wish chain, the journal and AI log, `MuseProvider`, the designer's lookup tools, the "What changed" panel and the example systems shown to the designer |
-| `src/dev/` | The dev panel: Sprites, Pipeline and AI tabs |
+| `src/dev/` | The dev panel: Pipeline and AI tabs |
 | `devserver/` | The Vite plugin that serves `/__data` for storage under `npm run dev` |
 | `fixtures/` | Systems sent through the pipeline as text, exactly as AI output would be. Never loaded at startup |
 | `src/tuning.ts` | Every feel value and every limit, each with a one-line comment |
