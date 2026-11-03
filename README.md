@@ -24,6 +24,7 @@ URL aids: `?dev=1` opens the dev panel, `?time=night|dusk|dawn|day` jumps the cl
 | E or Space | Runs the highlighted action shown above what you face ("E: Pick up") |
 | Q | Cycles the other matching actions ("E: Chop ‹1/2› Q"). Turning or stepping resets to the default |
 | Escape | Ends any system's hold on the controls (a mini-game, a cutscene, a chop). Nothing can block it |
+| F, Enter, or a click on "F Wish" in the bottom bar | Opens the wish box. While it is open every key types into it and none reach the game. Enter makes the wish (sent through the Muse API, as the AI tab's Start does with "Send messages: API"), Escape closes it and keeps the text |
 | T | Time speed 1x, 4x, 16x |
 | Shift+R | Re-creates every system module from storage, keeping the world |
 | Backtick | Opens and closes the dev panel (it swallows game input while open) |

@@ -5,7 +5,7 @@ import type { Engine, EntRec } from "./engine";
 import type { Dir, LightComp, SpriteComp } from "./types";
 import { TUNING, phaseAt } from "../tuning";
 
-const HUD_H = 28;
+export const HUD_H = 28;
 export const MAP_PX_H = 320;
 export const NATIVE_W = 480, NATIVE_H = MAP_PX_H + HUD_H;
 

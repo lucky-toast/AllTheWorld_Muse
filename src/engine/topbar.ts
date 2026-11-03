@@ -1,7 +1,8 @@
 // The top bar above the map. Idle it shows the area's name and the latest "What changed" title.
 // While a wish waits on the planner or the designer it shows "The world is listening…" or "The
 // world is shaping…" in a stream of drifting fx_leaf pieces, so the player can see the world is
-// thinking without anything covering the map. Screen-only: no sim state, nothing saved. The load
+// thinking without anything covering the map. "Listening" also shows while the wish box is open,
+// so the world starts listening as soon as the player starts typing. Screen-only: no sim state, nothing saved. The load
 // itself keeps the full-map leaf transition and the "The world feels different" banner. When a
 // wish ends without building everything (dropped, stopped, an API error, or no steps), the bar
 // shows a short notice for a few seconds while a few leaves fall out of it.
