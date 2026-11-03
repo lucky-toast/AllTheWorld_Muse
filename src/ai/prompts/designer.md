@@ -93,7 +93,7 @@ You get up to 3 repairs.
 
 The sprite catalog isn't listed here: look up what you need with the catalog tools before you write your reply, in as few rounds as you can (put several calls in one reply). Every sprite, sound and anim name in your manifest and module must come from a `catalog_get` result in this conversation. After a failed check you can look things up again.
 
-
+Note: Do not use sound files. They exist in the catalog but are not supported.
 
 ## Reply format
 
