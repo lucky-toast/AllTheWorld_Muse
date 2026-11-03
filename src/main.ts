@@ -4,7 +4,7 @@ import { Host } from "./engine/host";
 import { FixedLoop } from "./engine/loop";
 import { attachKeyboard } from "./engine/input";
 import { loadBaseSystems } from "./systems/base";
-import { loadSheets, render, NATIVE_W, NATIVE_H, MAP_PX_H } from "./engine/render";
+import { loadSheets, sheetsInUse, render, NATIVE_W, NATIVE_H, MAP_PX_H } from "./engine/render";
 import { DevPanel } from "./dev/devpanel";
 import { PipelineTab } from "./dev/pipelinetab";
 import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
@@ -195,7 +195,9 @@ function frame(now: number) {
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }
-void loadSheets().then(() => {
+// Only the sheets the restored world draws load before the first frame; any other sheet loads the
+// first time something draws it.
+void loadSheets(sheetsInUse(eng)).then(() => {
   last = performance.now(); requestAnimationFrame(frame);
   // URL aid: ?submit=<fixture> sends a fixture through the pipeline once (dropped from the URL so a refresh doesn't resend it).
   const submit = params.get("submit");

@@ -2,13 +2,15 @@
 // recompiles at startup. The client's watchdog terminates it when a stage runs over.
 // Shots render here to an OffscreenCanvas with lighting, cropped around the focus and zoomed.
 import { handleMessage } from "./protocol";
-import { areaOffsetPx, loadSheetBitmaps, render, setRenderBackend, NATIVE_W, MAP_PX_H } from "../engine/render";
+import { areaOffsetPx, loadSheetBitmaps, render, setRenderBackend, sheetsInUse, NATIVE_W, MAP_PX_H } from "../engine/render";
 import type { Host } from "../engine/host";
 import type { Shot } from "../engine/manifest";
 import type { ToWorker } from "./types";
 import { TUNING } from "../tuning";
 
-let sheets: Promise<void> | null = null;
+/** Sheets loaded so far in this worker. Each shot adds the ones its world draws (not the whole catalog). */
+const bitmaps = new Map<string, ImageBitmap>();
+let backendSet = false;
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return blob.arrayBuffer().then((buf) => {
@@ -20,8 +22,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 async function renderShot(baseUrl: string, host: Host, shot: Shot): Promise<string | null> {
   if (typeof OffscreenCanvas === "undefined") return null;
-  if (!sheets) sheets = loadSheetBitmaps(baseUrl).then((map) => { setRenderBackend((f) => map.get(f), (w, h) => new OffscreenCanvas(w, h) as never); });
-  await sheets;
+  if (!backendSet) { setRenderBackend((f) => bitmaps.get(f), (w, h) => new OffscreenCanvas(w, h) as never); backendSet = true; }
+  await loadSheetBitmaps(baseUrl, sheetsInUse(host.eng), bitmaps as Map<string, { width: number; height: number }>);
   const full = new OffscreenCanvas(NATIVE_W, MAP_PX_H + 28);
   render(full.getContext("2d") as unknown as CanvasRenderingContext2D, host.eng);
   const T = TUNING.shotTilesW, H = TUNING.shotTilesH, Z = TUNING.shotZoom;
