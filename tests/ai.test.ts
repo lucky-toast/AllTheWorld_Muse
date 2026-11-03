@@ -51,11 +51,10 @@ describe("companion files", () => {
   test("the designer prompt is designer.md exactly, apart from filled slots and the removed marker", () => {
     const host = liveHost();
     const p = buildPrompt(host, "Let the player skip stones on the pond.");
-    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PICKED_TAGS", "PILLARS", "SYSTEM_EXAMPLES", "TASK", "WORLD_SPRITES"]);
+    expect(Object.keys(p.slots).sort()).toEqual(["AI_SYSTEMS", "API", "BASE_SYSTEMS", "ENTITY_COUNTS", "MAP_IMAGE", "NEWEST_AI_SYSTEM", "PICKED_TAGS", "SYSTEM_EXAMPLES", "TASK", "WORLD_SPRITES"]);
     const tpl = docSection("src/ai/prompts/designer.md", "System message");
     expect(MARKER.test(tpl)).toBe(true);
     expect(p.cached + p.rest).toBe(fillByHand(tpl.replace(MARKER, ""), p.slots));
-    expect(p.slots.PILLARS).toBe(read("src/ai/pillars.md").trim());
     expect(p.slots.API).toBe(sdkReference(read("src/sdk/index.ts")).trim());
     expect(p.slots.MAP_IMAGE).toBe("(See the attached map image.)");
   });

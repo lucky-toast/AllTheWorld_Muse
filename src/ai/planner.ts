@@ -5,11 +5,12 @@ import type { Host } from "../engine/host";
 import { LIMITS } from "../tuning";
 import { catalogGet } from "../engine/catalog";
 import { entityCounts, groundTagsText, isCatalogTag, playerText, systemSlots, tagIndexText, terrainCounts } from "./blocks";
-import { PILLARS } from "./designer";
+import pillarsRaw from "./pillars.md?raw";
 import { replyMessage, type AiProvider, type ChatMessage } from "./provider";
 import { buildSplit, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const PLANNER_TEMPLATE = normalizeEol(templateRaw);
+export const PILLARS = normalizeEol(pillarsRaw).trim();
 
 /**
  * Clean a wish before it fills {{WISH}}: letters, digits and . , ' ! ? - only, spaces collapsed,

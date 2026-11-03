@@ -1,7 +1,6 @@
 // The designer (spec 13.3): builds its prompt from src/ai/prompts/designer.md, parses its
 // three-block reply, and runs one planner step through the pipeline with up to 3 repairs.
 import templateRaw from "./prompts/designer.md?raw";
-import pillarsRaw from "./pillars.md?raw";
 import apiRef from "../sdk/index.ts?sdkref";
 import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
@@ -16,14 +15,12 @@ import { outgoingText, replyMessage, type AiProvider, type ChatImage, type ChatM
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
-export const PILLARS = normalizeEol(pillarsRaw).trim();
 /** The maps go as images with the designer's message (src/ai/mapimage.ts). */
 export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
 /** The slots that only change when a system loads, or never. */
 function fixedSlots(host: Host): Record<string, string> {
   return {
-    PILLARS,
     API: normalizeEol(apiRef).trim(),
     MAP_IMAGE: MAP_IMAGE_NOTE,
     SYSTEM_EXAMPLES: examplesText(),

@@ -436,7 +436,6 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has 
 
 | Slot | Content |
 | --- | --- |
-| `{{PILLARS}}` | `src/ai/pillars.md` |
 | `{{API}}` | `src/sdk/index.ts` as a reference (`devserver/sdkref.ts`, imported as `?sdkref`): every export's signature and doc comment, the file's header and section notes; function, method, accessor and constructor bodies, imports, private and `_`-named members, and non-exported declarations left out. Built from the file by a Vite plugin, so it can't drift. |
 | `{{PICKED_TAGS}}` | After the cache breakpoint: the step's planner tags or entry ids, comma-separated, as hints for the designer's lookups; `(none)` without any. A step with no tags uses the tags and ids its text names. |
 | `{{WORLD_SPRITES}}` | After the cache breakpoint: the ids of the sprites already in the world (entity sprites and map terrain). |
