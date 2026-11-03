@@ -49,28 +49,7 @@ An AI system can only call `host.call` and use its own memory. Each call into it
 
 ## Storage
 
-Under `npm run dev`, storage goes through the dev server into `data/` (git-ignored):
-
-```
-data/
-  systems.json              order, buildsOn, replacedBy, timestamp per system
-  systems/<id>/
-    manifest.json
-    source.as
-    module.wasm
-    module.sha256
-  world.json                autosaved every 5 s and when the page closes
-  journal.json              "What changed" entries
-  ai-log.jsonl              every planner and designer message and reply
-  ai-usage.jsonl            one line per API request: real tokens, cached tokens, time (kept by Start fresh)
-  ai-wishes.jsonl           one line per wish: steps, designer failures, token totals (kept by Start fresh)
-```
-
-The dev server checks every id against `^[a-z][a-z0-9_]{0,39}$` and answers 400 otherwise, keeps every resolved path inside `data/`, and never writes a file Vite would treat as code or config.
-
-In a built copy, manifests, sources, the world, the journal and the AI log live in `localStorage` (`atw.systems`, `atw.world`, `atw.journal`, `atw.aiLog`, plus `atw.aiUsage` and `atw.aiWishes` for the stats), and compiled modules are cached in IndexedDB (`atw`), keyed by source hash and recompiled from source when missing.
-
-At startup the base systems load, then every stored AI system in order (skipping replaced ones), each through the Module stage again so a tampered binary is still validated and metered. A system that fails is skipped with everything that builds on it, and the dev panel lists it. "Start fresh" in the Pipeline tab deletes every saved system, the world, the journal and the AI log, and reloads with only the base game. The two AI stats files are kept.
+Under `npm run dev`, saved systems, the world, the journal, the AI log and the AI stats live in `data/` (git-ignored). In a built copy they live in the browser's `localStorage`, with compiled modules cached in IndexedDB. "Start fresh" in the Pipeline tab deletes the saved systems, the world, the journal and the AI log, and reloads with only the base game; the two AI stats files are kept.
 
 ## Dev
 
