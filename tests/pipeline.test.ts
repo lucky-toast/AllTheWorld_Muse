@@ -82,7 +82,7 @@ describe.each(TABLE)("fixture $fixture", ({ fixture: f, stage, ok, message, afte
       expect(g.eng.banner?.text).toBe("The world feels different");
       // The stage boxes lit one by one, in order, each passing.
       const passed = g.stages.filter((e) => e.status === "pass").map((e) => e.stage);
-      expect(passed).toEqual(["Manifest", "Compile", "Module", "Tests", "World check", "Shots", "Load"]);
+      expect(passed).toEqual(["Manifest", "Compile", "Module", "Tests", "World check", "Load"]);
     } else {
       expect(report.errors.length).toBeGreaterThan(0);
       expect(report.errors.map((e) => e.message).join("\n")).toMatch(message!);
@@ -112,14 +112,12 @@ test("a failed test reports its checks, events, denials and entities", async () 
   expect(Array.isArray(e.denied)).toBe(true);
 }, 60_000);
 
-test("shots are produced (not rendered in Node) and logged", async () => {
+test("a passed check ends at the World check, with every stage timed", async () => {
   const g = game();
   const r = await g.pipeline.checkSystem(fixture("campfire").manifest, fixture("campfire").source);
   expect(r.ok).toBe(true);
-  expect(r.stage).toBe("Shots");
-  expect(r.shots.map((s) => s.name)).toEqual(["lit_at_night", "ash_ring"]);
-  expect(r.log.join("\n")).toMatch(/shot "lit_at_night" wasn't rendered here/);
-  expect(Object.keys(r.stageMs)).toEqual(["Manifest", "Compile", "Module", "Tests", "World check", "Shots"]);
+  expect(r.stage).toBe("World check");
+  expect(Object.keys(r.stageMs)).toEqual(["Manifest", "Compile", "Module", "Tests", "World check"]);
 }, 60_000);
 
 // ---------------------------------------------------------------------------
@@ -127,7 +125,7 @@ test("shots are produced (not rendered in Node) and logged", async () => {
 // ---------------------------------------------------------------------------
 describe("report text", () => {
   test("names spawns the host moved, and what was in the way", () => {
-    const text = reportText({ ok: false, stage: "Tests", systemId: "forest_cottage", durationMs: 1, shots: [], log: [], errors: [{
+    const text = reportText({ ok: false, stage: "Tests", systemId: "forest_cottage", durationMs: 1, log: [], errors: [{
       message: "forest_cottage.test_x failed", moved: [{ op: "spawn", what: "a cottage", asked: { x: 21, y: 6, area: "clearing" }, placed: { x: 21, y: 5, area: "clearing" }, inTheWay: "tree_round#12 at (23, 6)" }],
     }] } as unknown as Parameters<typeof reportText>[0]);
     expect(text).toContain("spawn a cottage: asked (21, 6, clearing), placed (21, 5, clearing); in the way: tree_round#12 at (23, 6)");
@@ -135,7 +133,7 @@ describe("report text", () => {
     expect(text).toContain(POSITIONS_NOTE);
   });
   test("repeats the positions note only when the failure is about positions", () => {
-    const report = (e: Record<string, unknown>) => reportText({ ok: false, stage: "Tests", systemId: "s", durationMs: 1, shots: [], log: [], errors: [{ message: "s.test_x failed", ...e }] } as unknown as Parameters<typeof reportText>[0]);
+    const report = (e: Record<string, unknown>) => reportText({ ok: false, stage: "Tests", systemId: "s", durationMs: 1, log: [], errors: [{ message: "s.test_x failed", ...e }] } as unknown as Parameters<typeof reportText>[0]);
     expect(report({})).not.toContain(POSITIONS_NOTE);
     expect(report({ events: [{ tick: 3, name: "player.blocked", payload: {}, blockedBy: "rock_brown_small#32 at (11, 15)" }] })).toContain(POSITIONS_NOTE);
     expect(report({ denied: [{ op: "sim.teleport", code: "denied", msg: "(22, 6) in clearing isn't free for the player" }] })).toContain(POSITIONS_NOTE);

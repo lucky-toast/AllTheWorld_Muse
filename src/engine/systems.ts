@@ -21,8 +21,8 @@ export interface SystemModule {
   onTween?(id: number, value: number): void;
   /** Once, when the system loads into a world. Must be safe to run again. */
   migrate?(): void;
-  /** `test_<name>` and `shot_<name>` exports. */
-  [exportName: `test_${string}` | `shot_${string}`]: (() => void) | undefined;
+  /** `test_<name>` exports. */
+  [exportName: `test_${string}`]: (() => void) | undefined;
 }
 
 /** A loadable system: its manifest plus a factory that creates a fresh module on every load. */

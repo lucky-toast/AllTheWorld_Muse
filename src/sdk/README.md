@@ -38,10 +38,10 @@ A module imports exactly two things, and the loader rejects anything else:
 | `onTimer` | `(name: i32) -> ()` | `String` address |
 | `onInput` | `(key: i32, kind: i32) -> ()` | `String` addresses |
 | `onTween` | `(id: i32, value: f64) -> ()` | |
-| `test_<name>`, `shot_<name>` | `() -> ()` | |
+| `test_<name>` | `() -> ()` | |
 | `__setArgumentsLength` | `(n: i32) -> ()` | Added by asc when an export has optional parameters. Allowed, never called |
 
-Any other export name, a non-function export, or a wrong signature is rejected by the loader. The manifest must be covered: interactions need `perform`, reactions need `onEvent`, each shot needs `shot_<name>`. At load the meter adds one more export, `__atw_fuel`, a mutable `i64` global.
+Any other export name, a non-function export, or a wrong signature is rejected by the loader. The manifest must be covered: interactions need `perform`, reactions need `onEvent`. At load the meter adds one more export, `__atw_fuel`, a mutable `i64` global.
 
 ## Strings and JSON across the boundary
 
@@ -57,6 +57,6 @@ The `.js` bindings asc can generate are never produced or run.
 
 ## Fuel, traps and memory
 
-Before every call into a module the host sets `__atw_fuel`; after the call it reads it back. The meter charges a static cost at every function entry and loop header and traps when fuel drops below zero. A call opens an account of 50M units (live handlers) or 500M (`migrate`, `test_*`, `shot_*`); calls nested in the same transaction (an emit reaching another AI system) draw from the caller's account.
+Before every call into a module the host sets `__atw_fuel`; after the call it reads it back. The meter charges a static cost at every function entry and loop header and traps when fuel drops below zero. A call opens an account of 50M units (live handlers) or 500M (`migrate`, `test_*`); calls nested in the same transaction (an emit reaching another AI system) draw from the caller's account.
 
 Any trap (fuel, memory, `abort`, an out-of-bounds access) ends the call. The host rolls back the transaction and, during live play, records a strike. The instance is then discarded and re-created with fresh memory on its next call, because the AssemblyScript runtime's state can't be trusted after a trap. Module globals never survive a reload anyway: lasting state lives in components, tags and `stateSet`.

@@ -30,7 +30,7 @@ const COMMON = new Set([
 const LITERAL = /"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'/g;
 const NAME = /^[a-z][a-z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$/;
 
-/** The source without its test_ and shot_ functions: what the system does when it runs. */
+/** The source without its test_ functions (and shot_ ones, in systems built before shots were removed): what the system does when it runs. */
 export function withoutTests(source: string): string {
   let out = ""; let i = 0;
   const start = /export\s+function\s+(?:test|shot)_\w*\s*\(/g;

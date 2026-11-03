@@ -22,10 +22,10 @@ import { LIMITS, TUNING } from "../tuning";
 export type Code = "bad_request" | "denied" | "missing" | "limit" | "phase";
 export type Request = { op: string; [field: string]: unknown };
 export type Response = { ok: true; r: unknown } | { ok: false; code: Code; msg: string };
-/** live: normal play. test/shot: a pipeline test or shot is running, so sim.* and check are allowed. */
-export type HostMode = "live" | "test" | "shot";
+/** live: normal play. test: a pipeline test is running, so sim.* and check are allowed. */
+export type HostMode = "live" | "test";
 /** The handler names a transaction can wrap (spec 4.4). */
-export type CallKind = "perform" | "onEvent" | "onTick" | "onTimer" | "onInput" | "onTween" | "migrate" | "test" | "shot";
+export type CallKind = "perform" | "onEvent" | "onTick" | "onTimer" | "onInput" | "onTween" | "migrate" | "test";
 
 export interface DenialEntry { tick: number; system: string; op: string; code: Code; msg: string }
 /** A spawn or place that didn't go where it was asked, because something was in the way there. */
@@ -533,7 +533,7 @@ export class Host {
     if ("x" in shape && op !== "tile.get" && op !== "at" && !eng.inArea(area, req.x as number, req.y as number)) { const s = eng.areaSize(area)!; deny("bad_request", `tile (${req.x}, ${req.y}) is outside ${area}, which is ${s.w}x${s.h} (x 0 to ${s.w - 1}, y 0 to ${s.h - 1})`); }
 
     // ---- 2. Phase ----
-    if ((op.startsWith("sim.") || op === "check") && this.mode === "live") deny("phase", `${op} is only allowed while tests or shots run`);
+    if ((op.startsWith("sim.") || op === "check") && this.mode === "live") deny("phase", `${op} is only allowed while tests run`);
     if (op === "state.getReplaced") {
       const id = req.id as string;
       if (this.migrating !== system || !sys?.manifest.replaces.includes(id)) deny("phase", `state.getReplaced("${id}") is only allowed during migrate of a system that replaces "${id}"`);

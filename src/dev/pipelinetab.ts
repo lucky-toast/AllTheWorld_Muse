@@ -1,6 +1,6 @@
-// The dev panel's Pipeline tab (spec 13.6): one button per fixture, a row of 7 stage boxes
+// The dev panel's Pipeline tab (spec 13.6): one button per fixture, a row of 6 stage boxes
 // (grey, amber while running, green, red; time on each; a red box shows its errors on
-// click), the report with shots, loaded and skipped systems, the denial, near-limit, strike
+// click), the report, loaded and skipped systems, the denial, near-limit, strike
 // and overlap log, Undo and Start fresh.
 import type { Pipeline } from "../pipeline/client";
 import type { LiveLoader } from "../pipeline/live";
@@ -25,7 +25,6 @@ export class PipelineTab {
   private buttons: HTMLButtonElement[] = [];
   private detail = el("pre", "pipedetail");
   private reportEl = el("pre", "pipereport", "Nothing submitted yet.");
-  private shotsEl = el("div", "pipeshots");
   private loadedEl = el("div", "pipelist");
   private logEl = el("pre", "pipelog");
   private status = el("div", "pipestatus");
@@ -50,7 +49,7 @@ export class PipelineTab {
       box.addEventListener("click", () => this.showErrors(s));
       this.boxes.set(s, box); stages.append(box);
     }
-    b.append(stages, this.detail, el("div", "devsec", "Report"), this.reportEl, this.shotsEl);
+    b.append(stages, this.detail, el("div", "devsec", "Report"), this.reportEl);
     const actions = el("div", "pipebtns");
     const undo = el("button", "", "Undo last load"); undo.type = "button";
     undo.addEventListener("click", async () => { this.say(await this.live.undo()); this.refresh(); });
@@ -71,7 +70,7 @@ export class PipelineTab {
     if (this.running) { this.say("a submission is already running"); return null; }
     this.running = true; this.buttons.forEach((b) => (b.disabled = true));
     for (const box of this.boxes.values()) { box.className = "stagebox grey"; box.querySelector(".ms")!.textContent = ""; }
-    this.detail.hidden = true; this.shotsEl.replaceChildren(); this.reportEl.textContent = `Checking ${name}...`; this.say("");
+    this.detail.hidden = true; this.reportEl.textContent = `Checking ${name}...`; this.say("");
     try {
       const r = await this.pipeline.submitSystem(f.manifest, f.source);
       this.show(r);
@@ -94,12 +93,6 @@ export class PipelineTab {
     this.last = r;
     if (!r.ok) this.boxes.get(r.stage)!.className = "stagebox red";
     this.reportEl.textContent = reportText(r);
-    this.shotsEl.replaceChildren();
-    for (const s of r.shots) {
-      const fig = el("figure"); fig.append(el("figcaption", "", s.name));
-      if (s.png) { const img = el("img"); img.src = s.png; img.alt = s.name; fig.append(img); } else fig.append(el("div", "noshot", "(not rendered)"));
-      this.shotsEl.append(fig);
-    }
     if (!r.ok) this.showErrors(r.stage);
   }
 

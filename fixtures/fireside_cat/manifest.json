@@ -11,8 +11,5 @@
   },
   "interactions": [],
   "reactions": ["campfire.lit", "campfire.out"],
-  "emits": {},
-  "shots": [
-    { "name": "cat_by_the_fire", "ticks": 30, "focus": { "x": 16, "y": 9 }, "time": "night" }
-  ]
+  "emits": {}
 }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { compileSystem, formatCompileError, ASC_VERSION, read, addSdkImports, missingSdkImports } from "../src/sandbox/compile";
 import { meter, inspect, WasmError, FUEL_EXPORT } from "../src/sandbox/meter";
 import { checkModule, loadAiSystem, prepareModule, ModuleError, type AiSystemDef } from "../src/sandbox/module";
-import { runAiTests, runShots, worldHost } from "../src/sandbox/runners";
+import { runAiTests, worldHost } from "../src/sandbox/runners";
 import { testSystem } from "./helpers";
 import { baseModule } from "./wasm";
 
@@ -50,20 +50,6 @@ describe.each(FIXTURES)("fixture %s", (f) => {
       expect(r.passed).toBe(true);
     }
   });
-
-  test("its shots set up without errors", () => {
-    const shots = runShots(loadAiSystem(wasm[f], manifestOf(f)));
-    expect(shots.length).toBe(manifestOf(f).shots.length);
-    for (const s of shots) expect({ shot: s.name, error: s.error, faults: s.faults }).toEqual({ shot: s.name, error: null, faults: [] });
-  });
-});
-
-test("campfire's shots show a lit fire at night and an ash ring", () => {
-  const [lit, ash] = runShots(loadAiSystem(wasm.campfire, manifestOf("campfire")));
-  expect(lit.host.eng.phase).toBe("night");
-  const fire = (s: typeof lit) => s.host.eng.rec(s.host.eng.query("campfire")[0]);
-  expect(fire(lit)?.tags.has("lit")).toBe(true);
-  expect((fire(ash)?.comps.get("sprite") as { id: string }).id).toBe("firepit_ash");
 });
 
 test("the compiler finds the SDK whatever path style asc asks with (Windows uses backslashes)", () => {
@@ -151,6 +137,14 @@ describe("hand-built binaries", () => {
       expect(r.errors.join("\n")).toMatch(/unexpected export "steal"/);
       expect(r.errors.join("\n")).toMatch(/export "onTick" has the signature \(i32\) -> \(i32\); it must be \(\) -> \(\)/);
     }
+  });
+  test("a shot_ export from a system built before shots were removed still loads, and is never called", () => {
+    const bytes = baseModule({ funcs: [{ type: 4, body: [0x0b] }], exports: [{ name: "shot_old_view", func: 8 }] });
+    const manifest = { id: "old", why: "Built before shots were removed.", shots: [{ name: "old_view", ticks: 1, focus: { x: 1, y: 1 } }] };
+    expect(checkModule(bytes, manifest).ok).toBe(true);
+    const sys = worldHost(loadAiSystem(bytes, manifest)).systems.get("old")!;
+    expect(Object.keys(sys.module).filter((k) => k.startsWith("shot_"))).toEqual([]);
+    expect("shots" in sys.manifest).toBe(false);
   });
 });
 
