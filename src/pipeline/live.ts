@@ -10,8 +10,8 @@
 // nothing loads and the report fails at "World check" (the designer gets a repair message). Undo restores the latest load's snapshot, takes that system out and removes it from
 // storage.
 import type { Host } from "../engine/host";
-import { aiSystem, moduleMemories, prepareModuleAsync, resetMemoryPeak, type AiSystemDef } from "../sandbox/module";
-import { rerunWorldCheck } from "./worldcheck";
+import { aiSystem, prepareModuleAsync, type AiSystemDef, type PreparedModule } from "../sandbox/module";
+import { inThreadRecheck, type RecheckRunner } from "./recheck";
 import { TUNING } from "../tuning";
 import type { LiveSide } from "./client";
 import type { LoadedModule, PipelineError, Report } from "./types";
@@ -29,6 +29,8 @@ export interface LiveOptions {
   onChange?(): void;
   /** Called after Undo took a system out. */
   onUndone?(id: string): void;
+  /** Where the World check runs again at Load: a worker in the browser (main.ts), this thread by default. */
+  recheck?: RecheckRunner;
 }
 
 const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -126,19 +128,26 @@ export class LiveLoader implements LiveSide {
     }
   }
 
-  /** The World check on a copy of `world` with the loaded AI systems and the candidate. Errors are empty when it passed. */
+  /**
+   * The World check on a copy of `world` with the loaded AI systems and the candidate. Errors are
+   * empty when it passed. It runs where opts.recheck says (a worker in the browser: see recheck.ts),
+   * with the modules the live game already prepared, in load order: nothing is metered or compiled again.
+   */
   private async recheck(world: string, candidate: AiSystemDef): Promise<{ errors: PipelineError[]; log: string[] }> {
     const lead = "the world changed while your system was being checked (the player kept playing), and the World check now fails on the world as it is:";
-    const log: string[] = [];
     try {
-      const loadedDefs: AiSystemDef[] = [];
-      for (const m of this.checkInputs().loaded) loadedDefs.push(aiSystem(await prepareModuleAsync(m.wasm, m.manifest)));
-      resetMemoryPeak();
-      const errors = rerunWorldCheck(world, loadedDefs, candidate, log, new Map(this.host.successors));
-      const m = moduleMemories();
-      log.push(`module memories at Load: at most ${m.peak} held at once in this tab's main thread during the recheck (the live game's included), ${m.live} still held`);
+      const loaded: PreparedModule[] = [];
+      for (const sys of this.host.systems.values()) {
+        if (sys.base) continue;
+        const prepared = (sys.def as Partial<AiSystemDef>).prepared;
+        if (prepared) { loaded.push(prepared); continue; }
+        const r = this.records.get(sys.id); if (!r) throw new Error(`"${sys.id}" is loaded but its module isn't known`);
+        loaded.push(await prepareModuleAsync(r.wasm, r.manifest));
+      }
+      const run = this.opts.recheck ?? inThreadRecheck;
+      const { errors, log } = await run({ world, loaded, candidate: candidate.prepared, successors: [...this.host.successors] });
       return { errors: errors.length ? [{ message: lead }, ...errors] : [], log };
-    } catch (e) { return { errors: [{ message: `the World check couldn't run again on the live world: ${msgOf(e)}` }], log }; }
+    } catch (e) { return { errors: [{ message: `the World check couldn't run again on the live world: ${msgOf(e)}` }], log: [] }; }
   }
 
   /** Undo the latest live load. Returns what happened, in words. */

@@ -9,6 +9,7 @@ import { DevPanel } from "./dev/devpanel";
 import { PipelineTab } from "./dev/pipelinetab";
 import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
 import { LiveLoader } from "./pipeline/live";
+import { workerRecheck } from "./pipeline/recheck";
 import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
 import { drawTopBar, TOP_H, wishNotice, type ThinkingPhase } from "./engine/topbar";
@@ -44,7 +45,11 @@ await journal.load();
 const aiLog = new AiLog(store);
 const changed = new ChangedPanel(document.getElementById("changed") as HTMLDivElement);
 changed.setEntries(journal.entries);
+// The World check again at Load runs in its own worker, so the leaf keeps moving (recheck.ts).
+const recheck = workerRecheck();
+recheck.warm();
 const live = new LiveLoader(host, store, {
+  recheck: recheck.run,
   onChange: () => tab?.refresh(),
   onUndone: (id) => { void journal.forget(id).then(() => changed.setEntries(journal.entries)); },
 });
