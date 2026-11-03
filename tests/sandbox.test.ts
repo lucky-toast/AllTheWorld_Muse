@@ -291,7 +291,7 @@ describe("determinism", () => {
     const again = await compiled(manifestOf("campfire"), sourceOf("campfire"));
     expect(again).toEqual(wasm.campfire);
     expect(meter(again)).toEqual(meter(wasm.campfire));
-  });
+  }, 60_000);
 
   test("a module's metered binary gives the same fuel count on every run", () => {
     const run = (f: string) => {

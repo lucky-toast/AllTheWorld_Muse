@@ -300,7 +300,18 @@ export class Host {
   /** Shift+R: rebuild the registry and re-create every loaded module, keeping the world. Nothing is migrated or duplicated. */
   reloadSystems() {
     this.rebuildRegistry();
-    for (const sys of this.systems.values()) sys.module = sys.def.create((req) => this.call(sys.id, req), this);
+    for (const sys of this.systems.values()) { sys.module.dispose?.(); sys.module = sys.def.create((req) => this.call(sys.id, req), this); }
+  }
+
+  /**
+   * This world is done (a test, a check's copy, a shot): every module lets go of its instance
+   * and memory now, including systems kept for a succession's undo. A browser tab can only hold
+   * so many module memories at once, across all its threads, so a world that is finished must
+   * not wait for garbage collection to free them. The host must not run anything after this.
+   */
+  dispose() {
+    for (const sys of this.systems.values()) sys.module.dispose?.();
+    for (const s of this.successions.values()) for (const r of s.retired) r.module.dispose?.();
   }
 
   private rebuildRegistry() {

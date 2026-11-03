@@ -9,14 +9,14 @@ import { DevPanel } from "./dev/devpanel";
 import { PipelineTab } from "./dev/pipelinetab";
 import { Pipeline, browserWorker, configurePipeline } from "./pipeline/client";
 import { LiveLoader } from "./pipeline/live";
+import { workerRecheck } from "./pipeline/recheck";
 import { detectStore } from "./pipeline/store";
 import { drawTransition } from "./pipeline/transition";
 import { drawTopBar, TOP_H, wishNotice, type ThinkingPhase } from "./engine/topbar";
 import { WishBox } from "./engine/wishbox";
 import { LIMITS, TUNING } from "./tuning";
 import { AiTab } from "./dev/aitab";
-import { mapImagesBase64, renderMapImages } from "./ai/mapimage";
-import { SwitchProvider } from "./ai/provider";
+import { mapImagesBase64 } from "./ai/mapimage";
 import { WishChain } from "./ai/chain";
 import { AiLog, Journal } from "./ai/journal";
 import { ChangedPanel } from "./ai/changed";
@@ -45,7 +45,11 @@ await journal.load();
 const aiLog = new AiLog(store);
 const changed = new ChangedPanel(document.getElementById("changed") as HTMLDivElement);
 changed.setEntries(journal.entries);
+// The World check again at Load runs in its own worker, so the leaf keeps moving (recheck.ts).
+const recheck = workerRecheck();
+recheck.warm();
 const live = new LiveLoader(host, store, {
+  recheck: recheck.run,
   onChange: () => tab?.refresh(),
   onUndone: (id) => { void journal.forget(id).then(() => changed.setEntries(journal.entries)); },
 });
@@ -56,17 +60,17 @@ configurePipeline(pipeline);
 pipeline.warm();
 tab = new PipelineTab(pipeline, live, () => void startFresh());
 devPanel.addTab("Pipeline", tab.body, () => tab!.draw());
-// The wish chain and the AI tab (spec 13.5, 13.6). The AI tab picks each role's provider (copy and
-// paste, or the Muse API) when a wish starts; in API mode the maps go with the designer's message.
+// The wish chain and the AI tab (spec 13.5, 13.6). Wishes go through the Muse API, with the maps
+// sent alongside the designer's message.
 let chain: WishChain | null = null;
 // What the wish is waiting on, for the top bar's "The world is thinking" state.
 let thinking: ThinkingPhase | null = null;
 // How the last wish ended, when it didn't build everything, for the top bar's notice.
 let notice: { text: string; start: number } | null = null;
-const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); }, mapImages: () => renderMapImages(eng) });
+const aiTab = new AiTab({ start: (w) => chain!.run(w), log: aiLog, onChangedSetting: (on) => { if (!on) changed.hide(); } });
 chain = new WishChain({
-  host, planner: new SwitchProvider(() => aiTab.pickPlanner()), designer: new SwitchProvider(() => aiTab.pickDesigner()), pipeline, journal, log: aiLog,
-  mapImages: () => (aiTab.sendsImages ? mapImagesBase64(eng) : Promise.resolve([])),
+  host, planner: aiTab.musePlanner, designer: aiTab.museDesigner, pipeline, journal, log: aiLog,
+  mapImages: () => mapImagesBase64(eng),
   stats: store, // data/ai-usage.jsonl and data/ai-wishes.jsonl; npm run ai-report
   hooks: {
     ...aiTab.hooks,
@@ -83,8 +87,7 @@ chain = new WishChain({
   routeStages: (fn) => { aiStages = fn; },
 });
 devPanel.addTab("AI", aiTab.body);
-// The in-game wish box (F or Enter, or a click on it in the bottom HUD). It always sends through
-// the Muse API, the same path as the AI tab's Start with "Send messages: API" picked.
+// The in-game wish box (F or Enter, or a click on it in the bottom HUD): the same path as the AI tab's Start.
 const wishBox = new WishBox({
   onOpen: () => host.controls.releaseAll(),
   submit(wish) {
@@ -92,7 +95,7 @@ const wishBox = new WishBox({
     // The variable's name is split so a build never holds the string (see AiTab.checkApi).
     if (!aiTab.canUseApi) return `Wishes need the Muse API: set ${["MUSE", "API", "KEY"].join("_")} in .env.local`;
     thinking = "planner"; // keeps "listening" on as the box closes, until the planner's message goes out
-    void aiTab.startApi(wish);
+    void aiTab.startWish(wish);
     return null;
   },
 });

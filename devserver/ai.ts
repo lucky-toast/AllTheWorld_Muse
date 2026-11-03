@@ -1,13 +1,22 @@
 // Dev-server Muse API proxy (spec 13.5), mounted at /__ai. The browser never sees the key: it
-// posts Chat Completions messages here, and this file adds the key and forwards them to the
-// Meta Muse API (Model API). Every Muse-specific detail (URL, field names, usage parsing) lives
-// here and in toChatCompletions (src/ai/provider.ts), so swapping providers touches two places.
+// posts Responses API input items here, and this file adds the key and forwards them to the
+// Meta Muse API (Model API) at /v1/responses. Every Muse-specific detail (URL, field names,
+// usage parsing) lives here and in toResponsesInput (src/ai/provider.ts), so swapping providers
+// touches two places.
+//
+// Calls are stateless: store is false and the reasoning comes back encrypted
+// (include: reasoning.encrypted_content). The browser keeps each reply's `output` items and
+// replays them, unchanged, in the next request's input, so reasoning carries across turns
+// without anything being stored at Muse.
 //
 // Routes:
 //   GET   /status   { configured: boolean }
-//   POST  /chat     { role, model, max_tokens, reasoning_effort?, messages }
-//                   -> { text, finishReason, usage: { input, cachedInput, output } }
+//   POST  /chat     { role, model, max_tokens, reasoning_effort?, input, tools? }
+//                   -> { text, finishReason, output, usage: { input, cachedInput, output, reasoning } }
 //                   or { error, status } with the API's message
+//   finishReason is "stop" for a completed response, "length" when max_output_tokens ran out,
+//   "content_filter" when the filter stopped it, or the API's own incomplete reason. A reply that
+//   calls tools has function_call items in `output` (and often empty text); the browser runs them.
 //
 // The key is MUSE_API_KEY, read with Vite's loadEnv so a git-ignored .env.local works. It has no
 // VITE_ prefix, so it can never reach the client bundle. No response or log line includes it.
@@ -24,7 +33,10 @@ export const MAX_RETRIES = 2;
 /** Longest wait honoured from a retry-after header. */
 const MAX_RETRY_AFTER_MS = 60_000;
 const ROLES = new Set(["planner", "designer"]);
-const MESSAGE_ROLES = new Set(["system", "user", "assistant"]);
+/** Roles an input message item may have. Items without a role (reasoning, function_call, ...) need a type. */
+const INPUT_ROLES = new Set(["developer", "system", "user", "assistant"]);
+/** Upstream status / incomplete reason -> the finishReason the browser reads. */
+const INCOMPLETE_REASONS: Record<string, string> = { max_output_tokens: "length", content_filter: "content_filter" };
 export const NO_KEY_ERROR = "MUSE_API_KEY isn't set; add it to .env.local and restart npm run dev";
 
 export interface AiDeps {
@@ -35,7 +47,7 @@ export interface AiDeps {
   sleep?(ms: number): Promise<void>;
 }
 export interface AiResult { status: number; body: unknown }
-export interface AiUsage { input: number; cachedInput: number; output: number }
+export interface AiUsage { input: number; cachedInput: number; output: number; reasoning: number }
 
 const json = (status: number, body: unknown): AiResult => ({ status, body });
 const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -52,18 +64,34 @@ export function retryDelay(n: number, retryAfter: string | null): number {
 }
 const retryable = (status: number) => status === 429 || status === 500 || status === 502 || status === 503;
 
-/** Read Muse's usage into { input, cachedInput, output } (completion tokens include reasoning). */
+/** Read Muse's Responses usage into { input, cachedInput, output, reasoning } (output includes reasoning). */
 export function normalizeUsage(u: unknown): AiUsage {
-  const o = (u ?? {}) as { prompt_tokens?: unknown; completion_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } };
+  const o = (u ?? {}) as { input_tokens?: unknown; output_tokens?: unknown; input_tokens_details?: { cached_tokens?: unknown }; output_tokens_details?: { reasoning_tokens?: unknown } };
   const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  return { input: n(o.prompt_tokens), cachedInput: n(o.prompt_tokens_details?.cached_tokens), output: n(o.completion_tokens) };
+  return { input: n(o.input_tokens), cachedInput: n(o.input_tokens_details?.cached_tokens), output: n(o.output_tokens), reasoning: n(o.output_tokens_details?.reasoning_tokens) };
 }
 
-/** The reply text: a string, or a list of text parts. */
-function replyText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((p) => (p && typeof p === "object" && typeof (p as { text?: unknown }).text === "string" ? (p as { text: string }).text : "")).join("");
-  return "";
+/**
+ * The reply text: every output_text part of every message item in `output`, joined. Messages
+ * marked phase "commentary" are left out: the model sends those as narration before a tool call
+ * ("checking now."), and they are not part of the answer. They stay in `output` for replay.
+ */
+export function outputText(output: unknown): string {
+  if (!Array.isArray(output)) return "";
+  const texts: string[] = [];
+  for (const item of output as { type?: unknown; phase?: unknown; content?: unknown }[]) {
+    if (item?.type !== "message" || item.phase === "commentary" || !Array.isArray(item.content)) continue;
+    for (const part of item.content as { type?: unknown; text?: unknown }[]) if (part?.type === "output_text" && typeof part.text === "string") texts.push(part.text);
+  }
+  return texts.join("");
+}
+
+/** The finishReason for a response's status: "stop", "length", "content_filter", or the API's reason. */
+export function finishReason(status: unknown, incomplete: unknown): string | null {
+  if (status === "completed") return "stop";
+  if (status !== "incomplete") return typeof status === "string" ? status : null;
+  const reason = (incomplete as { reason?: unknown } | null | undefined)?.reason;
+  return typeof reason === "string" ? INCOMPLETE_REASONS[reason] ?? reason : "incomplete";
 }
 
 /** The API's own error message, from its { error: { message } } envelope or the raw text. */
@@ -83,11 +111,17 @@ function validate(v: unknown): string | null {
   if (typeof b.model !== "string" || !b.model.trim()) return "model must be a non-empty string";
   if (!Number.isInteger(b.max_tokens) || (b.max_tokens as number) < 1) return "max_tokens must be a positive whole number";
   if (b.reasoning_effort !== undefined && typeof b.reasoning_effort !== "string") return "reasoning_effort must be a string";
-  if (!Array.isArray(b.messages) || !b.messages.length) return "messages must be a non-empty list";
-  for (const m of b.messages as unknown[]) {
-    const r = (m as { role?: unknown })?.role; const c = (m as { content?: unknown })?.content;
-    if (typeof r !== "string" || !MESSAGE_ROLES.has(r)) return "each message needs a role of system, user or assistant";
-    if (typeof c !== "string" && !Array.isArray(c)) return "each message's content must be a string or a list of parts";
+  if (b.tools !== undefined && (!Array.isArray(b.tools) || !b.tools.every((t) => t && typeof t === "object" && typeof (t as { type?: unknown }).type === "string"))) return "tools must be a list of tool objects";
+  if (!Array.isArray(b.input) || !b.input.length) return "input must be a non-empty list";
+  for (const it of b.input as unknown[]) {
+    if (!it || typeof it !== "object" || Array.isArray(it)) return "each input item must be an object";
+    const { role: r, content: c, type: t } = it as { role?: unknown; content?: unknown; type?: unknown };
+    if (r === undefined) {
+      if (typeof t !== "string" || !t) return "each input item needs a role or a type";
+      continue;
+    }
+    if (typeof r !== "string" || !INPUT_ROLES.has(r)) return "each input message needs a role of developer, system, user or assistant";
+    if (typeof c !== "string" && !Array.isArray(c)) return "each input message's content must be a string or a list of parts";
   }
   return null;
 }
@@ -105,22 +139,26 @@ export async function handleAiRequest(method: string, url: string, body: Uint8Ar
   if (!key) return json(503, { error: NO_KEY_ERROR, status: 503 });
   if (!body?.length) return json(400, { error: "missing body", status: 400 });
   if (body.length > MAX_BODY) return json(413, { error: "body too large", status: 413 });
-  let req: { role: "planner" | "designer"; model: string; max_tokens: number; reasoning_effort?: string; messages: unknown[] };
+  let req: { role: "planner" | "designer"; model: string; max_tokens: number; reasoning_effort?: string; input: unknown[]; tools?: unknown[] };
   try { req = JSON.parse(new TextDecoder().decode(body)); } catch { return json(400, { error: "the body isn't JSON", status: 400 }); }
   const problem = validate(req);
   if (problem) return json(400, { error: problem, status: 400 });
 
-  // Chat Completions: max_completion_tokens (max_tokens is its deprecated alias). Caching is
+  // Responses API, stateless: store false, and the reasoning comes back encrypted so the browser
+  // can replay it. max_output_tokens covers reasoning and the visible reply together. Caching is
   // automatic on a stable prefix; prompt_cache_key only routes a role's calls to the same cache.
   const upstream = JSON.stringify({
     model: req.model,
-    messages: req.messages,
-    max_completion_tokens: req.max_tokens,
-    ...(req.reasoning_effort ? { reasoning_effort: req.reasoning_effort } : {}),
+    input: req.input,
+    ...(req.tools?.length ? { tools: req.tools } : {}),
+    max_output_tokens: req.max_tokens,
+    ...(req.reasoning_effort ? { reasoning: { effort: req.reasoning_effort } } : {}),
+    store: false,
+    include: ["reasoning.encrypted_content"],
     prompt_cache_key: `atw-${req.role}`,
     stream: false,
   });
-  const target = `${(deps.baseUrl || DEFAULT_MUSE_BASE_URL).replace(/\/+$/, "")}/chat/completions`;
+  const target = `${(deps.baseUrl || DEFAULT_MUSE_BASE_URL).replace(/\/+$/, "")}/responses`;
   const sleep = deps.sleep ?? sleepMs;
   const timeout = TIMEOUT_MS[req.role];
   for (let attempt = 0; ; attempt++) {
@@ -144,13 +182,17 @@ export async function handleAiRequest(method: string, url: string, body: Uint8Ar
       if (res.status === 504) msg = `${msg} (the Muse API timed out on a long non-streaming request; try a lower reasoning effort or max_tokens)`;
       return json(res.status, { error: scrub(msg, key), status: res.status });
     }
-    let data: { choices?: { message?: { content?: unknown }; finish_reason?: unknown }[]; usage?: unknown };
+    let data: { status?: unknown; incomplete_details?: unknown; error?: { message?: unknown } | null; output?: unknown; usage?: unknown };
     try { data = JSON.parse(raw); } catch { return json(502, { error: "the Muse API's answer isn't JSON", status: 502 }); }
-    const choice = data.choices?.[0];
-    if (!choice) return json(502, { error: "the Muse API's answer has no choices", status: 502 });
+    if (data.status === "failed") {
+      const m = typeof data.error?.message === "string" && data.error.message.trim() ? data.error.message : "the response failed with no message";
+      return json(502, { error: scrub(`the Muse API's response failed: ${m}`, key), status: 502 });
+    }
+    if (!Array.isArray(data.output)) return json(502, { error: "the Muse API's answer has no output", status: 502 });
     return json(200, {
-      text: replyText(choice.message?.content),
-      finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : null,
+      text: outputText(data.output),
+      finishReason: finishReason(data.status, data.incomplete_details),
+      output: data.output,
       usage: normalizeUsage(data.usage),
     });
   }

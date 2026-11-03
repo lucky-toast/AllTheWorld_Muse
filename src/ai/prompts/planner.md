@@ -23,6 +23,7 @@ Every step must honour these:
 - For each step, pick the catalog tags the designer will need to find its art and sounds: the things the step adds, uses or reacts to. The designer sees only the entries with the tags you pick (plus the sprites already in the world), so a thing whose tag you leave out can't be drawn. Prefer specific tags (fish, firepit, axe) over broad ones (character, npc, ui, solid, prop), which bring hundreds of entries and push useful ones out. You may also name an exact entry id from the examples. Use at most 8 per step.
 - When a step makes a new place (an inside, a cave, a new field), also pick tags for what it's made of: its ground, and its walls if it has any. The designer can only build it from terrain it sees. Terrain tags in the catalog: {{GROUND_TAGS}}.
 - If the wish breaks a pillar, plan the closest version that doesn't, or return no steps.
+- There is no support for playing sounds or using sound files, so do not write any tasks that imply sound use.
 
 Sprite catalog tag index (one line per tag: the tag, how many entries carry it, and a few example entry ids):
 

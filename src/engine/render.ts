@@ -16,7 +16,7 @@ const images = new Map<string, AnyImage>();
 function sheet(f: string): AnyImage | undefined { return images.get(f) ?? startSheet(f); }
 function canvasFactory(w: number, h: number) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 
-/** Sprites drawn outside any area (the top bar's book and leaves, the load transition, the Sprites tab's grass). */
+/** Sprites drawn outside any area (the top bar's book and leaves, the load transition's grass). */
 const UI_SPRITES = ["book", "fx_leaf", "grass"];
 /**
  * The sheet files the world draws right now: every area's terrain, every entity's sprite,
@@ -269,23 +269,4 @@ function renderHud(ctx: CanvasRenderingContext2D, eng: Engine) {
     if (slot.icon) { rx -= 18; drawSprite(ctx, slot.icon, rx, y0 + 20, eng.tickCount); }
     rx -= 8;
   }
-}
-
-/** Dev sprites tab: every catalog sprite at 4x on grass with tile outline; anims play. */
-export function renderSpritesTab(ctx: CanvasRenderingContext2D, tick: number) {
-  const sprites = CATALOG.sprites; const cols = 3, cellW = 264, cellH = 224;
-  const rows = Math.ceil(sprites.length / cols);
-  if (ctx.canvas.width !== cols * cellW) ctx.canvas.width = cols * cellW;
-  if (ctx.canvas.height !== rows * cellH) ctx.canvas.height = rows * cellH;
-  ctx.imageSmoothingEnabled = false; ctx.fillStyle = "#2a331e"; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  sprites.forEach((s, i) => {
-    const cx = (i % cols) * cellW, cy = Math.floor(i / cols) * cellH;
-    const ax = cx + 16, ay = cy + 188; // bottom-left anchor: sprite draws upward from here at 4x
-    ctx.save(); ctx.translate(ax, ay); ctx.scale(4, 4); ctx.translate(-ax, -ay);
-    drawSprite(ctx, "grass", ax, ay, tick);
-    drawSprite(ctx, s.id, ax, ay, tick, { anim: s.anims ? Object.keys(s.anims)[0] : undefined });
-    ctx.restore();
-    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.strokeRect(ax, ay - 64, 64, 64);
-    ctx.font = "10px monospace"; ctx.fillStyle = "#e8e4c8"; ctx.fillText(s.id, cx + 8, cy + 208);
-  });
 }

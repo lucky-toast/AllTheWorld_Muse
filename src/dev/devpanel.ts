@@ -1,7 +1,5 @@
 // Dev panel shell (spec 13.6). Backtick toggles it; it sits to the right of the map
-// and swallows game input while open. Phase 1 has the Sprites tab; the Pipeline and
-// AI tabs are added by later phases through addTab.
-import { renderSpritesTab } from "../engine/render";
+// and swallows game input while open. Tabs (Pipeline, AI) are added through addTab.
 
 interface Tab { name: string; body: HTMLElement; draw?: (tick: number) => void }
 
@@ -12,12 +10,6 @@ export class DevPanel {
   constructor(private root: HTMLElement) {
     this.bar = root.querySelector(".devtabs") as HTMLElement;
     this.bodyRoot = root.querySelector(".devbody") as HTMLElement;
-    const canvas = document.createElement("canvas"); canvas.className = "spritecanvas";
-    const ctx = canvas.getContext("2d")!;
-    const body = document.createElement("div");
-    const label = document.createElement("div"); label.className = "devsec"; label.textContent = "Every catalog sprite at 4x on grass";
-    body.append(label, canvas);
-    this.addTab("Sprites", body, (tick) => renderSpritesTab(ctx, tick));
   }
   addTab(name: string, body: HTMLElement, draw?: (tick: number) => void) {
     const tab: Tab = { name, body, draw }; this.tabs.push(tab);

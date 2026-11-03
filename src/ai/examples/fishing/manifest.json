@@ -1,0 +1,25 @@
+{
+  "id": "fishing",
+  "why": "A fishing rod lies by the stream: cast it at the water, steer the hook under the fish with the arrows, and strike with E.",
+  "buildsOn": ["carry"],
+  "replaces": [],
+  "entities": {
+    "fishing_rod": { "sprite": "weapon_fishing_rod", "tags": ["item", "tool", "fishing_rod"] },
+    "river_fish": { "sprite": "fish", "tags": ["item", "food", "fish"] }
+  },
+  "components": {
+    "fishStepTicks": "number: ticks the fish takes per step along the line, on the rod",
+    "roundTicks": "number: ticks a fish stays on the line before it swims off, on the rod",
+    "catchReach": "number: how many steps off the fish the hook may be and still land it, on the rod"
+  },
+  "interactions": [
+    { "verb": "cast", "label": "Fish", "target": "tile:water", "held": "fishing_rod" }
+  ],
+  "reactions": [],
+  "emits": {
+    "fishing.cast": { "rod": "entity", "pos": "pos" },
+    "fishing.caught": { "fish": "entity", "pos": "pos", "caught": "number" },
+    "fishing.missed": { "pos": "pos" },
+    "fishing.escaped": { "pos": "pos", "reason": "string" }
+  }
+}

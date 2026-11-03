@@ -30,16 +30,19 @@ const ids = new Set(wishes.map((w) => w.wishId));
 
 if (!wishes.length) { console.log("No wishes logged yet (data/ai-wishes.jsonl is empty). Run a wish in the AI tab first."); process.exit(0); }
 
+// Wishes logged before manual mode was removed carry mode "manual" and no real token counts.
+const viaApi = (w) => w.mode !== "manual";
+
 for (const w of wishes) {
-  console.log(`\n${w.startedAt.replace("T", " ").slice(0, 19)}  "${w.wish}"  [${w.mode}] ${w.status} in ${secs(w.durationMs)}`);
-  console.log(`  planner: ${w.stepsPlanned} step${w.stepsPlanned === 1 ? "" : "s"} after ${w.plannerAttempts} attempt${w.plannerAttempts === 1 ? "" : "s"}${w.mode === "api" ? ` · ${tok(w.planner)}` : ""}`);
+  console.log(`\n${w.startedAt.replace("T", " ").slice(0, 19)}  "${w.wish}"  ${viaApi(w) ? "" : "[manual] "}${w.status} in ${secs(w.durationMs)}`);
+  console.log(`  planner: ${w.stepsPlanned} step${w.stepsPlanned === 1 ? "" : "s"} after ${w.plannerAttempts} attempt${w.plannerAttempts === 1 ? "" : "s"}${viaApi(w) ? ` · ${tok(w.planner)}` : ""}`);
   for (const s of w.steps) {
     const result = s.systemId ? `loaded ${s.systemId}` : "not loaded";
     const fails = s.failures ? `${s.failures} failure${s.failures === 1 ? "" : "s"} (${s.failedAt.join(", ")})` : "no failures";
-    console.log(`  step ${s.step}: ${result} after ${fails}${w.mode === "api" ? ` · ${s.tokens.requests} req · ${tok(s.tokens)}` : ""}`);
+    console.log(`  step ${s.step}: ${result} after ${fails}${viaApi(w) ? ` · ${s.tokens.requests} req · ${tok(s.tokens)}` : ""}`);
     console.log(`          ${s.task}`);
   }
-  if (w.mode === "api") console.log(`  wish total: ${w.tokens.requests} requests · ${tok(w.tokens)}`);
+  if (viaApi(w)) console.log(`  wish total: ${w.tokens.requests} requests · ${tok(w.tokens)}`);
   if (showRequests) {
     for (const u of usage.filter((x) => x.wishId === w.wishId)) {
       console.log(`    ${u.timestamp.slice(11, 19)} ${u.role.padEnd(8)} ${u.step ? `step ${u.step}` : "      "} try ${u.attempt + 1}  ${u.model.padEnd(16)} ${u.ok ? "ok  " : "FAIL"} ${secs(u.ms).padStart(8)}  ${tok(u)}${u.error ? `  ${u.error}` : ""}`);
@@ -48,7 +51,7 @@ for (const w of wishes) {
 }
 
 // Totals over the wishes shown.
-const api = wishes.filter((w) => w.mode === "api");
+const api = wishes.filter((w) => viaApi(w));
 const steps = wishes.flatMap((w) => w.steps);
 const loadedSteps = steps.filter((s) => s.systemId);
 console.log(`\n=== ${wishes.length} wish${wishes.length === 1 ? "" : "es"} (${api.length} via API) ===`);

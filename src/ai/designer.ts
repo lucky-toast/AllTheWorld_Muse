@@ -1,27 +1,27 @@
 // The designer (spec 13.3): builds its prompt from src/ai/prompts/designer.md, parses its
 // three-block reply, and runs one planner step through the pipeline with up to 3 repairs.
 import templateRaw from "./prompts/designer.md?raw";
-import pillarsRaw from "./pillars.md?raw";
-import apiRaw from "../sdk/index.ts?raw";
+import apiRef from "../sdk/index.ts?sdkref";
 import type { Host } from "../engine/host";
 import { reportText } from "../pipeline/report";
 import type { Report, StageEvent } from "../pipeline/types";
 import { LIMITS } from "../tuning";
-import { entityCounts, stepCatalogText, systemSlots, tagsInText, worldSprites } from "./blocks";
+import { entityCounts, systemSlots, tagsInText, worldSprites } from "./blocks";
+import { DESIGNER_TOOLS, LOOKUPS_USED_UP, runTool, type ToolCall } from "./tools";
+
+export { LOOKUPS_USED_UP };
 import { examplesText } from "./examples";
-import { outgoingText, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
+import { outgoingText, replyMessage, type AiProvider, type ChatImage, type ChatMessage } from "./provider";
 import { buildSplit, fill, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const DESIGNER_TEMPLATE = normalizeEol(templateRaw);
-export const PILLARS = normalizeEol(pillarsRaw).trim();
-/** The maps go as images (src/ai/mapimage.ts): attached by hand with Download maps, or sent with the message in API mode. */
+/** The maps go as images with the designer's message (src/ai/mapimage.ts). */
 export const MAP_IMAGE_NOTE = "(See the attached map image.)";
 
 /** The slots that only change when a system loads, or never. */
 function fixedSlots(host: Host): Record<string, string> {
   return {
-    PILLARS,
-    API: normalizeEol(apiRaw).trim(),
+    API: normalizeEol(apiRef).trim(),
     MAP_IMAGE: MAP_IMAGE_NOTE,
     SYSTEM_EXAMPLES: examplesText(),
     ...systemSlots(host),
@@ -30,13 +30,17 @@ function fixedSlots(host: Host): Record<string, string> {
 
 /**
  * The designer's system message for one task, split for caching. `tags` are the catalog tags or
- * entry ids the planner picked for the step; with none, the tags the task names are used.
+ * entry ids the planner picked for the step; with none, the tags the task names are used. They go
+ * in as hints: the designer looks entries up with the catalog tools.
  */
 export function buildPrompt(host: Host, task: string, tags: readonly string[] = []): BuiltPrompt {
+  const picks = tags.length ? tags : tagsInText(task);
+  const inWorld = worldSprites(host.eng);
   return buildSplit(section(DESIGNER_TEMPLATE, "System message"), {
     ...fixedSlots(host),
     ENTITY_COUNTS: entityCounts(host.eng),
-    CATALOG: stepCatalogText(tags.length ? tags : tagsInText(task), worldSprites(host.eng)),
+    PICKED_TAGS: picks.length ? picks.join(", ") : "(none)",
+    WORLD_SPRITES: inWorld.length ? inWorld.join(", ") : "(none)",
     TASK: task,
   });
 }
@@ -90,8 +94,15 @@ export interface DesignerPipeline {
 export interface DesignerHooks {
   /** A message is about to be sent (attempt 0 is the first, 1 to 3 are repairs). */
   onAttempt?(attempt: number, text: string): void;
-  /** A reply came back for this attempt. */
+  /** A reply came back for this attempt: the last API call of the attempt, the one that didn't call tools. */
   onReply?(attempt: number, text: string): void;
+  /**
+   * A reply called tools (one API call; `round` counts the step's tool rounds from 1). `calls` are
+   * the calls with the result each got, which go back to the model in the next request.
+   */
+  onToolRound?(attempt: number, round: number, calls: (ToolCall & { result: string })[]): void;
+  /** The attempt kept calling tools past the step's lookup rounds and grace rounds, so it failed. */
+  onLookupLimit?(attempt: number): void;
   /** The reply couldn't be parsed. */
   onParseFailed?(attempt: number, problems: string[]): void;
   /** The pipeline ran on this attempt and gave this report (failed or loaded). */
@@ -107,6 +118,12 @@ export type StepResult =
  * Run one planner step: send the prompt, then parse, check and load the reply. A reply that
  * doesn't parse, or fails any stage, gets the repair message; after LIMITS.repairsPerStep repairs
  * the step is dropped.
+ *
+ * Every request carries the designer's tools (src/ai/tools). A reply that calls tools gets their
+ * results and is sent again, until a reply calls none; that reply is the attempt's. Lookups are
+ * counted per step: past
+ * LIMITS.LOOKUP_ROUNDS_PER_STEP each call gets LOOKUPS_USED_UP instead of a result, and an attempt
+ * still calling tools LIMITS.LOOKUP_GRACE_ROUNDS rounds later fails like an unreadable reply.
  */
 export async function runStep(opts: {
   host: Host; provider: AiProvider; pipeline: DesignerPipeline; task: string; hooks?: DesignerHooks;
@@ -121,17 +138,38 @@ export async function runStep(opts: {
   mapImages?(): Promise<ChatImage[]>;
 }): Promise<StepResult> {
   const { host, provider, pipeline, task, hooks = {} } = opts;
+  const tools = DESIGNER_TOOLS;
   const messages: ChatMessage[] = promptMessages(buildPrompt(host, task, opts.tags));
+  let rounds = 0;
   const images = opts.mapImages ? await opts.mapImages() : [];
   if (images.length) messages[1].images = images;
   let lastReason = "";
   for (let attempt = 0; attempt <= LIMITS.repairsPerStep; attempt++) {
     hooks.onAttempt?.(attempt, outgoingText(messages));
-    const reply = await provider.send(messages.map((m) => ({ ...m })));
-    hooks.onReply?.(attempt, reply);
-    messages.push({ role: "assistant", content: reply });
-    const parsed = parseDesignerReply(reply);
+    let reply = ""; let overLimit = false;
+    for (;;) {
+      reply = await provider.send(messages.map((m) => ({ ...m })), { tools });
+      messages.push(replyMessage(provider, reply));
+      const calls = provider.lastToolCalls ?? [];
+      if (!calls.length) break;
+      rounds++;
+      const done = rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP;
+      const results = calls.map((c) => ({ ...c, result: done ? LOOKUPS_USED_UP : runTool(c, { eng: host.eng }) }));
+      for (const r of results) messages.push({ role: "tool", content: r.result, callId: r.callId });
+      hooks.onToolRound?.(attempt, rounds, results);
+      if (rounds > LIMITS.LOOKUP_ROUNDS_PER_STEP + LIMITS.LOOKUP_GRACE_ROUNDS) { overLimit = true; break; }
+    }
     let stage: string; let report: string;
+    if (overLimit) {
+      hooks.onLookupLimit?.(attempt);
+      stage = "Lookups";
+      report = `- you kept calling the catalog tools after this step's ${LIMITS.LOOKUP_ROUNDS_PER_STEP} lookup rounds were used up. Don't call them again: reply with the three blocks, using the entries you already have.`;
+      lastReason = `failed at ${stage}`;
+      if (attempt < LIMITS.repairsPerStep) messages.push({ role: "user", content: buildRepairMessage(stage, report) });
+      continue;
+    }
+    hooks.onReply?.(attempt, reply);
+    const parsed = parseDesignerReply(reply);
     if (!parsed.ok) {
       hooks.onParseFailed?.(attempt, parsed.problems);
       stage = "Reply format"; report = parsed.problems.map((p) => `- ${p}`).join("\n");

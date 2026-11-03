@@ -5,11 +5,12 @@ import type { Host } from "../engine/host";
 import { LIMITS } from "../tuning";
 import { catalogGet } from "../engine/catalog";
 import { entityCounts, groundTagsText, isCatalogTag, playerText, systemSlots, tagIndexText, terrainCounts } from "./blocks";
-import { PILLARS } from "./designer";
-import type { AiProvider, ChatMessage } from "./provider";
+import pillarsRaw from "./pillars.md?raw";
+import { replyMessage, type AiProvider, type ChatMessage } from "./provider";
 import { buildSplit, normalizeEol, promptMessages, section, type BuiltPrompt } from "./template";
 
 export const PLANNER_TEMPLATE = normalizeEol(templateRaw);
+export const PILLARS = normalizeEol(pillarsRaw).trim();
 
 /**
  * Clean a wish before it fills {{WISH}}: letters, digits and . , ' ! ? - only, spaces collapsed,
@@ -97,7 +98,7 @@ export async function runPlanner(opts: {
     hooks.onSend?.(attempt, attempt === 0 ? messages.map((m) => m.content).join("") : messages.at(-1)!.content);
     const reply = await opts.provider.send(messages.map((m) => ({ ...m })));
     hooks.onReply?.(attempt, reply);
-    messages.push({ role: "assistant", content: reply });
+    messages.push(replyMessage(opts.provider, reply));
     const p = parsePlannerReply(reply);
     if (p.ok) return p;
     problem = p.problem; hooks.onProblem?.(attempt, problem);
