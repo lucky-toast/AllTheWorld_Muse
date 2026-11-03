@@ -146,6 +146,16 @@ describe("dev server Muse API proxy (13.5)", () => {
     expect(sent.reasoning).toBeUndefined();
     expect(sent.input).toEqual(replay.input);
   });
+  test("commentary messages (narration before a tool call) are left out of the text but kept in output", async () => {
+    const withCommentary = [
+      { type: "reasoning", id: "rs_2", summary: [], encrypted_content: "E2" },
+      { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "checking now." }] },
+      { type: "function_call", call_id: "call_1", name: "catalog_search", arguments: "{}" },
+    ];
+    const { f } = fake([{ status: 200, body: { ...completion, output: withCommentary } }]);
+    const r = await handleAiRequest("POST", "/chat", enc(good), deps(f));
+    expect(r).toMatchObject({ status: 200, body: { text: "", output: withCommentary } });
+  });
   test("an incomplete response reads as length or content_filter; a failed one is a 502", async () => {
     const cut = { ...completion, status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
     const filtered = { ...completion, status: "incomplete", incomplete_details: { reason: "content_filter" } };

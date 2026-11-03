@@ -70,12 +70,16 @@ export function normalizeUsage(u: unknown): AiUsage {
   return { input: n(o.input_tokens), cachedInput: n(o.input_tokens_details?.cached_tokens), output: n(o.output_tokens), reasoning: n(o.output_tokens_details?.reasoning_tokens) };
 }
 
-/** The reply text: every output_text part of every message item in `output`, joined. */
+/**
+ * The reply text: every output_text part of every message item in `output`, joined. Messages
+ * marked phase "commentary" are left out: the model sends those as narration before a tool call
+ * ("checking now."), and they are not part of the answer. They stay in `output` for replay.
+ */
 export function outputText(output: unknown): string {
   if (!Array.isArray(output)) return "";
   const texts: string[] = [];
-  for (const item of output as { type?: unknown; content?: unknown }[]) {
-    if (item?.type !== "message" || !Array.isArray(item.content)) continue;
+  for (const item of output as { type?: unknown; phase?: unknown; content?: unknown }[]) {
+    if (item?.type !== "message" || item.phase === "commentary" || !Array.isArray(item.content)) continue;
     for (const part of item.content as { type?: unknown; text?: unknown }[]) if (part?.type === "output_text" && typeof part.text === "string") texts.push(part.text);
   }
   return texts.join("");
