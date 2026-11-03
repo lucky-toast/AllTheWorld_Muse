@@ -3,7 +3,8 @@
 import { readFileSync } from "node:fs";
 import { sdkReference } from "../devserver/sdkref";
 
-const sdk = readFileSync("src/sdk/index.ts", "utf8");
+// Read with \n line endings, as a Windows checkout may have \r\n.
+const sdk = readFileSync("src/sdk/index.ts", "utf8").replace(/\r\n?/g, "\n");
 const ref = sdkReference(sdk);
 /** Exported names in a source text: functions, classes and consts. */
 const exportsOf = (text: string) => [...text.matchAll(/^export (?:function|class|const|let) (\w+)/gm)].map((m) => m[1]);
@@ -26,6 +27,10 @@ describe("SDK reference", () => {
     for (const line of ref.split("\n").filter((l) => /^\s*(export function |(static |get |set )?\w+\(.*\): )/.test(l))) expect(line).toMatch(/;$/);
     // The only braces left open a class.
     for (const line of ref.split("\n").filter((l) => l.trimEnd().endsWith("{") && !/^\s*(\/\/|\*|\/\*)/.test(l))) expect(line).toMatch(/^export class \w+ \{$/);
+  });
+  test("a CRLF checkout (Windows) gives the same reference", () => {
+    expect(sdkReference(sdk.replace(/\r?\n/g, "\r\n"))).toBe(sdkReference(sdk.replace(/\r\n?/g, "\n")));
+    expect(sdkReference(sdk.replace(/\r?\n/g, "\r\n"))).not.toContain("\r");
   });
   test("works on a small file: bodies, private members, _ members and non-exported helpers", () => {
     const src = [

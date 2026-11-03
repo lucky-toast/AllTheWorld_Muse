@@ -13,8 +13,9 @@ import type { Plugin } from "vite";
 
 export const SDKREF_QUERY = "?sdkref";
 
-/** The reference text for an SDK source file. */
-export function sdkReference(source: string): string {
+/** The reference text for an SDK source file. Line endings are read as \n, so a CRLF checkout (Windows) gives the same text. */
+export function sdkReference(text: string): string {
+  const source = text.replace(/\r\n?/g, "\n");
   const sf = ts.createSourceFile("index.ts", source, ts.ScriptTarget.Latest, true);
   const edits: { start: number; end: number; text: string }[] = [];
   const exported = (n: ts.Node) => ts.canHaveModifiers(n) && (ts.getModifiers(n) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
