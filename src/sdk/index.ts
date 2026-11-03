@@ -47,10 +47,10 @@ import { send, failure, truncated, op, tileReq, done, numText, JsonParser } from
 
 // ============================== JSON ==============================
 
-/** A parsed JSON value. Reading a missing field or index gives a null value, never a crash. */
 const NO_ITEMS = new Array<Json>(0);
 const NO_NAMES = new Array<string>(0);
 
+/** A parsed JSON value. Reading a missing field or index gives a null value, never a crash. */
 export class Json {
   /** 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object. */
   kind: i32 = 0;

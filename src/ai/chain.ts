@@ -9,6 +9,7 @@ import type { StageEvent } from "../pipeline/types";
 import { runStep, type DesignerHooks, type DesignerPipeline } from "./designer";
 import type { AiLog, Journal } from "./journal";
 import { cleanWish, runPlanner } from "./planner";
+import { resultSummary } from "./tools";
 import { AiApiError, usageText, type AiProvider, type ChatImage } from "./provider";
 import { WishRecorder, type StatsSink, type WishLine } from "./stats";
 
@@ -64,7 +65,7 @@ export class WishChain {
       const rec = this.rec;
       if (r.status !== "busy" && r.status !== "empty" && rec) {
         const line = rec.finish(r.status, r.message, r.loaded);
-        if (line.mode === "api") log.add("note", "chain", `wish total: ${line.tokens.requests} requests · ${usageText(line.tokens)}`, { wish: rec.wish });
+        if (line.tokens.requests) log.add("note", "chain", `wish total: ${line.tokens.requests} requests · ${usageText(line.tokens)}`, { wish: rec.wish });
         hooks.onStats?.(line);
       }
       hooks.onStatus?.(r.message); if (r.status !== "busy") hooks.onDone?.(r); return r;
@@ -108,6 +109,14 @@ export class WishChain {
             onReply: (a, text) => { log.add("reply", "designer", text, { wish, step: i + 1 }); this.recordCall(this.opts.designer, "designer", i + 1, a, wish); dh.onReply?.(a, text); },
             onReport: (a, rep) => { if (!rep.ok) rec.stepFailed(i + 1, rep.stage); if (!rep.ok) log.add("note", "designer", `attempt ${a + 1} failed at ${rep.stage}: ${rep.errors[0]?.message ?? ""}`, { wish, step: i + 1 }); dh.onReport?.(a, rep); },
             onParseFailed: (a, ps) => { rec.stepFailed(i + 1, "Reply format"); log.add("note", "designer", `attempt ${a + 1}: reply unreadable: ${ps.join("; ")}`, { wish, step: i + 1 }); dh.onParseFailed?.(a, ps); },
+            // A reply that called tools is its own API call: record it here (the attempt's last reply goes through onReply).
+            onToolRound: (a, round, calls) => {
+              this.recordCall(this.opts.designer, "designer", i + 1, a, wish);
+              log.add("note", "designer", `lookups, round ${round}: ${calls.map((c) => `${c.name} ${c.arguments} → ${resultSummary(c.name, c.result)}`).join("; ")}`, { wish, step: i + 1 });
+              log.add("sent", "designer", calls.map((c) => c.result).join("\n\n"), { wish, step: i + 1 });
+              dh.onToolRound?.(a, round, calls);
+            },
+            onLookupLimit: (a) => { rec.stepFailed(i + 1, "Lookups"); log.add("note", "designer", `attempt ${a + 1}: still calling tools after the lookup limit`, { wish, step: i + 1 }); dh.onLookupLimit?.(a); },
           },
         });
         if (!r.ok) {

@@ -122,24 +122,24 @@ export function catalogLine(s: CatalogEntry): string {
   return [`${s.id} — ${s.desc ?? ""}`, layer, size, ...named.filter(([, v]) => v !== "-").map(([k, v]) => `${k}: ${v}`)].join(" · ");
 }
 
-/** The whole catalog: the legend, then one line per entry. No prompt sends this any more (it is ~720k chars); kept for tools and tests. */
+/** The whole catalog: the legend, then one line per entry. No prompt sends this (it is ~720k chars); kept for tests. */
 export function catalogText(): string {
   return [CATALOG_LEGEND, ...CATALOG.sprites.map(catalogLine)].join("\n");
 }
 
 // ----------------------------------------------------------------------------------------
-// Tag index and per-step catalog (the full catalog is too big to send). The planner sees the
-// tag index and names the tags each step needs; the designer then gets only those entries.
+// Tag index (the full catalog is too big to send). The planner sees the tag index and names the
+// tags each step needs; the designer gets them as hints and looks entries up with its tools.
 
 /** Entries per tag, in catalog order. */
-const BY_TAG: Map<string, CatalogEntry[]> = (() => {
+export const BY_TAG: Map<string, CatalogEntry[]> = (() => {
   const m = new Map<string, CatalogEntry[]>();
   for (const s of CATALOG.sprites) for (const t of s.tags) { const a = m.get(t); if (a) a.push(s); else m.set(t, [s]); }
   return m;
 })();
 
 /** The variant group an entry belongs to (all members carry the same variants map), or its own id. */
-function groupKey(s: CatalogEntry): string {
+export function groupKey(s: CatalogEntry): string {
   return s.variants ? (s.variants.sheet ?? Object.values(s.variants).sort()[0]) : s.id;
 }
 
@@ -194,39 +194,4 @@ export function tagsInText(text: string): string[] {
   const ws = words(text);
   const named = (t: string) => ws.has(t) || ws.has(`${t}s`) || ws.has(`${t}es`);
   return [...[...BY_TAG.keys()].filter(named), ...CATALOG.sprites.map((s) => s.id).filter((id) => !BY_TAG.has(id) && named(id))];
-}
-
-/**
- * {{CATALOG}} for one designer step: the legend, then the entries the step needs, cut to
- * LIMITS.STEP_CATALOG_MAX_CHARS. `picks` are catalog tags or entry ids. Order: entries named by id,
- * then entries already in the world (`always`), then tagged entries, those matching more of the
- * picked tags first. Each entry appears once. When the budget runs out, a last line says how many
- * entries were left out and for which tags.
- */
-export function stepCatalogText(picks: readonly string[], always: readonly string[] = []): string {
-  const max = LIMITS.STEP_CATALOG_MAX_CHARS;
-  const tags = picks.filter(isCatalogTag);
-  const ids = picks.filter((p) => !isCatalogTag(p) && catalogGet(p));
-  const score = new Map<CatalogEntry, number>();
-  for (const t of tags) for (const s of BY_TAG.get(t)!) score.set(s, (score.get(s) ?? 0) + 1);
-  const order = CATALOG.sprites;
-  const ranked = [...score.keys()].sort((a, b) => score.get(b)! - score.get(a)! || order.indexOf(a) - order.indexOf(b));
-  const chosen: CatalogEntry[] = []; const seen = new Set<string>();
-  const add = (s: CatalogEntry | undefined) => { if (s && !seen.has(s.id)) { seen.add(s.id); chosen.push(s); } };
-  ids.forEach((id) => add(catalogGet(id)));
-  always.forEach((id) => add(catalogGet(id)));
-  ranked.forEach(add);
-  const lines = [CATALOG_LEGEND]; let size = CATALOG_LEGEND.length;
-  const left: CatalogEntry[] = [];
-  for (const s of chosen) {
-    const l = catalogLine(s);
-    if (left.length || size + 1 + l.length > max) { left.push(s); continue; }
-    lines.push(l); size += 1 + l.length;
-  }
-  if (left.length) {
-    const lt = [...new Set(left.flatMap((s) => s.tags.filter((t) => tags.includes(t))))];
-    lines.push(`(${left.length} more entr${left.length === 1 ? "y" : "ies"}${lt.length ? ` tagged ${lt.join(", ")}` : ""} left out to keep this list short. Pick from the entries above.)`);
-  }
-  if (lines.length === 1) lines.push("(no entries were picked for this task; use the tag index above and the sprites already in the world)");
-  return lines.join("\n");
 }

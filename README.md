@@ -41,7 +41,7 @@ The base game is a 30x20 forest clearing with day and night. You can walk, push 
 | `src/sdk/` | The AssemblyScript library compiled into every AI system. `index.ts` is the reference the designer sees; `README.md` documents the ABI |
 | `src/sandbox/` | Compile (asc 0.28.20, fixed settings), the module loader and the fuel meter (a binary rewriter), and the test runners |
 | `src/pipeline/` | `checkSystem`, `loadChecked` and `submitSystem`, the stages (run in a Web Worker under a watchdog), live Load and Undo, startup, autosave and storage |
-| `src/ai/` | The planner, the designer, the prompt templates and the cache split, the wish chain, the journal and AI log, `ManualProvider`, the "What changed" panel and the example systems shown to the designer |
+| `src/ai/` | The planner, the designer, the prompt templates and the cache split, the wish chain, the journal and AI log, `MuseProvider`, the designer's lookup tools, the "What changed" panel and the example systems shown to the designer |
 | `src/dev/` | The dev panel: Sprites, Pipeline and AI tabs |
 | `devserver/` | The Vite plugin that serves `/__data` for storage under `npm run dev` |
 | `fixtures/` | Systems sent through the pipeline as text, exactly as AI output would be. Never loaded at startup |
@@ -68,21 +68,19 @@ A new system can retire a loaded AI system by listing it in `replaces`. It must 
 
 ## The AI tab
 
-"Send messages", under the "What changed" setting, picks how the chain talks to a model: **Dev panel (copy and paste)** or **API**. The choice is stored in the browser, read when a wish starts and kept for the whole wish, and can't be changed while a wish runs.
+Wishes go to the Meta Muse API through the dev server, with no clicks between steps:
 
-In **Dev panel** mode the AI tab runs the whole chain by hand through `ManualProvider`:
+1. Type a wish in "Player wish" and press Start, or use the in-game wish box. The wish is cleaned (letters, digits and simple punctuation, at most 100 characters).
+2. The planner's message and reply appear. The reply is one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`; at most 4 steps are kept, and an unreadable reply gets one re-ask.
+3. For each step in order, the designer's message appears. The designer looks up the catalog and the world's entity types with tools before replying; each lookup round shows as a line under the message, listing every call with a short summary of its result. Its reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) fills in, and the attempt row lights the stage boxes as the pipeline runs.
+4. A failed attempt gets the repair message, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
 
-1. Type a wish in "Player wish" and press Start. The wish is cleaned (letters, digits and simple punctuation, at most 100 characters).
-2. The planner's message appears. Copy it to a model, paste the reply (one fenced `json` block, `{ "steps": [{ "task": "...", "tags": [...] }] }`) and press Submit. At most 4 steps are kept. An unreadable reply gets one re-ask.
-3. For each step in order, the designer's message appears, with Copy and Download maps. Paste the reply (a `json` manifest, a `ts` module and a `json` `{ title, summary, changes, journal }`) and press Submit. The attempt row lights the stage boxes as the pipeline runs.
-4. A failed attempt gets the repair message to send back, up to 3 repairs per step. If a step still fails, the chain stops; earlier steps stay loaded.
+The size line next to each message adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 (reasoning 1,500) tokens`. The map images go with each designer message. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.
 
-In **API** mode the chain runs with no clicks: the planner and every designer step, repairs included, go to the Meta Muse API through the dev server, and systems load as their replies pass the pipeline. The boxes still show each outgoing message (with Copy and the downloads), the reply fills in by itself, and the size line adds the real usage, such as `in 12,345 (cached 11,000) · out 2,100 tokens`. The map images go with each designer message automatically. An API error ends the wish with the error in the status line; systems loaded by earlier steps stay loaded.
-
-To use API mode:
+To set up the API:
 
 1. Put your Model API key (from the Model API dashboard, "API keys") in a file named `.env.local` at the repo root: `MUSE_API_KEY=...`. The file is git-ignored. `MUSE_BASE_URL` is optional and defaults to `https://api.meta.ai/v1`.
-2. Restart `npm run dev`. The key stays in the dev server (`devserver/ai.ts`, mounted at `/__ai`); the browser never sees it, and it has no `VITE_` prefix, so it can't end up in a build. Without a key, the API option is disabled and reads "API (set MUSE_API_KEY in .env.local)".
+2. Restart `npm run dev`. The key stays in the dev server (`devserver/ai.ts`, mounted at `/__ai`); the browser never sees it, and it has no `VITE_` prefix, so it can't end up in a build. Without a key, Start is disabled and the tab says to set `MUSE_API_KEY` in `.env.local`.
 
 The planner uses Muse Spark (`muse-spark-1.3`) and the designer uses Muse Wonder (`muse-wonder-1.0`). Change the models, their output caps (`maxTokens`, which reasoning tokens count toward) and their reasoning effort in `AI_MODELS` in `src/tuning.ts`. A reply cut off at its cap is an error, not a repair round.
 
@@ -93,9 +91,9 @@ Every wish writes stats to two files in `data/` (`src/ai/stats.ts`). Start fresh
 - `ai-usage.jsonl`: one line per API request, with the wish, role, step, attempt, model, input tokens, cached input tokens (and the cached share), output tokens (reasoning included), the time it took, and whether it failed. A reply cut off at `maxTokens` still counts, since it cost tokens.
 - `ai-wishes.jsonl`: one line per wish when it ends. It has the status, how many steps the planner gave, and for each step how many designer attempts failed before its system loaded, and at which stage. It also has the token totals for the planner, the designer and the whole wish, from the wish going in to its last system loading.
 
-`npm run ai-report` prints a summary of every wish, then totals: average designer failures before a load, failures by stage, tokens per role and per model, and the cache hit rate. `-- --last 5` shows only the last 5 wishes, and `-- --requests` lists every request under its wish. In the AI tab, the AI log also shows a `wish total:` line when an API wish ends. Wishes run in Dev panel mode are logged with mode `manual` and no token counts.
+`npm run ai-report` prints a summary of every wish, then totals: average designer failures before a load, failures by stage, tokens per role and per model, and the cache hit rate. `-- --last 5` shows only the last 5 wishes, and `-- --requests` lists every request under its wish. In the AI tab, the AI log also shows a `wish total:` line when a wish ends. Wishes logged before the copy-and-paste mode was removed show as `[manual]`, with no token counts.
 
-The plan and the messages show only in the AI tab. The player sees only the leaf transition and "The world feels different". Each prompt is sent as two system messages, the first marked `cache: true`; `ManualProvider` joins them into one text, and API mode sends them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; in API mode a `usage:` note with the real counts follows each reply.
+The plan and the messages show only in the AI tab. The player sees only the leaf transition and "The world feels different". Each prompt is sent as two system messages, the first marked `cache: true`; the AI tab shows them joined, and the API gets them first and unchanged, so Muse's automatic prompt cache can reuse them. Every message and reply is appended to the AI log with an estimated token count; a `usage:` note with the real counts follows each reply, and a note per lookup round lists its calls.
 
 ## Storage
 

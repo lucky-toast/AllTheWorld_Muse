@@ -50,7 +50,7 @@ Toast owns the wording of all three. Don't reword them. If a slot or instruction
 | `src/engine/input.ts` tap/hold timing | Same feel. The routing changes (section 7) |
 | `src/engine/catalog.ts` | Unchanged apart from imports |
 | `index.html`, `src/style.css` | Reuse |
-| `src/ai/provider.ts` (`ManualProvider`) | Reuse, add `cache?: boolean` to `ChatMessage` |
+| `src/ai/provider.ts` (`MuseProvider`) | Reuse, add `cache?: boolean` to `ChatMessage` |
 | `src/ai/changed.ts` ("What changed" panel) | Reuse |
 | The README's "Decisions the kickoff didn't specify" | Keep those behaviours (footprints extend upward from `pos`, day count goes up at dawn, phase hours, fractional scale below 1x, font fallback) |
 
@@ -269,7 +269,7 @@ An AssemblyScript library compiled into every module, so it runs inside the sand
 - Helpers built from requests: `player()`, `facing()`, `facedTile()`, `isFree(x, y, selfId)`, `footprintFree(id, x, y)`, `giveToPlayer(id)`.
 - The export glue and the `abort`, `trace` and `seed` replacements (section 10.1).
 
-`src/sdk/index.ts` is what the designer prompt shows as `{{API}}`, so it must read as a clean reference: one-line doc comment on every exported helper, nothing internal at the top level. Document the exact ABI in `src/sdk/README.md`.
+`src/sdk/index.ts` is what the designer prompt shows as `{{API}}`, with bodies left out, so it must read as a clean reference: one-line doc comment on every exported helper, nothing internal at the top level, and a doc comment directly above the declaration it describes. Document the exact ABI in `src/sdk/README.md`.
 
 ---
 
@@ -402,6 +402,8 @@ Loaded code is never edited. To change behaviour an earlier AI system owns, a ne
 
 Everything before Load runs in a Web Worker with its own engine copy and the current world, under a watchdog that kills the worker if a stage goes over its time limit. The live game is never touched before Load. `checkSystem(manifestJson, source)` returns a Report; `loadChecked(report)` runs Load only for a passed report and refuses it if the set of loaded systems changed since the check. `submitSystem` is the two in a row.
 
+**Module memories.** Every AI module instance holds its own `WebAssembly.Memory`, made on the module's first call. The browser reserves a large block of address space for each one whatever its size, and a tab can only hold so many at once across all its threads (on the order of a hundred), freeing one only when nothing reaches it and its own thread collects garbage. So: every world that is done (a test, a shot, each World check copy, the Manifest stage's lookup copy) is released with `Host.dispose()`, which drops its modules' instances and memories at once; the World check builds the copy re-created from the saved world only after releasing the first, so the two never hold memories at once; Shift+R releases the modules it replaces; and a worker that ran a check is ended (a fresh spare starts loading the compiler in its place), since its garbage would otherwise stay held by an idle worker. A worker that only compiled is kept. Every check report's log, and the Load recheck's, says how many module memories were held at once at most.
+
 | # | Stage | Passes when |
 | --- | --- | --- |
 | 1 | Manifest | Valid schema; id format and unused; sprites, types and components named exist or are declared; emitted names carry the prefix (or are inherited through `replaces`); every event in `reactions` exists (base, engine or some loaded system's `emits`, or this system's own); every id in `buildsOn` and `replaces` is loaded; the `replaces` checks in section 11 |
@@ -435,15 +437,18 @@ Builds the prompt from `src/ai/prompts/designer.md` (the companion file; it has 
 | Slot | Content |
 | --- | --- |
 | `{{PILLARS}}` | `src/ai/pillars.md` |
-| `{{API}}` | The text of `src/sdk/index.ts` |
-| `{{CATALOG}}` | After the cache breakpoint: the legend, then one line per entry (`catalogLine`) for the step's planner tags or entry ids, entry ids first, then sprites already in the world, then tagged entries (more matching tags first), cut to `STEP_CATALOG_MAX_CHARS` with a note. A step with no tags uses the tags and ids its text names. The designer gets no tag index. |
-| `{{SYSTEM_EXAMPLES}}` | Every manifest and module pair in `src/ai/examples/`, sorted by name, as a fenced `json` and a fenced `ts` block. Seed it with the campfire and chop fixtures until Toast writes the final three examples. These are never loaded into the world |
+| `{{API}}` | `src/sdk/index.ts` as a reference (`devserver/sdkref.ts`, imported as `?sdkref`): every export's signature and doc comment, the file's header and section notes; function, method, accessor and constructor bodies, imports, private and `_`-named members, and non-exported declarations left out. Built from the file by a Vite plugin, so it can't drift. |
+| `{{PICKED_TAGS}}` | After the cache breakpoint: the step's planner tags or entry ids, comma-separated, as hints for the designer's lookups; `(none)` without any. A step with no tags uses the tags and ids its text names. |
+| `{{WORLD_SPRITES}}` | After the cache breakpoint: the ids of the sprites already in the world (entity sprites and map terrain). |
+| `{{SYSTEM_EXAMPLES}}` | The manifest and module pairs in `src/ai/examples/` named in `PROMPT_EXAMPLES` (campfire only for now), as a fenced `json` and a fenced `ts` block each. The campfire and chop fixtures seed the folder until Toast writes the final three examples. These are never loaded into the world |
 | `{{BASE_SYSTEMS}}` | One system block per base system, in load order |
 | `{{AI_SYSTEMS}}` | One block per loaded, not-replaced AI system in load order, except the newest |
 | `{{NEWEST_AI_SYSTEM}}` | The newest AI system's block, or an empty string |
 | `{{ENTITY_COUNTS}}` | `- type: n` per entity type, sorted by count descending, then by name, under one `area <id>:` line per area (current area first, then the rest in creation order) |
 | `{{TASK}}` | The planner step being built |
 | `{{STAGE}}`, `{{REPORT}}` | Repair message only |
+
+**Catalog tools.** The designer prompt lists no catalog entries; its "Looking things up" section, above the cache breakpoint, says to look them up. Every designer request carries four function tools (`src/ai/tools/`), always the same definitions in the same order so they stay in the cached prefix. `catalog_search` finds entries by tags (all of), `any_tags` (one of), words in the id, description or tags, kind and layer; it returns one short line per variant group, paged by `offset` and `limit` (default `CATALOG_SEARCH_LIMIT`, at most `CATALOG_SEARCH_MAX`), and searches a name that isn't a tag as a word. `catalog_get` returns the legend and the full catalog line for up to `CATALOG_GET_MAX_IDS` ids; unknown ids get the closest ids. `catalog_tags` lists tags with counts, optionally those containing a text. `entity_types` lists the entity types registered in the world (name, sprite, tags, who registered it, how many exist), optionally by name or sprite text and by tag; the prompt tells the designer to check every type it spawns, gives or targets with it. Results are cut at `TOOL_RESULT_MAX_CHARS`, and bad arguments get a message, never an error. A reply that calls tools gets one result per call and is sent again, until a reply calls none; that reply is the attempt's. Each tool round is one API call in the usage log, a note in the AI log, and a line in the AI tab's attempt box listing each call and a short summary of its result; the box keeps the attempt's message and shows only the final reply. Rounds are counted per step: past `LOOKUP_ROUNDS_PER_STEP` every call gets "no more lookups" instead of a result, and an attempt still calling tools `LOOKUP_GRACE_ROUNDS` rounds later fails at the "Lookups" stage and gets the repair message.
 
 **System block.** Built from the manifest only, byte-identical every time for the same manifest. Write `(none)` for an empty list.
 
@@ -463,7 +468,7 @@ entity types added:
   - <type>: sprite <sprite>, tags [<tags>]
 ```
 
-**Cache split.** `buildPrompt` returns `cached` (everything above the `<!-- CACHE BREAKPOINT ... -->` line) and `rest` (everything below). The marker line is removed. The prompt is sent as two system messages, the first with `cache: true`. `ManualProvider` joins them, so the manual flow shows one text.
+**Cache split.** `buildPrompt` returns `cached` (everything above the `<!-- CACHE BREAKPOINT ... -->` line) and `rest` (everything below). The marker line is removed. The prompt is sent as two system messages, the first with `cache: true`. The AI tab shows them joined.
 
 **Reply.** Exactly three fenced blocks: `json` manifest, `ts` module, `json` `{ title, summary, changes, journal }`. A reply that doesn't parse, or fails any stage, gets the repair message with the stage and the report. Up to 3 repairs per step. After that the attempt is dropped and logged. On Load, append a journal entry `{ title, summary, changes, journal, systemId, wish, step, timestamp }` and refresh "What changed".
 
@@ -495,7 +500,7 @@ wish.replace(/[^\p{L}\p{N} .,'!?-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 
 
 A wish runs the planner, then the designer for each step in order. Each step builds a fresh designer prompt, so it sees the systems earlier steps loaded. If a step is dropped after its repairs, the chain stops; earlier steps stay loaded and the remaining steps are logged, not retried. Zero steps logs "nothing to build" and shows the player nothing. One wish at a time; a second is refused with a status message. The player never sees the plan, only "The world feels different".
 
-Planner and designer each have their own provider, so they use different models: Muse Spark (`muse-spark-1.3`) for the planner and Muse Wonder (`muse-wonder-1.0`) for the designer, set in `AI_MODELS` (section 15). The chain gets a `SwitchProvider` per role, which sends each message through whichever provider the AI tab picked when the wish started: `ManualProvider` (copy and paste) or `MuseProvider`. `MuseProvider` posts Chat Completions messages to the dev server's `/__ai/chat` (`devserver/ai.ts`), which adds `MUSE_API_KEY` from `.env.local` and forwards them to the Meta Muse API; the key never reaches the browser. The two system messages go first and unchanged, so the API's automatic prompt cache reuses them, followed by a fixed user turn that carries the map images. A reply cut off at its output cap, or any API error, rejects the send; the chain then ends with status "error", logs the error, and earlier steps stay loaded. Every sent message and reply is appended to `data/ai-log.jsonl` with role, chars and an estimated token count (chars ÷ 4); in API mode a note with the real token usage follows each reply. For reviewing test rounds, `data/ai-usage.jsonl` gets one line per API request (role, step, attempt, model, input, cached input and output tokens, time, failed or not), and `data/ai-wishes.jsonl` gets one line per wish when it ends (status, steps planned and loaded, designer failures before each system loaded and at which stage, and token totals for the wish). `npm run ai-report` summarizes both.
+Planner and designer each have their own provider, so they use different models: Muse Spark (`muse-spark-1.3`) for the planner and Muse Wonder (`muse-wonder-1.0`) for the designer, set in `AI_MODELS` (section 15). Each is a `MuseProvider` (there is no copy-and-paste mode: the designer's lookup loop can't be run by hand, so wishes always use the API). `MuseProvider` posts Responses API input items to the dev server's `/__ai/chat` (`devserver/ai.ts`), which adds `MUSE_API_KEY` from `.env.local` and forwards them to the Meta Muse API's `/v1/responses`; the key never reaches the browser. Calls are stateless (`store: false`): the API returns the model's reasoning encrypted, and each reply's output items are replayed unchanged in the next request, so the planner's re-ask and the designer's repairs keep the reasoning of the earlier attempts. The two system messages go first and unchanged, as developer items, so the API's automatic prompt cache reuses them, followed by a fixed user turn that carries the map images. A reply cut off at its output cap, or any API error, rejects the send; the chain then ends with status "error", logs the error, and earlier steps stay loaded. Every sent message and reply is appended to `data/ai-log.jsonl` with role, chars and an estimated token count (chars ÷ 4); a note with the real token usage follows each reply. For reviewing test rounds, `data/ai-usage.jsonl` gets one line per API request (role, step, attempt, model, input, cached input, output and reasoning tokens, time, failed or not), and `data/ai-wishes.jsonl` gets one line per wish when it ends (status, steps planned and loaded, designer failures before each system loaded and at which stage, and token totals for the wish). `npm run ai-report` summarizes both.
 
 ### 13.6 Dev panel
 
@@ -503,7 +508,7 @@ Backtick toggles it. It swallows game input while open and sits to the right of 
 
 - **Sprites tab:** every catalog sprite at 4x on a grass tile with its outline, playing its first anim (the old `renderSpritesTab`).
 - **Pipeline tab:** one button per fixture, a row of 6 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
-- **AI tab:** a "Player wish" box and Start. Then the planner's message (read-only, Copy), its reply box and Submit; then for each step the designer's message (Copy, Download maps), reply box and Submit, with an attempt row of stage boxes and a token estimate. A "What changed" on/off setting, and "Send messages: Dev panel (copy and paste) / API", stored in the browser and fixed for each wish when it starts. In API mode the boxes still show what was sent, the reply box fills in by itself and is read-only, Submit is hidden, the real token usage shows next to the estimate, and the map images go with each designer message. The API option is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. The plan shows here only.
+- **AI tab:** a "Player wish" box and Start, and a "What changed" on/off setting. Start is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. Then the planner's message and its reply; then for each step and attempt the designer's message, its lookup rounds (each call with a short summary of its result, and the round's token usage), its reply and a row of stage boxes. Everything is read-only, and the real token usage shows next to each message's size. The in-game wish box takes the same path. The plan shows here only.
 
 ---
 

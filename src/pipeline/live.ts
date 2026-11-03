@@ -10,7 +10,7 @@
 // nothing loads and the report fails at "World check" (the designer gets a repair message). Undo restores the latest load's snapshot, takes that system out and removes it from
 // storage.
 import type { Host } from "../engine/host";
-import { aiSystem, prepareModuleAsync, type AiSystemDef } from "../sandbox/module";
+import { aiSystem, moduleMemories, prepareModuleAsync, resetMemoryPeak, type AiSystemDef } from "../sandbox/module";
 import { rerunWorldCheck } from "./worldcheck";
 import { TUNING } from "../tuning";
 import type { LiveSide } from "./client";
@@ -133,7 +133,10 @@ export class LiveLoader implements LiveSide {
     try {
       const loadedDefs: AiSystemDef[] = [];
       for (const m of this.checkInputs().loaded) loadedDefs.push(aiSystem(await prepareModuleAsync(m.wasm, m.manifest)));
+      resetMemoryPeak();
       const errors = rerunWorldCheck(world, loadedDefs, candidate, log, new Map(this.host.successors));
+      const m = moduleMemories();
+      log.push(`module memories at Load: at most ${m.peak} held at once in this tab's main thread during the recheck (the live game's included), ${m.live} still held`);
       return { errors: errors.length ? [{ message: lead }, ...errors] : [], log };
     } catch (e) { return { errors: [{ message: `the World check couldn't run again on the live world: ${msgOf(e)}` }], log }; }
   }

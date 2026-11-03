@@ -32,16 +32,19 @@ export function runAiTest(def: SystemDef, name: string, deps: readonly SystemDef
   let host: Host;
   try { host = worldHost(def, deps); }
   catch (e) { return { system, name, passed: false, checks: [], events: [], denied: [], faults: [], error: `loading failed: ${e instanceof Error ? e.message : String(e)}` }; }
-  const denials = host.denials.length; const faults = host.faults.length;
-  const r = host.runTest(system, name);
-  const ownFaults = host.faults.slice(faults).filter((f) => f.system === system);
-  const denied = host.denials.slice(denials).filter((d) => d.system === system).map((d) => ({ op: d.op, code: d.code, msg: d.msg }));
-  return { system, name, ...r, passed: r.passed && !ownFaults.length, denied, faults: ownFaults };
+  try {
+    const denials = host.denials.length; const faults = host.faults.length;
+    const r = host.runTest(system, name);
+    const ownFaults = host.faults.slice(faults).filter((f) => f.system === system);
+    const denied = host.denials.slice(denials).filter((d) => d.system === system).map((d) => ({ op: d.op, code: d.code, msg: d.msg }));
+    return { system, name, ...r, passed: r.passed && !ownFaults.length, denied, faults: ownFaults };
+  } finally { host.dispose(); }
 }
 
 /** Every test_* export of `def`, each on its own fresh world. */
 export function runAiTests(def: SystemDef, deps: readonly SystemDef[] = []): AiTestResult[] {
   const host = worldHost(def, deps);
-  const sys = host.systems.get(idOf(def))!;
-  return testNames(sys.module).map((name) => runAiTest(def, name, deps));
+  const names = testNames(host.systems.get(idOf(def))!.module);
+  host.dispose();
+  return names.map((name) => runAiTest(def, name, deps));
 }

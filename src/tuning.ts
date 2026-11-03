@@ -127,10 +127,19 @@ export const LIMITS = {
   WISH_MAX_CHARS: 100,
   // Example ids per tag in the catalog tag index the planner and designer see.
   TAG_INDEX_EXAMPLES: 5,
-  // Longest per-step catalog (the entries for the step's tags) in the designer prompt. Entries past it are left out.
-  STEP_CATALOG_MAX_CHARS: 60000,
   // Most tags or entry ids the planner may pick for one step. Extra picks dropped with a warning.
   STEP_MAX_TAGS: 8,
+  // Tool rounds (replies that call tools) per designer step, across its repairs. Past it, tool calls
+  // get "write the system now" instead of a result; LOOKUP_GRACE_ROUNDS later the attempt fails.
+  LOOKUP_ROUNDS_PER_STEP: 6,
+  LOOKUP_GRACE_ROUNDS: 2,
+  // Longest single tool result. Longer results are cut with a note to narrow the search.
+  TOOL_RESULT_MAX_CHARS: 12000,
+  // catalog_search: entry groups per page by default, and the most one call may ask for.
+  CATALOG_SEARCH_LIMIT: 25,
+  CATALOG_SEARCH_MAX: 60,
+  // catalog_get: most ids per call.
+  CATALOG_GET_MAX_IDS: 20,
   // Most area maps sent to the designer (current area first, then the newest). The rest are left out.
   MAP_IMAGE_MAX_AREAS: 4,
   // Share of a limit used in one call that gets logged.

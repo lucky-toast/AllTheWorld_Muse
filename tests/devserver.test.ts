@@ -83,8 +83,13 @@ describe("dev server storage guards (13.2)", () => {
 describe("dev server Muse API proxy (13.5)", () => {
   const KEY = "sk-test-SECRET-1234567890";
   const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
-  const good = { role: "designer", model: "muse-wonder-1.0", max_tokens: 32000, reasoning_effort: "high", messages: [{ role: "system", content: "s" }, { role: "user", content: "u" }] };
-  const completion = { choices: [{ message: { role: "assistant", content: "the reply" }, finish_reason: "stop" }], usage: { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, prompt_tokens_details: { cached_tokens: 1000 } } };
+  const good = { role: "designer", model: "muse-wonder-1.0", max_tokens: 32000, reasoning_effort: "high", input: [{ role: "developer", content: "s" }, { role: "user", content: "u" }] };
+  const output = [
+    { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "ENCRYPTED" },
+    { type: "message", id: "msg_1", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: "the " }, { type: "output_text", text: "reply" }] },
+  ];
+  const usage = { input_tokens: 1200, output_tokens: 300, total_tokens: 1500, input_tokens_details: { cached_tokens: 1000 }, output_tokens_details: { reasoning_tokens: 250 } };
+  const completion = { id: "resp_1", status: "completed", output, usage };
   function fake(answers: { status: number; body: unknown; headers?: Record<string, string> }[]) {
     const calls: { url: string; init: RequestInit }[] = [];
     const f = (async (url: string, init: RequestInit) => {
@@ -108,23 +113,68 @@ describe("dev server Muse API proxy (13.5)", () => {
     expect((r.body as { error: string }).error).toBe("MUSE_API_KEY isn't set; add it to .env.local and restart npm run dev");
     expect(calls).toHaveLength(0);
   });
-  test("400 on a bad role, an empty model or empty messages", async () => {
+  test("400 on a bad role, an empty model, or empty or malformed input", async () => {
     const { f, calls } = fake([]);
-    for (const b of [{ ...good, role: "player" }, { ...good, model: "" }, { ...good, messages: [] }, { ...good, messages: "hi" }, { ...good, max_tokens: 0 }]) {
+    const bad = [
+      { ...good, role: "player" }, { ...good, model: "" }, { ...good, input: [] }, { ...good, input: "hi" }, { ...good, max_tokens: 0 },
+      { ...good, input: [{ foo: 1 }] }, { ...good, input: ["text"] }, { ...good, input: [{ role: "tool", content: "x" }] }, { ...good, input: [{ role: "user", content: 3 }] },
+    ];
+    for (const b of bad) {
       expect((await handleAiRequest("POST", "/chat", enc(b), deps(f))).status).toBe(400);
     }
     expect((await handleAiRequest("POST", "/chat", new TextEncoder().encode("{nope"), deps(f))).status).toBe(400);
     expect(calls).toHaveLength(0);
   });
-  test("forwards to chat/completions with the Bearer header and returns { text, finishReason, usage }", async () => {
+  test("forwards to /responses, stateless with encrypted reasoning, and returns { text, finishReason, output, usage }", async () => {
     const { f, calls } = fake([{ status: 200, body: completion }]);
     const r = await handleAiRequest("POST", "/chat", enc(good), deps(f));
-    expect(r).toEqual({ status: 200, body: { text: "the reply", finishReason: "stop", usage: { input: 1200, cachedInput: 1000, output: 300 } } });
-    expect(calls[0].url).toBe("https://api.example.test/v1/chat/completions");
+    expect(r).toEqual({ status: 200, body: { text: "the reply", finishReason: "stop", output, usage: { input: 1200, cachedInput: 1000, output: 300, reasoning: 250 } } });
+    expect(calls[0].url).toBe("https://api.example.test/v1/responses");
     expect((calls[0].init.headers as Record<string, string>).authorization).toBe(`Bearer ${KEY}`);
     const sent = JSON.parse(String(calls[0].init.body));
-    expect(sent).toMatchObject({ model: "muse-wonder-1.0", max_completion_tokens: 32000, reasoning_effort: "high", messages: good.messages, stream: false });
-    expect(sent.role).toBeUndefined();
+    expect(sent).toEqual({
+      model: "muse-wonder-1.0", input: good.input, max_output_tokens: 32000, reasoning: { effort: "high" },
+      store: false, include: ["reasoning.encrypted_content"], prompt_cache_key: "atw-designer", stream: false,
+    });
+  });
+  test("tools are forwarded when given, and must be a list of tool objects", async () => {
+    const tools = [{ type: "function", name: "catalog_tags", description: "d", parameters: { type: "object", properties: {} } }];
+    const { f, calls } = fake([{ status: 200, body: completion }, { status: 200, body: completion }]);
+    expect((await handleAiRequest("POST", "/chat", enc({ ...good, tools }), deps(f))).status).toBe(200);
+    expect(JSON.parse(String(calls[0].init.body)).tools).toEqual(tools);
+    expect((await handleAiRequest("POST", "/chat", enc(good), deps(f))).status).toBe(200);
+    expect(JSON.parse(String(calls[1].init.body)).tools).toBeUndefined();
+    for (const bad of ["x", [1], [{ name: "no type" }]]) expect((await handleAiRequest("POST", "/chat", enc({ ...good, tools: bad }), deps(f))).status).toBe(400);
+    expect(calls).toHaveLength(2);
+  });
+  test("no reasoning field without an effort; replayed output items are accepted as input", async () => {
+    const { f, calls } = fake([{ status: 200, body: completion }]);
+    const { reasoning_effort: _e, ...noEffort } = good;
+    const replay = { ...noEffort, input: [...good.input, ...output, { role: "user", content: "fix it" }] };
+    expect((await handleAiRequest("POST", "/chat", enc(replay), deps(f))).status).toBe(200);
+    const sent = JSON.parse(String(calls[0].init.body));
+    expect(sent.reasoning).toBeUndefined();
+    expect(sent.input).toEqual(replay.input);
+  });
+  test("commentary messages (narration before a tool call) are left out of the text but kept in output", async () => {
+    const withCommentary = [
+      { type: "reasoning", id: "rs_2", summary: [], encrypted_content: "E2" },
+      { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "checking now." }] },
+      { type: "function_call", call_id: "call_1", name: "catalog_search", arguments: "{}" },
+    ];
+    const { f } = fake([{ status: 200, body: { ...completion, output: withCommentary } }]);
+    const r = await handleAiRequest("POST", "/chat", enc(good), deps(f));
+    expect(r).toMatchObject({ status: 200, body: { text: "", output: withCommentary } });
+  });
+  test("an incomplete response reads as length or content_filter; a failed one is a 502", async () => {
+    const cut = { ...completion, status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
+    const filtered = { ...completion, status: "incomplete", incomplete_details: { reason: "content_filter" } };
+    const failed = { ...completion, status: "failed", output: [], error: { code: "server_error", message: "something broke" } };
+    const { f } = fake([{ status: 200, body: cut }, { status: 200, body: filtered }, { status: 200, body: failed }, { status: 200, body: { status: "completed" } }]);
+    expect(await handleAiRequest("POST", "/chat", enc(good), deps(f))).toMatchObject({ status: 200, body: { finishReason: "length", text: "the reply" } });
+    expect(await handleAiRequest("POST", "/chat", enc(good), deps(f))).toMatchObject({ status: 200, body: { finishReason: "content_filter" } });
+    expect(await handleAiRequest("POST", "/chat", enc(good), deps(f))).toEqual({ status: 502, body: { error: "the Muse API's response failed: something broke", status: 502 } });
+    expect(await handleAiRequest("POST", "/chat", enc(good), deps(f))).toEqual({ status: 502, body: { error: "the Muse API's answer has no output", status: 502 } });
   });
   test("retries a 429 once, honouring retry-after, then succeeds", async () => {
     const { f, calls } = fake([{ status: 429, body: { error: { message: "slow down" } }, headers: { "retry-after": "2" } }, { status: 200, body: completion }]);
