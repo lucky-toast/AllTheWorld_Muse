@@ -101,3 +101,7 @@ Every wish writes stats to two files in `data/` (`src/ai/stats.ts`). Start fresh
 - `ai-wishes.jsonl`: one line per wish when it ends. It has the status, how many steps the planner gave, and for each step how many designer attempts failed before its system loaded, and at which stage. It also has the token totals for the planner, the designer and the whole wish, from the wish going in to its last system loading.
 
 `npm run ai-report` prints a summary of every wish, then totals: average designer failures before a load, failures by stage, tokens per role and per model, and the cache hit rate. `-- --last 5` shows only the last 5 wishes, and `-- --requests` lists every request under its wish. In the AI tab, the AI log also shows a `wish total:` line when a wish ends. Wishes logged before the copy-and-paste mode was removed show as `[manual]`, with no token counts.
+
+## Credits
+
+Art and sprites: [Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack) by Pixel-boy, released under CC0. The pack and its license are in `public/assets/`.
