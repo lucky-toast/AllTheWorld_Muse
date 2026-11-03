@@ -18,12 +18,11 @@
 //   export function onTween(id: i32, value: f64): void
 //   export function migrate(): void
 //   export function test_<name>(): void
-//   export function shot_<name>(): void
 // Globals don't survive a reload: keep lasting state in components, tags or stateSet.
 //
 // Every call into your module has a fuel budget: 50,000,000 units for onTick (it runs every frame),
 // 200,000,000 for the other handlers (perform, onEvent, onTimer, onInput, onTween), 500,000,000 for
-// migrate, a test or a shot (a handler that runs during a test keeps its own budget). Running out
+// migrate or a test (a handler that runs during a test keeps its own budget). Running out
 // undoes everything the call did. Helpers are the expensive part: each one costs roughly 50,000 to
 // 200,000 units (info and query are among the dearest), so onTick has room for about three hundred.
 // A read asked again in the same call (typeOf then posOf of one entity, say) is remembered and costs
@@ -474,7 +473,7 @@ export function overlay(panel: Obj): bool { return done(op("ui.overlay").raw("pa
 /** Hide the overlay panel. */
 export function overlayClear(): bool { return done(op("ui.overlay").nul("panel")); }
 
-// ---- tests and shots only ----
+// ---- tests only ----
 // sim.* plays through the same paths as real keys, and each call runs enough ticks to finish.
 
 /** Hold a direction key until the player tried `steps` steps (moved or blocked). */

@@ -10,7 +10,6 @@ const good = {
   entities: { axe: { sprite: "axe", tags: ["item"] } }, components: { chopTicks: "number: ticks a chop takes, on the axe" },
   interactions: [{ verb: "chop", label: "Chop", target: "log_fallen", held: "axe" }], reactions: [],
   emits: { "chop.chopped": { pos: "pos", log: "entity" } },
-  shots: [{ name: "mid_chop", ticks: 30, focus: { x: 12, y: 8 }, time: "day" }],
 };
 
 describe("manifest", () => {
@@ -22,7 +21,8 @@ describe("manifest", () => {
     expect(Object.isFrozen(r.manifest.interactions[0])).toBe(true);
     expect(Object.isFrozen(r.manifest.emits["chop.chopped"])).toBe(true);
     const min = validateManifest({ id: "tiny", why: "Small." });
-    expect(min).toMatchObject({ ok: true, manifest: { buildsOn: [], replaces: [], entities: {}, interactions: [], reactions: [], emits: {}, shots: [] } });
+    expect(min).toMatchObject({ ok: true, manifest: { buildsOn: [], replaces: [], entities: {}, interactions: [], reactions: [], emits: {} } });
+    expect("shots" in (min.ok ? min.manifest : {})).toBe(false);
   });
   test.each([
     [{ ...good, id: "Chop" }, /id must match/],
@@ -33,7 +33,6 @@ describe("manifest", () => {
     [{ ...good, emits: { "chop.x": { a: "float" } } }, /isn't one of/],
     [{ ...good, interactions: [{ verb: "chop", label: "Chop", target: "@@" }] }, /target/],
     [{ ...good, interactions: [{ verb: "chop", label: "Chop", target: "held", held: "" }] }, /held/],
-    [{ ...good, shots: [{ name: "x", ticks: 1, focus: { x: 1 } }] }, /focus/],
     [{ ...good, colour: "red" }, /unknown field/],
   ])("rejects %#", (m, msg) => {
     const r = validateManifest(m);

@@ -285,12 +285,3 @@ export function test_the_player_cant_walk_through_a_lit_fire(): void {
   const p = playerPos();
   check(p != null && p.x == 15 && p.y == 11, "the lit fire blocks the player");
 }
-
-// ---------------- shots ----------------
-
-export function shot_lit_at_night(): void { buildFire(); }
-
-export function shot_ash_ring(): void {
-  buildFire();
-  simWait(<i32>getNum(firstFire(), "burnTicks") + DIE_TICKS + 30);
-}

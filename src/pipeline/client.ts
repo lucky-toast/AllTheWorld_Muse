@@ -1,7 +1,7 @@
 // The pipeline client (spec 12): checkSystem, loadChecked and submitSystem.
 //
 // checkSystem sends the candidate, the loaded AI modules and the serialized live world to a
-// fresh worker, which runs stages 1 to 6 on its own engine copies. A watchdog arms a timer at
+// fresh worker, which runs stages 1 to 5 on its own engine copies. A watchdog arms a timer at
 // every stage start (compileMs for Compile, stageMs for the rest) and terminates the worker
 // when one runs over, so even code that never yields can't hold up the game. loadChecked runs
 // Load (spec 13.1) only for a passed report this client issued, and refuses it if the set of
@@ -27,8 +27,6 @@ export interface LiveSide {
 export interface PipelineOptions {
   createWorker(): WorkerLike;
   live: LiveSide;
-  /** Where the worker fetches sprite sheets for shots. */
-  baseUrl?: string;
   onStage?(e: StageEvent): void;
   /** Stage time limits in ms (tests shorten them). */
   limits?: { compileMs: number; stageMs: number; testMs?: number; testsStageMs?: number };
@@ -85,7 +83,7 @@ export class Pipeline {
     return { compileMs: LIMITS.compileMs, stageMs: LIMITS.stageMs, testMs: LIMITS.testMs, testsStageMs: LIMITS.testsStageMs, ...this.opts.limits };
   }
 
-  /** Stages 1 to 6 in a worker. Never touches the live game. */
+  /** Stages 1 to 5 in a worker. Never touches the live game. */
   checkSystem(manifestJson: string, source: string): Promise<Report> {
     const { loaded, loadedIds, world, successors } = this.opts.live.checkInputs();
     const t0 = Date.now();
@@ -107,7 +105,7 @@ export class Pipeline {
       const failHere = (message: string, test?: string) => {
         const ms = Date.now() - stageT; stageMs[stage] = ms;
         this.opts.onStage?.({ stage, status: "fail", ms });
-        finish({ ok: false, stage, systemId: idFrom(manifestJson), errors: [{ message, ...(test ? { test } : {}) }], shots: [], durationMs: Date.now() - t0, log: [], stageMs });
+        finish({ ok: false, stage, systemId: idFrom(manifestJson), errors: [{ message, ...(test ? { test } : {}) }], durationMs: Date.now() - t0, log: [], stageMs });
       };
       const lim = this.limits;
       const arm = () => {
@@ -132,7 +130,7 @@ export class Pipeline {
         else if (m.type === "error") failHere(`the pipeline worker failed: ${m.message}`);
       });
       arm(); // also covers the worker starting up
-      worker.postMessage({ type: "check", req: { manifestJson, source, loaded, loadedIds, world, successors }, baseUrl: this.opts.baseUrl ?? "" });
+      worker.postMessage({ type: "check", req: { manifestJson, source, loaded, loadedIds, world, successors } });
     });
   }
 
@@ -182,7 +180,7 @@ export class Pipeline {
 let configured: Pipeline | null = null;
 export function configurePipeline(p: Pipeline) { configured = p; }
 function need(): Pipeline { if (!configured) throw new Error("the pipeline isn't configured"); return configured; }
-/** Stages 1 to 6 on a candidate system, in a worker. Resolves with its Report. */
+/** Stages 1 to 5 on a candidate system, in a worker. Resolves with its Report. */
 export function checkSystem(manifestJson: string, source: string): Promise<Report> { return need().checkSystem(manifestJson, source); }
 /** Load a passed Report into the live game (spec 13.1). */
 export function loadChecked(report: Report): Promise<Report> { return need().loadChecked(report); }

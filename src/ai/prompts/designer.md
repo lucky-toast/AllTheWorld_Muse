@@ -84,8 +84,7 @@ Your system goes through these stages in order. It stops at the first failure, a
 3. **Module.** The compiled module must export what the manifest needs: `perform` if you have interactions, `onEvent` if you have reactions.
 4. **Tests.** Your own tests run first, each on a fresh copy of the real map from a fixed seed, so they must pass every time. Write them with the `sim.*` steps (walk, face, interact, cycle, give, teleport, wait) and `check`. Cover what the player will do, including the cases where your action should do nothing. Then every existing system's tests run with yours loaded, and must still pass.
 5. **World check.** Your system is loaded into a copy of the current world, `migrate` runs (one-time setup on the existing world), then several hundred ticks. Any trap or exhausted budget fails. Afterwards the player must still be able to walk, pick up and drop, every footprint must sit on walkable tiles, the world must save and load, and your module must work when re-created mid-run from saved state.
-6. **Shots.** Your `shots` are rendered for the game's log. You won't see them, and a render failure doesn't block.
-7. **Load.** Your system goes live in the game. A snapshot is taken first, so it can be undone.
+6. **Load.** Your system goes live in the game. A snapshot is taken first, so it can be undone.
 
 You get up to 3 repairs.
 
@@ -99,7 +98,7 @@ Note: Do not use sound files. They exist in the catalog but are not supported.
 
 Reply with exactly three fenced blocks, in this order, and nothing outside them:
 
-1. A fenced `json` block with the manifest: `id`, `why` (one line), `buildsOn`, `replaces` (usually empty), `entities`, `components`, `interactions`, `reactions`, `emits`, `shots`.
+1. A fenced `json` block with the manifest: `id`, `why` (one line), `buildsOn`, `replaces` (usually empty), `entities`, `components`, `interactions`, `reactions`, `emits`.
 2. A fenced `ts` block with the whole AssemblyScript module.
 3. A fenced `json` block with `{ "title": "...", "summary": "...", "changes": ["...", "..."], "journal": "..." }`. Title and summary are for the player ("what changed"), changes is a short list of what is different in the world, and journal is your design note about why, in your own words.
 

@@ -23,8 +23,8 @@ export interface SystemModule {
   migrate?(): void;
   /** The world this module ran in is done: let go of what it holds (an AI module's instance and memory). Never called again after. */
   dispose?(): void;
-  /** `test_<name>` and `shot_<name>` exports. */
-  [exportName: `test_${string}` | `shot_${string}`]: (() => void) | undefined;
+  /** `test_<name>` exports. */
+  [exportName: `test_${string}`]: (() => void) | undefined;
 }
 
 /** A loadable system: its manifest plus a factory that creates a fresh module on every load. */

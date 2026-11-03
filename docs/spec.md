@@ -54,7 +54,7 @@ Toast owns the wording of all three. Don't reword them. If a slot or instruction
 | `src/ai/changed.ts` ("What changed" panel) | Reuse |
 | The README's "Decisions the kickoff didn't specify" | Keep those behaviours (footprints extend upward from `pos`, day count goes up at dawn, phase hours, fractional scale below 1x, font fallback) |
 
-Dropped, and must not come back: `SystemDef` with `on` handlers, `contract.claims`, `contract.hooks`, the `handled` flag, `input.*` events, the `busy` tag, the `use` system and `entity.used`, `new Function` and `eval`, the TypeScript transpile of AI code, the static denylist, the replay check, the visual check (screenshots sent to the model), the director (`director.ts`, `director.md`, `mapimage.ts`, `DirectorEntry`), and `data/systems/<id>.ts` storage.
+Dropped, and must not come back: `SystemDef` with `on` handlers, `contract.claims`, `contract.hooks`, the `handled` flag, `input.*` events, the `busy` tag, the `use` system and `entity.used`, `new Function` and `eval`, the TypeScript transpile of AI code, the static denylist, the replay check, the visual check (screenshots sent to the model), shots (the `shots` manifest field, `shot_<name>` exports and the Shots stage; a stored system that still has them loads and they are ignored), the director (`director.ts`, `director.md`, `mapimage.ts`, `DirectorEntry`), and `data/systems/<id>.ts` storage.
 
 ---
 
@@ -171,7 +171,7 @@ Putting something in the player's hands outside tests is ordinary writes: `lift`
 ### 4.3 Checks on every request, in order
 
 1. **Shape:** known `op`, right field types, integer tiles inside the map, strings and JSON within size caps.
-2. **Phase:** `sim.*` and `check` only while running tests or shots; `state.set` only for the caller's own state; `state.getReplaced` only during `migrate` of a system that lists that id in `replaces`.
+2. **Phase:** `sim.*` and `check` only while running tests; `state.set` only for the caller's own state; `state.getReplaced` only during `migrate` of a system that lists that id in `replaces`.
 3. **Blocked actions:**
 
 | Action | Blocked |
@@ -225,8 +225,7 @@ JSON, read once at load and frozen.
     { "verb": "chop", "label": "Chop", "target": "log_fallen", "held": "axe" }
   ],
   "reactions": [],
-  "emits": { "chop.chopped": { "pos": "pos", "log": "entity" } },
-  "shots": [ { "name": "mid_chop", "ticks": 30, "focus": { "x": 12, "y": 8 }, "time": "day" } ]
+  "emits": { "chop.chopped": { "pos": "pos", "log": "entity" } }
 }
 ```
 
@@ -241,7 +240,6 @@ JSON, read once at load and frozen.
 | `interactions` | Actions it adds to E (section 6) |
 | `reactions` | Event names it responds to through `onEvent` |
 | `emits` | Events it owns, each with a payload shape. Names start with `<id>.`, or belong to a system it replaces |
-| `shots` | Screenshot setups: `name`, `ticks`, `focus` (with optional `area`), optional `time`. Each needs an export `shot_<name>` |
 
 Payload shapes use `number`, `string`, `bool`, `entity`, `pos`, `list`, `object`. Entity fields may be `null`.
 
@@ -259,7 +257,6 @@ All optional except as the manifest requires. These are the user-facing signatur
 | `onTween(id: i32, value: f64): void` | Each tick of a running tween |
 | `migrate(): void` | Once, when the system loads into a world (one-time setup; must be safe to run again) |
 | `test_<name>(): void` | One test each. Runs on a fresh copy of the real map from the fixed seed. Passes when every `check` passed and at least one ran |
-| `shot_<name>(): void` | Setup for the shot of that name |
 
 The module is re-created on every load, so globals don't survive. Lasting state lives in components, tags or `state.set`.
 
@@ -374,7 +371,7 @@ Runs on every load, including from storage and from the IndexedDB cache:
 
 1. `WebAssembly.validate` the bytes.
 2. Imports must be exactly `host.call` and `env.memory`.
-3. Exports must have the expected names and kinds and cover the manifest: every interaction needs `perform`, every reaction needs `onEvent`, every shot needs its `shot_<name>`.
+3. Exports must have the expected names and kinds and cover the manifest: every interaction needs `perform`, every reaction needs `onEvent`.
 4. Rewrite the binary to add fuel metering: append a mutable i64 fuel global, and at every function entry and loop header subtract a deterministic static cost and trap at zero. Don't add or reorder functions, so indices stay valid. Reject any opcode the rewriter doesn't understand. The host sets fuel before each call and reads it after.
 5. Instantiate with a fresh capped `WebAssembly.Memory` and a `host.call` bound to this system id.
 
@@ -414,10 +411,9 @@ Everything before Load runs in a Web Worker with its own engine copy and the cur
 | 3 | Module | The loader in 10.3 accepts it |
 | 4 | Tests | The system's own `test_*` exports, each on a fresh real map from the fixed seed, under the test fuel limit. Then every existing system's tests (base ones in their arena) with it loaded |
 | 5 | World check | Load into a copy of the current world, run `migrate` and `worldCheckTicks` ticks. Any trap or exhausted budget fails. Then the player can still walk, pick up and drop (scripted with sim on that world), every placed footprint sits on walkable tiles, occupancy matches, the world serializes and deserializes, and the module can be re-created mid-run from saved state and keep ticking. Overlapping writes are logged, not failed |
-| 6 | Shots | Each shot's setup and ticks run on a fresh copy, then render with lighting to an OffscreenCanvas, cropped to about 9x7 tiles around `focus` and zoomed 3x, as PNG data URLs for the log. A render failure is logged and doesn't block. Shots are never sent to the model |
-| 7 | Load | Section 13.1 |
+| 6 | Load | Section 13.1 |
 
-**Report:** `{ ok, stage, systemId, errors, shots, durationMs }`. Each error has `message`, and where it applies `line`, `sourceLine`, `test`, `checks` (every named check with `label` and `passed`), `events` (last 100 as `{ tick, name, payload }`), `denied` (requests denied during the test), `entities` (type, pos and components of what the system spawned, plus the player, at the end). The repair message renders this as readable text.
+**Report:** `{ ok, stage, systemId, errors, durationMs }`. Each error has `message`, and where it applies `line`, `sourceLine`, `test`, `checks` (every named check with `label` and `passed`), `events` (last 100 as `{ tick, name, payload }`), `denied` (requests denied during the test), `entities` (type, pos and components of what the system spawned, plus the player, at the end). The repair message renders this as readable text.
 
 ---
 
@@ -511,7 +507,7 @@ Planner and designer each have their own provider, so they use different models:
 Backtick toggles it. It swallows game input while open and sits to the right of the map.
 
 - **Sprites tab:** every catalog sprite at 4x on a grass tile with its outline, playing its first anim (the old `renderSpritesTab`).
-- **Pipeline tab:** one button per fixture, a row of 7 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report with shots, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
+- **Pipeline tab:** one button per fixture, a row of 6 stage boxes (grey, amber while running, green, red; time on each; a red box shows its errors on click), the report, loaded systems, skipped systems, the denial, near-limit, strike and overlap log, Undo, and Start fresh.
 - **AI tab:** a "Player wish" box and Start, and a "What changed" on/off setting. Start is disabled, with a hint to set `MUSE_API_KEY` in `.env.local`, when the dev server has no key. Then the planner's message and its reply; then for each step and attempt the designer's message, its lookup rounds (each call with a short summary of its result, and the round's token usage), its reply and a row of stage boxes. Everything is read-only, and the real token usage shows next to each message's size. The in-game wish box takes the same path. The plan shows here only.
 
 ---
@@ -520,7 +516,7 @@ Backtick toggles it. It swallows game input while open and sits to the right of 
 
 Each fixture is a folder with `manifest.json` and `module.ts` (AssemblyScript). They are never loaded at startup; they go through `submitSystem` as text, as AI output would. `npm test` runs every fixture through the pipeline and checks its expected outcome.
 
-**campfire** (good). Reacts to `item.dropped`. When a third `branch` lies on adjacent tiles, the branches become a 2x2 `firepit` (solid) whose footprint covers the middle branch's tile, placed where all 4 tiles are free, with an `fx_fire` flame on the same tile at a higher z (8x12 flame centered on the pit, bottom edge 18 px below the pit's top edge), playing ignite then looping burn. Warm flickering `light`. Emits `campfire.lit`. Burns for part of a night (a component, not a constant), then the flame plays die, the light fades, the pit becomes `firepit_ash` (not solid), and it emits `campfire.out`. Tests: three branches make a fire, two don't, the fire has a light, it burns out to ash, the player can't walk through a lit fire. Shots: just lit at night, and the ash ring. Shot setups build the fire with sim like a player would.
+**campfire** (good). Reacts to `item.dropped`. When a third `branch` lies on adjacent tiles, the branches become a 2x2 `firepit` (solid) whose footprint covers the middle branch's tile, placed where all 4 tiles are free, with an `fx_fire` flame on the same tile at a higher z (8x12 flame centered on the pit, bottom edge 18 px below the pit's top edge), playing ignite then looping burn. Warm flickering `light`. Emits `campfire.lit`. Burns for part of a night (a component, not a constant), then the flame plays die, the light fades, the pit becomes `firepit_ash` (not solid), and it emits `campfire.out`. Tests: three branches make a fire, two don't, the fire has a light, it burns out to ash, the player can't walk through a lit fire.
 
 **chop** (good). Declares an `axe` item type; `migrate` places one axe beside the `stump_big` if there is none. Interaction "Chop" on `log_fallen` while holding `axe`. `perform` takes freeze focus, plays a short chop with `fx_wood` particles and a timer callback; `onTimer` checks the log still exists, destroys it, spawns two `branch` items on free tiles nearby, emits `chop.chopped`, and releases focus. Tests: chopping turns a log into branches, without the axe "Chop" isn't offered (Pick up is the default), Escape during the chop leaves the log intact and focus released, and with an axe in hand facing a log the default is Chop with Drop on Q (Pick up isn't offered because the hands are full).
 
@@ -548,7 +544,7 @@ Keep every old feel value. Add:
 | Name | Value | When hit |
 | --- | --- | --- |
 | Fuel per live call (`perform`, `onEvent`, `onTick`, `onTimer`, `onInput`, `onTween`, including nested emits) | 50M units | Trap, rollback, strike |
-| Fuel per `migrate`, test or shot | 500M units | Check fails |
+| Fuel per `migrate` or test | 500M units | Check fails |
 | Memory per module | 16 MB | Allocation fails, trap, rollback, strike |
 | Host calls per invocation | 100,000 | Denied |
 | Request and response size | 64 KB each | `bad_request` |

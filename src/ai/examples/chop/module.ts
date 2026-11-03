@@ -148,11 +148,3 @@ export function test_with_the_axe_chop_is_default_and_drop_is_on_q(): void {
   check(lastVerb() == "chop", "two presses of Q wrap back to Chop: Pick up isn't offered");
   check(has(log, "chopping"), "the chop started");
 }
-
-// ---------------- shots ----------------
-
-export function shot_mid_chop(): void {
-  simGive("axe");
-  faceLog();
-  simInteract();
-}

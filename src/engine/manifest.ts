@@ -12,8 +12,6 @@ export type PayloadShape = Record<string, PayloadType>;
 
 /** One interaction a manifest adds to E (spec 6). */
 export interface Interaction { verb: string; label: string; target: string; held?: string }
-/** One screenshot setup (spec 5.1). */
-export interface Shot { name: string; ticks: number; focus: { x: number; y: number; area?: string }; time?: string }
 
 /** A system manifest (spec 5.1). */
 export interface Manifest {
@@ -26,7 +24,6 @@ export interface Manifest {
   interactions: Interaction[];
   reactions: string[];
   emits: Record<string, PayloadShape>;
-  shots: Shot[];
 }
 
 /** Event-name prefixes owned by the engine and the base systems (spec 8). No AI system may use them as its id. */
@@ -34,8 +31,9 @@ export const RESERVED_PREFIXES = ["player", "item", "entity", "interaction", "ti
 const NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const EVENT_RE = /^[a-z][a-z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 const TAG_RE = /^[a-z][a-z0-9_-]{0,39}$/;
-const TIMES = new Set(["dawn", "day", "dusk", "night"]);
-const FIELDS = ["id", "why", "buildsOn", "replaces", "entities", "components", "interactions", "reactions", "emits", "shots"];
+const FIELDS = ["id", "why", "buildsOn", "replaces", "entities", "components", "interactions", "reactions", "emits"];
+/** Fields systems built before shots were removed may still carry. Accepted and dropped. */
+const LEGACY_FIELDS = ["shots"];
 
 export type ManifestResult = { ok: true; manifest: Manifest } | { ok: false; errors: string[] };
 
@@ -57,7 +55,7 @@ export function validateManifest(raw: unknown, opts: { base?: boolean; inherited
   const errors: string[] = [];
   const err = (m: string) => { errors.push(m); };
   if (!isObj(raw)) return { ok: false, errors: ["the manifest must be a JSON object"] };
-  for (const k of Object.keys(raw)) if (!FIELDS.includes(k)) err(`unknown field "${k}"`);
+  for (const k of Object.keys(raw)) if (!FIELDS.includes(k) && !LEGACY_FIELDS.includes(k)) err(`unknown field "${k}"`);
   const m = raw as Record<string, unknown>;
   const id = m.id;
   if (typeof id !== "string" || !SYSTEM_ID_RE.test(id)) err(`id must match ${SYSTEM_ID_RE}`);
@@ -109,16 +107,6 @@ export function validateManifest(raw: unknown, opts: { base?: boolean; inherited
       for (const [f, t] of Object.entries(shape)) if (!(PAYLOAD_TYPES as readonly string[]).includes(t as string)) err(`emits.${name}.${f}: "${String(t)}" isn't one of ${PAYLOAD_TYPES.join(", ")}`);
     }
   }
-  if (m.shots !== undefined) {
-    if (!Array.isArray(m.shots)) err("shots must be a list");
-    else m.shots.forEach((s, i) => {
-      if (!isObj(s) || typeof s.name !== "string" || !NAME_RE.test(s.name)) { err(`shots[${i}].name must be lowercase letters, digits and _`); return; }
-      if (typeof s.ticks !== "number" || !Number.isInteger(s.ticks) || s.ticks < 0) err(`shots[${i}].ticks must be a whole number`);
-      const f = s.focus;
-      if (!isObj(f) || !Number.isInteger(f.x) || !Number.isInteger(f.y) || (f.area !== undefined && typeof f.area !== "string")) err(`shots[${i}].focus must be { x, y, area? }`);
-      if (s.time !== undefined && !TIMES.has(s.time as string)) err(`shots[${i}].time must be dawn, day, dusk or night`);
-    });
-  }
   if (errors.length) return { ok: false, errors };
   const manifest: Manifest = {
     id: id as string, why: m.why as string,
@@ -128,7 +116,6 @@ export function validateManifest(raw: unknown, opts: { base?: boolean; inherited
     interactions: structuredClone((m.interactions as Interaction[]) ?? []),
     reactions: [...((m.reactions as string[]) ?? [])],
     emits: structuredClone((m.emits as Manifest["emits"]) ?? {}),
-    shots: structuredClone((m.shots as Shot[]) ?? []),
   };
   return { ok: true, manifest: deepFreeze(manifest) };
 }

@@ -1,17 +1,14 @@
-// The AI test and shot runners (spec 5.2, 12 stages 4 and 6). Each test_* export runs on
+// The AI test runners (spec 5.2, 12 stage 4). Each test_* export runs on
 // a fresh copy of the real map from the fixed seed, with the base systems, the systems it
 // depends on and the system itself loaded; the export itself runs under the test fuel
-// limit (the adapter gives test_*, shot_* and migrate 500M units). A test passes when every
+// limit (the adapter gives test_* and migrate 500M units). A test passes when every
 // check passed, at least one ran, nothing threw and none of the system's own handlers
-// faulted during it. Shots set up the same way, then run their ticks; rendering them is
-// the pipeline's job.
+// faulted during it.
 import { buildWorld } from "../world/map";
 import { Host, type FaultEntry } from "../engine/host";
 import { BASE_SYSTEMS } from "../systems/base";
 import { testNames, type SystemDef } from "../engine/systems";
 import type { TestResult } from "../engine/testrun";
-import type { Shot } from "../engine/manifest";
-import type { Phase } from "../tuning";
 
 export interface AiTestResult extends TestResult {
   /** Handler calls of this system that trapped or threw during the test (each was rolled back). */
@@ -50,33 +47,4 @@ export function runAiTests(def: SystemDef, deps: readonly SystemDef[] = []): AiT
   const names = testNames(host.systems.get(idOf(def))!.module);
   host.dispose();
   return names.map((name) => runAiTest(def, name, deps));
-}
-
-/** A shot's world, set up and run. The caller releases `host` (Host.dispose) once it has rendered it. */
-export interface ShotRun { name: string; shot: Shot; host: Host; error: string | null; faults: FaultEntry[] }
-
-/** Set up shot `name` on a fresh world: jump the clock to its time, run shot_<name>, then its ticks. */
-export function runShot(def: SystemDef, name: string, deps: readonly SystemDef[] = [], successors?: Map<string, string>): ShotRun {
-  const host = worldHost(def, deps, successors);
-  const system = idOf(def);
-  const sys = host.systems.get(system)!;
-  const shot = sys.manifest.shots.find((s) => s.name === name);
-  if (!shot) return { name, shot: { name, ticks: 0, focus: { x: 0, y: 0 } }, host, error: `"${system}" has no shot "${name}"`, faults: [] };
-  const faults = host.faults.length;
-  if (shot.time) host.eng.jumpClock(shot.time as Phase);
-  const mode = host.mode; host.mode = "shot";
-  let error: string | null = null;
-  try {
-    const fn = sys.module[`shot_${name}`];
-    if (!fn) throw new Error(`"${system}" has no shot_${name}`);
-    fn.call(sys.module);
-    for (let i = 0; i < shot.ticks; i++) host.tick();
-  } catch (e) { error = e instanceof Error ? e.message : String(e); }
-  finally { host.mode = mode; }
-  return { name, shot, host, error, faults: host.faults.slice(faults).filter((f) => f.system === system) };
-}
-
-/** Every shot in the manifest of `def`. */
-export function runShots(def: SystemDef, deps: readonly SystemDef[] = []): ShotRun[] {
-  return ((def.manifest as { shots?: Shot[] }).shots ?? []).map((s) => runShot(def, s.name, deps));
 }

@@ -62,7 +62,3 @@ export function test_the_cat_leaves_when_the_fire_goes_out(): void {
   check(query("ash").length == 1, "the fire burned out");
   check(query("fireside_cat").length == 0, "the cat left");
 }
-
-// ---------------- shots ----------------
-
-export function shot_cat_by_the_fire(): void { buildFire(); }

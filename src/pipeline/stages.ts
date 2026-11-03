@@ -1,4 +1,4 @@
-// Pipeline stages 1 to 6 (spec 12). Pure: no DOM, no storage, no live game. The worker
+// Pipeline stages 1 to 5 (spec 12). Pure: no DOM, no storage, no live game. The worker
 // runs this with its own engine copies; Node tests run the very same code in-process.
 //
 //   1 Manifest     schema, then the checks that need the loaded systems
@@ -10,18 +10,16 @@
 //   5 World check  load into a copy of the live world, migrate, worldCheckTicks ticks, then
 //                  walk / pick up / drop with sim, invariants, save round trip, and the
 //                  modules re-created from the saved world keep ticking
-//   6 Shots        each shot's setup and ticks on a fresh copy, rendered by a hook
 // Stage 5 lives in worldcheck.ts, so Load can run it again on the live world.
 import { buildArena, buildWorld } from "../world/map";
 import { Engine } from "../engine/engine";
 import type { Host } from "../engine/host";
 import { BASE_SYSTEMS } from "../systems/base";
-import { validateManifest, checkManifestContext, type Manifest, type Shot } from "../engine/manifest";
+import { validateManifest, checkManifestContext, type Manifest } from "../engine/manifest";
 import { testNames, type SystemDef } from "../engine/systems";
 import { relatedSystems } from "./related";
 import { compileSystem, formatCompileError, MODULE_FILE } from "../sandbox/compile";
 import { aiSystem, moduleMemories, prepareModule, resetMemoryPeak, ModuleError, type AiSystemDef } from "../sandbox/module";
-import { runShot } from "../sandbox/runners";
 import { entitiesOf, hostWith, worldCheck, worldCopy, type Entry } from "./worldcheck";
 import { LIMITS } from "../tuning";
 import type { CheckRequest, PipelineError, Report, Stage, StageEvent } from "./types";
@@ -30,17 +28,15 @@ export interface CheckHooks {
   onStage?(e: StageEvent): void;
   /** A test ("<system>.test_<name>") is about to run, world build included. */
   onTest?(name: string): void;
-  /** Render a shot's world to a PNG data URL, or null when this environment can't render. */
-  renderShot?(host: Host, shot: Shot): Promise<string | null>;
 }
 
 const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const idOf = (def: SystemDef) => (def.manifest as { id: string }).id;
 
-/** Run stages 1 to 6 on a candidate system. Never touches anything outside the engine copies it makes. */
+/** Run stages 1 to 5 on a candidate system. Never touches anything outside the engine copies it makes. */
 export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promise<Report> {
   const t0 = Date.now();
-  const report: Report = { ok: false, stage: "Manifest", systemId: null, errors: [], shots: [], durationMs: 0, log: [], stageMs: {} };
+  const report: Report = { ok: false, stage: "Manifest", systemId: null, errors: [], durationMs: 0, log: [], stageMs: {} };
   let stageStart = 0;
   const begin = (s: Stage) => { report.stage = s; stageStart = Date.now(); hooks.onStage?.({ stage: s, status: "start" }); };
   const end = (status: "pass" | "fail") => {
@@ -162,24 +158,6 @@ export async function runCheck(req: CheckRequest, hooks: CheckHooks = {}): Promi
   begin("World check");
   const wc = worldCheck(liveCopy, [...BASE_SYSTEMS, ...loadedDefs], candidate, report.log, successors);
   if (wc.length) return fail(wc);
-  pass();
-
-  // ======================= 6. Shots =======================
-  await breathe();
-  begin("Shots");
-  const shotErrors: PipelineError[] = [];
-  for (const shot of manifest.shots) {
-    const run = runShot(candidate, shot.name, kept, after);
-    if (run.error || run.faults.length) run.host.dispose();
-    if (run.error) { shotErrors.push({ message: `shot "${shot.name}": its setup failed: ${run.error}` }); continue; }
-    if (run.faults.length) { shotErrors.push({ message: `shot "${shot.name}": ${run.faults.map((f) => f.msg).join("; ")}` }); continue; }
-    let png: string | null = null;
-    try { png = hooks.renderShot ? await hooks.renderShot(run.host, shot) : null; if (!png) report.log.push(`shot "${shot.name}" wasn't rendered here (no OffscreenCanvas)`); }
-    catch (e) { report.log.push(`shot "${shot.name}" failed to render: ${msgOf(e)}`); }
-    finally { run.host.dispose(); }
-    report.shots.push({ name: shot.name, png });
-  }
-  if (shotErrors.length) return fail(shotErrors);
   pass();
 
   report.ok = true;

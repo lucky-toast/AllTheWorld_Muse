@@ -9,6 +9,5 @@
     { "verb": "chop", "label": "Chop", "target": "log_fallen", "held": "axe" }
   ],
   "reactions": [],
-  "emits": { "chop.chopped": { "pos": "pos", "log": "entity" } },
-  "shots": [ { "name": "mid_chop", "ticks": 20, "focus": { "x": 12, "y": 8 }, "time": "day" } ]
+  "emits": { "chop.chopped": { "pos": "pos", "log": "entity" } }
 }

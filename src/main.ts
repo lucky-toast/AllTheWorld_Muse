@@ -50,7 +50,7 @@ const live = new LiveLoader(host, store, {
 });
 // While a wish step is checked, its stage events also go to that attempt's row in the AI tab.
 let aiStages: ((e: StageEvent) => void) | null = null;
-const pipeline = new Pipeline({ createWorker: browserWorker, live, baseUrl: location.origin, onStage: (e) => { tab?.onStage(e); aiStages?.(e); } });
+const pipeline = new Pipeline({ createWorker: browserWorker, live, onStage: (e) => { tab?.onStage(e); aiStages?.(e); } });
 configurePipeline(pipeline);
 pipeline.warm();
 tab = new PipelineTab(pipeline, live, () => void startFresh());

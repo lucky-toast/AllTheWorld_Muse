@@ -5,13 +5,13 @@
 //   1. WebAssembly.validate the bytes.
 //   2. Imports must be exactly host.call (i32, i32) -> i32 and env.memory.
 //   3. Exports must have the expected names, kinds and signatures and cover the manifest:
-//      every interaction needs perform, every reaction onEvent, every shot shot_<name>.
+//      every interaction needs perform, every reaction onEvent.
 //   4. Meter the binary (meter.ts). A stored binary that was tampered with is metered too.
 //   5. Instantiate with a fresh capped WebAssembly.Memory and a host.call bound to the system.
 //
 // Fuel: before each call into a module the host sets the module's fuel global, and reads
-// it back after. A call opens a fuel account (50M units live, 500M for migrate, tests and
-// shots); calls nested inside the same transaction (an emit reaching another AI system)
+// it back after. A call opens a fuel account (50M units live, 500M for migrate and tests);
+// calls nested inside the same transaction (an emit reaching another AI system)
 // draw from the caller's account. A trap (fuel, memory, abort, anything) throws out of the
 // handler, so the host rolls the whole transaction back and records a strike; the
 // module's instance is then thrown away and re-created on its next call, because the
@@ -55,14 +55,13 @@ export class ModuleError extends Error {
 }
 
 /** What the loader needs from a manifest. */
-interface ManifestShape { id: string; interactions: unknown[]; reactions: unknown[]; shots: { name: string }[] }
+interface ManifestShape { id: string; interactions: unknown[]; reactions: unknown[] }
 function shapeOf(manifest: unknown): ManifestShape {
   const m = (manifest ?? {}) as Record<string, unknown>;
   const list = (v: unknown) => (Array.isArray(v) ? v : []);
   return {
     id: typeof m.id === "string" ? m.id : "?",
     interactions: list(m.interactions), reactions: list(m.reactions),
-    shots: list(m.shots).filter((s): s is { name: string } => !!s && typeof (s as { name?: unknown }).name === "string"),
   };
 }
 
@@ -98,8 +97,9 @@ export function checkModule(bytes: Uint8Array<ArrayBuffer>, manifest: unknown): 
   // ---- exports: known names, function kind, right signatures ----
   const exported = new Map<string, FuncType>();
   for (const e of info.exports) {
+    // shot_* exports come from systems built before shots were removed: accepted and never called.
     const known = HANDLERS[e.name] ?? GLUE[e.name] ?? OPTIONAL_EXPORTS[e.name] ?? (/^(test|shot)_[A-Za-z0-9_]+$/.test(e.name) ? NO_ARGS : null);
-    if (!known) { errors.push(`unexpected export "${e.name}"; a module exports only the handlers in the SDK reference, test_* and shot_*`); continue; }
+    if (!known) { errors.push(`unexpected export "${e.name}"; a module exports only the handlers in the SDK reference and test_*`); continue; }
     if (e.kind !== "func") { errors.push(`export "${e.name}" must be a function`); continue; }
     const t = info.types[info.funcTypes[e.index]];
     if (!t) { errors.push(`export "${e.name}" names a missing function`); continue; }
@@ -111,7 +111,6 @@ export function checkModule(bytes: Uint8Array<ArrayBuffer>, manifest: unknown): 
   // ---- the exports cover the manifest ----
   if (m.interactions.length && !exported.has("perform")) errors.push(`the manifest lists ${m.interactions.length} interaction(s) but the module exports no perform`);
   if (m.reactions.length && !exported.has("onEvent")) errors.push(`the manifest lists reactions but the module exports no onEvent`);
-  for (const s of m.shots) if (!exported.has(`shot_${s.name}`)) errors.push(`the manifest lists the shot "${s.name}" but the module exports no shot_${s.name}`);
   return errors.length ? { ok: false, errors } : { ok: true, info };
 }
 
@@ -167,7 +166,7 @@ interface Account { remaining: bigint; limit: bigint; txn: number; host: Host; /
 interface Frame { runner: Runner; acc: Account; /** Set when this runner's instance trapped under the frame: the error it stops with. */ poison?: unknown }
 /** Module calls in progress, innermost last (shared by every host in this thread). */
 const frames: Frame[] = [];
-const CHECK_KINDS = new Set(["migrate", "test", "shot"]);
+const CHECK_KINDS = new Set(["migrate", "test"]);
 
 /** Fuel used per call, for the near-limit log and the determinism test. */
 export interface FuelStats {
@@ -383,7 +382,6 @@ export function aiSystem(prep: PreparedModule): AiSystemDef {
       if (has.has("migrate")) mod.migrate = () => r.run("migrate", "migrate", (ex) => ex.migrate());
       for (const name of prep.exports) {
         if (name.startsWith("test_")) mod[name as `test_${string}`] = () => r.run(name, "test", (ex) => ex[name]());
-        else if (name.startsWith("shot_")) mod[name as `shot_${string}`] = () => r.run(name, "shot", (ex) => ex[name]());
       }
       mod.dispose = () => r.dispose();
       return mod;
