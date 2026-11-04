@@ -2,6 +2,16 @@
 <html lang="en">
 <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>All the World</title><link rel="stylesheet" href="/src/style.css" /></head>
 <body>
+  <div id="loading" style="position: fixed; inset: 0; z-index: 99999; display: grid; place-items: center; background: #101408; color: #e8e4c8; font-family: monospace;">
+    <div style="width: min(280px, 80vw); text-align: center;">
+      <div style="font-size: 22px; margin-bottom: 18px;">Loading..</div>
+      <div id="loading-status" style="font-size: 13px; color: #b8bd9d; margin-bottom: 12px;">Initializing...</div>
+      <div style="height: 5px; background: #303626; border-radius: 5px; overflow: hidden;">
+        <div id="loading-progress" style="height: 100%; width: 0%; background: #a6b875; transition: width 200ms ease;"></div>
+      </div>
+      <div id="loading-step" style=" font-size: 11px; color: #858d70; margin-top: 8px;">0 / 7</div>
+    </div>
+  </div>
   <div id="wrap"><canvas id="game" width="480" height="348"></canvas></div>
   <div id="changed" hidden></div>
   <div id="devpanel" hidden>
