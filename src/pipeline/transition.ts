@@ -1,16 +1,20 @@
-// The ~2 s leaf transition of a live load (spec 13.1): fx_leaf pieces swirl across a soft
-// fade while ticks and input are paused. Ported from the old LiveLoader.drawTransition.
+// The leaf transition of a live load (spec 13.1): fx_leaf pieces swirl across a soft fade while
+// ticks and input are paused. It fades in, holds covered (leaves still moving) for as long as the
+// load takes, and fades out only once the load says it is done (`outStart`). Ported from the old
+// LiveLoader.drawTransition.
 import { drawSprite, NATIVE_W, MAP_PX_H } from "../engine/render";
 import { TUNING } from "../tuning";
 
-/** Draw the transition over the paused world. `start` is when it began (ms), 0 for none. */
-export function drawTransition(ctx: CanvasRenderingContext2D, start: number, now: number) {
+/**
+ * Draw the transition over the paused world. `start` is when it began (ms), 0 for none;
+ * `outStart` is when the fade back began (ms), 0 while the load is still running.
+ */
+export function drawTransition(ctx: CanvasRenderingContext2D, start: number, outStart: number, now: number) {
   if (!start) return;
-  const total = TUNING.transitionInMs + TUNING.transitionOutMs;
-  const t = Math.min(1, (now - start) / total);
-  const inEnd = TUNING.transitionInMs / total;
   // Fade up to covered, hold while the load runs, then fade back.
-  const fade = t < inEnd ? t / inEnd : Math.max(0, 1 - (t - inEnd) / (1 - inEnd));
+  const fade = outStart
+    ? Math.max(0, 1 - (now - outStart) / TUNING.transitionOutMs)
+    : Math.min(1, (now - start) / TUNING.transitionInMs);
   ctx.save();
   ctx.fillStyle = `rgba(24,32,16,${(fade * TUNING.transitionFade).toFixed(3)})`;
   ctx.fillRect(0, 0, NATIVE_W, MAP_PX_H);

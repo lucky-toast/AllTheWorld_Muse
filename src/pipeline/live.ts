@@ -50,6 +50,8 @@ export class LiveLoader implements LiveSide {
   busy = false;
   /** When the leaf transition started (ms), or 0. */
   transitionStart = 0;
+  /** When the leaf transition began fading back (ms), or 0 while it still covers the screen. */
+  transitionOutStart = 0;
   /** Set by Start fresh so nothing is saved again before the reload. */
   frozen = false;
   private wait: (ms: number) => Promise<void>;
@@ -90,6 +92,7 @@ export class LiveLoader implements LiveSide {
       const recheck = await this.recheck(snapshot, def);
       if (recheck.errors.length) {
         eng.restore(snapshot); host.interactions.refresh(true);
+        this.transitionOutStart = this.now();
         await this.wait(TUNING.transitionOutMs);
         return { ...report, ok: false, stage: "World check", errors: recheck.errors, log: [...report.log, ...recheck.log] };
       }
@@ -120,11 +123,12 @@ export class LiveLoader implements LiveSide {
       this.history.push({ id, snapshot, retired });
       host.interactions.refresh(true);
       this.opts.onChange?.();
+      this.transitionOutStart = this.now();
       await this.wait(TUNING.transitionOutMs);
       eng.banner = { text: TUNING.loadBanner, t: TUNING.bannerTicks };
       return { ...report, ok: true, stage: "Load", errors: [] };
     } finally {
-      this.busy = false; this.transitionStart = 0;
+      this.busy = false; this.transitionStart = 0; this.transitionOutStart = 0;
     }
   }
 
