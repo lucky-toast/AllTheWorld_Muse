@@ -219,7 +219,7 @@ function frame(now: number) {
   ctx.save(); ctx.translate(0, TOP_H);
   render(ctx, eng);
   wishBox.draw(ctx, now, !!chain?.running);
-  drawTransition(ctx, live.transitionStart, now);
+  drawTransition(ctx, live.transitionStart, live.transitionOutStart, now);
   ctx.restore();
   const newest = journal.entries[journal.entries.length - 1];
   drawTopBar(ctx, { area: eng.currentArea(), last: newest?.title ?? null, thinking: topThinking(), notice }, now);
