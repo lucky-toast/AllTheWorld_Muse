@@ -1,4 +1,5 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #101408; }
+#loading[hidden] { display: none !important; }
 #wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
 canvas#game { image-rendering: pixelated; display: block; }
 /* The wish box's input: it holds the focus and the text, and the canvas draws it (src/engine/wishbox.ts). */

@@ -22,6 +22,29 @@ import { AiLog, Journal } from "./ai/journal";
 import { ChangedPanel } from "./ai/changed";
 import type { StageEvent } from "./pipeline/types";
 
+const loading = document.getElementById("loading") as HTMLDivElement;
+const loadingStatus = document.getElementById("loading-status") as HTMLDivElement;
+const loadingProgress = document.getElementById("loading-progress") as HTMLDivElement;
+const loadingStep = document.getElementById("loading-step") as HTMLDivElement;
+
+const TOTAL_STEPS = 7;
+let currentStep = 0;
+
+async function setLoadingStatus(message: string) {
+  currentStep++;
+
+  loadingStatus.textContent = message;
+  loadingProgress.style.width =
+    `${(currentStep / TOTAL_STEPS) * 100}%`;
+  loadingStep.textContent = `${currentStep} / ${TOTAL_STEPS}`;
+
+  await new Promise<void>(resolve =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => resolve())
+    )
+  );
+}
+
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 // The canvas is the top bar (topbar.ts) above the game frame (map and bottom HUD).
 const CANVAS_H = TOP_H + NATIVE_H;
@@ -36,15 +59,18 @@ const host = new Host(eng);
 loadBaseSystems(host);
 const devPanel = new DevPanel(panelEl);
 const loop = new FixedLoop();
+await setLoadingStatus("Preparing storage...");
 // Storage, the live loader and the pipeline (spec 12, 13). Set up before the first frame.
 const store = await detectStore();
 let tab: PipelineTab | null = null;
+await setLoadingStatus("Loading journal...");
 // The journal feeds "What changed"; the AI log is data/ai-log.jsonl (spec 13.3, 13.5).
 const journal = new Journal(store);
 await journal.load();
 const aiLog = new AiLog(store);
 const changed = new ChangedPanel(document.getElementById("changed") as HTMLDivElement);
 changed.setEntries(journal.entries);
+await setLoadingStatus("Preparing worker...");
 // The World check again at Load runs in its own worker, so the leaf keeps moving (recheck.ts).
 const recheck = workerRecheck();
 recheck.warm();
@@ -55,6 +81,7 @@ const live = new LiveLoader(host, store, {
 });
 // While a wish step is checked, its stage events also go to that attempt's row in the AI tab.
 let aiStages: ((e: StageEvent) => void) | null = null;
+await setLoadingStatus("Preparing pipeline...");
 const pipeline = new Pipeline({ createWorker: browserWorker, live, onStage: (e) => { tab?.onStage(e); aiStages?.(e); } });
 configurePipeline(pipeline);
 pipeline.warm();
@@ -154,6 +181,7 @@ attachKeyboard(host.controls, {
   onWish() { wishBox.open(); },
 }, () => panelOpen || live.busy || wishBox.isOpen);
 
+await setLoadingStatus("Restoring saved systems...");
 // Startup: every stored AI system through the Module stage again, then the saved world.
 await live.startup((m, src) => pipeline.compile(m, src));
 // Autosave every few seconds and when the page goes away.
@@ -198,10 +226,14 @@ function frame(now: number) {
   devPanel.draw(eng.tickCount);
   requestAnimationFrame(frame);
 }
+
+await setLoadingStatus("Loading world assets...");
 // Only the sheets the restored world draws load before the first frame; any other sheet loads the
 // first time something draws it.
 void loadSheets(sheetsInUse(eng)).then(() => {
+  setLoadingStatus("Starting game...");
   last = performance.now(); requestAnimationFrame(frame);
+  loading.hidden = true;
   // URL aid: ?submit=<fixture> sends a fixture through the pipeline once (dropped from the URL so a refresh doesn't resend it).
   const submit = params.get("submit");
   if (submit) {
