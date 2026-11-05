@@ -4,6 +4,8 @@ A small 2D top-down browser game that grows while it is played. The player types
 
 Vite, TypeScript, plain Canvas 2D (no game framework), Vitest. The design is [docs/spec.md](docs/spec.md); the prompts are [src/ai/prompts/designer.md](src/ai/prompts/designer.md) and [src/ai/prompts/planner.md](src/ai/prompts/planner.md), and the pillars are [src/ai/pillars.md](src/ai/pillars.md).
 
+Meta Global AI Hackathon 2026 Project
+
 ## How to run
 
 ```sh
